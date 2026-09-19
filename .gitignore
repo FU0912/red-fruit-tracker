@@ -1,0 +1,16 @@
+.DS_Store
+
+DerivedData/
+build/
+RedFruitTracker.xcodeproj/
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+
+TestResults.xcresult/
+artifacts/
+
+.env
+*.p12
+*.mobileprovision
+*.cer

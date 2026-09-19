@@ -1,0 +1,78 @@
+name: RedFruitTracker
+
+options:
+  bundleIdPrefix: com.f
+  deploymentTarget:
+    iOS: "17.0"
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+
+targets:
+  RedFruitTracker:
+    type: application
+    platform: iOS
+    sources:
+      - path: RedFruitTracker/App
+      - path: RedFruitTracker/Models
+      - path: RedFruitTracker/Features
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.f.redfruittracker
+        INFOPLIST_FILE: RedFruitTracker/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: RedFruitTracker/Resources/RedFruitTracker.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+    dependencies:
+      - target: RedFruitTrackerShareExtension
+        embed: true
+
+  RedFruitTrackerShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RedFruitTrackerShareExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.f.redfruittracker.share
+        INFOPLIST_FILE: RedFruitTrackerShareExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: RedFruitTrackerShareExtension/RedFruitTrackerShareExtension.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  RedFruitTrackerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/RedFruitTrackerTests
+    dependencies:
+      - target: RedFruitTracker
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.f.redfruittracker.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+  RedFruitTrackerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/RedFruitTrackerUITests
+    dependencies:
+      - target: RedFruitTracker
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.f.redfruittracker.uitests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  RedFruitTracker:
+    build:
+      targets:
+        RedFruitTracker: all
+        RedFruitTrackerTests: [test]
+        RedFruitTrackerUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - name: RedFruitTrackerTests
+        - name: RedFruitTrackerUITests

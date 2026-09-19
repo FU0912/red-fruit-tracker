@@ -1,0 +1,89 @@
+name: iOS CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  simulator:
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Build for iOS Simulator
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project RedFruitTracker.xcodeproj \
+            -scheme RedFruitTracker \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee xcodebuild-build.log
+
+      - name: Run unit and UI tests
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          device_id="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
+          if [ -z "$device_id" ]; then
+            echo "No available iPhone Simulator was found."
+            xcrun simctl list devices
+            exit 1
+          fi
+          echo "Using simulator: $device_id"
+          set -o pipefail
+          test_status=0
+          xcodebuild test \
+            -project RedFruitTracker.xcodeproj \
+            -scheme RedFruitTracker \
+            -destination "platform=iOS Simulator,id=$device_id" \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee xcodebuild-test.log || test_status=$?
+          xcrun simctl io "$device_id" screenshot artifacts/simulator-final.png || true
+          exit $test_status
+
+      - name: Export test attachments
+        if: always()
+        run: |
+          if [ -d TestResults.xcresult ]; then
+            mkdir -p artifacts/attachments
+            xcrun xcresulttool export attachments \
+              --path TestResults.xcresult \
+              --output-path artifacts/attachments || true
+          fi
+
+      - name: Upload build and UI artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ci-artifacts
+          if-no-files-found: warn
+          path: |
+            xcodebuild-build.log
+            xcodebuild-test.log
+            TestResults.xcresult
+            artifacts
