@@ -19,8 +19,8 @@ targets:
       - path: RedFruitTracker/Models
       - path: RedFruitTracker/Features
       - path: RedFruitTracker/Services
-    resources:
       - path: RedFruitTracker/Resources/Assets.xcassets
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.f.redfruittracker
