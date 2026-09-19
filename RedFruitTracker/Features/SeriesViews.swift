@@ -664,7 +664,7 @@ private struct EpisodeRow: View {
             Button(action: onToggleWatched) {
                 Image(systemName: episode.isWatched ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(episode.isWatched ? .tint : .tertiary)
+                    .foregroundStyle(episode.isWatched ? Color.accentColor : Color.secondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(episode.isWatched ? "标记为未看" : "标记为已看")
