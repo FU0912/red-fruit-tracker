@@ -29,9 +29,9 @@
 
 ## 当前状态
 
-- 已完成：项目初始化；确认 Windows + GitHub Actions macOS Runner 路线；确认日常 UI 使用模拟器测试和截图产物，真机只做跨 App 能力验收；完成 SwiftUI/SwiftData、Share Extension、单元测试和 UI 测试骨架；完成 CI 工作流。
-- 正在做：Windows 侧静态检查和 GitHub 远程仓库接入。
-- 下一步：完成 GitHub 登录后推送项目，取得 macOS Runner 的首次构建结果；随后接入公开分享链接解析。
+- 已完成：项目初始化；确认 Windows + GitHub Actions macOS Runner 路线；确认日常 UI 使用模拟器测试和截图产物，真机只做跨 App 能力验收；完成 SwiftUI/SwiftData、Share Extension、单元测试和 UI 测试骨架；完成 CI 工作流；首次构建修复 Bundle 元数据后，第二次 CI 已完整通过。
+- 正在做：生成可下载的 Simulator App 压缩包，并准备真实 iPhone 签名流程。
+- 下一步：下载新的 Simulator App 压缩包；如果要安装到真实 iPhone，先完成 Apple Developer 签名配置；随后接入公开分享链接解析。
 
 ## 关键决策
 

@@ -40,6 +40,7 @@ jobs:
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -configuration Debug \
+            -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             | tee xcodebuild-build.log
 
@@ -65,6 +66,16 @@ jobs:
             | tee xcodebuild-test.log || test_status=$?
           xcrun simctl io "$device_id" screenshot artifacts/simulator-final.png || true
           exit $test_status
+
+      - name: Package simulator app
+        if: always()
+        run: |
+          app_path="build/DerivedData/Build/Products/Debug-iphonesimulator/RedFruitTracker.app"
+          if [ -d "$app_path" ]; then
+            ditto -c -k --sequesterRsrc --keepParent "$app_path" artifacts/RedFruitTracker-simulator.app.zip
+          else
+            echo "Simulator app was not found at $app_path"
+          fi
 
       - name: Export test attachments
         if: always()
