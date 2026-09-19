@@ -50,6 +50,8 @@ final class LibraryModelTests: XCTestCase {
     func testTitleNormalizerRemovesRedFruitBranding() {
         XCTAssertEqual(TitleNormalizer.normalize("红果漫剧：《仙途归来》 - 红果"), "仙途归来")
         XCTAssertEqual(TitleNormalizer.normalize("《仙途归来》 | 红果短剧"), "仙途归来")
+        XCTAssertEqual(TitleNormalizer.normalize("免费看片《仙途归来》"), "仙途归来")
+        XCTAssertEqual(TitleNormalizer.normalize("女主全都坏掉免费观看《仙途归来》"), "仙途归来")
     }
 
     func testSeasonKeepsIndependentRatingAndReview() {

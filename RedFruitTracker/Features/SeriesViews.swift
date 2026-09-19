@@ -21,6 +21,7 @@ struct SeriesDetailView: View {
     @State private var isShowingAddSeason = false
     @State private var isRefreshing = false
     @State private var selectedSeasonNumber = 0
+    @State private var isIntroExpanded = false
     @State private var notice: String?
 
     private var seasons: [SeasonRecord] {
@@ -48,33 +49,51 @@ struct SeriesDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                header
-                metadataSection
-                progressSection
-                seasonsSection
+                detailHeader
+                introSection
+                episodeSection
                 personalSection
             }
-            .padding(16)
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 32)
         }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle(series.title)
+        .scrollIndicators(.hidden)
+        .background(DetailTheme.background.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Button(action: openCurrentPosition) {
+                Label(currentOpenTitle, systemImage: "play.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(DetailTheme.accent)
+            .disabled(series.sourceURL == nil && selectedEpisode == nil)
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+            .background(.ultraThinMaterial)
+        }
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(DetailTheme.background, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button(action: refreshMetadata) {
-                    if isRefreshing {
-                        ProgressView()
-                    } else {
-                        Label("更新公开资料", systemImage: "arrow.clockwise")
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("更新公开资料", systemImage: "arrow.clockwise", action: refreshMetadata)
+                        .disabled(isRefreshing || series.sourceURL == nil)
+                    Button("编辑作品", systemImage: "pencil") {
+                        isShowingEdit = true
                     }
-                }
-                .disabled(isRefreshing || series.sourceURL == nil)
-
-                Button {
-                    isShowingEdit = true
+                    Button("添加一季", systemImage: "plus") {
+                        isShowingAddSeason = true
+                    }
                 } label: {
-                    Label("编辑", systemImage: "pencil")
+                    Image(systemName: "ellipsis")
+                        .font(.title3.weight(.semibold))
+                        .frame(width: 44, height: 44)
                 }
+                .accessibilityLabel("更多操作")
             }
         }
         .sheet(isPresented: $isShowingEdit) {
@@ -100,173 +119,151 @@ struct SeriesDetailView: View {
                 selectedSeasonNumber = personalRecord?.currentSeasonNumber ?? seasons.first?.seasonNumber ?? 0
             }
         }
+        .preferredColorScheme(.dark)
     }
 
-    private var header: some View {
+    private var detailHeader: some View {
         HStack(alignment: .top, spacing: 16) {
             CoverView(urlString: series.coverURL)
-                .frame(width: 126, height: 176)
+                .frame(width: 132, height: 184)
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 Text(series.title)
                     .font(.title2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if !series.tagsText.isEmpty {
-                    Text(series.tagsText.replacingOccurrences(of: ",", with: " · "))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text(totalEpisodeCount > 0 ? "全\(totalEpisodeCount)集" : "集数待补")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.68))
 
-                Button(action: openCurrentPosition) {
-                    Label(currentOpenTitle, systemImage: "arrow.up.right.square")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(series.sourceURL == nil && selectedEpisode == nil)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    @ViewBuilder
-    private var metadataSection: some View {
-        if !series.intro.isEmpty || series.officialRating != nil || series.officialHeatText != nil {
-            VStack(alignment: .leading, spacing: 14) {
-                if series.officialRating != nil || series.officialHeatText != nil {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        if let rating = series.officialRating {
-                            MetricLabel(title: "官方评分", value: String(format: "%.1f", rating), symbol: "star.fill")
-                        }
-                        if let heat = series.officialHeatText {
-                            MetricLabel(title: "官方热度", value: heat, symbol: "flame.fill")
-                        }
+                TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                    if let rating = series.officialRating {
+                        DetailPill(text: String(format: "%.1f分", rating), systemImage: "star.fill")
+                    }
+                    if let heat = series.officialHeatText, !heat.isEmpty {
+                        DetailPill(
+                            text: heat.hasSuffix("热度") ? heat : "\(heat)热度",
+                            systemImage: "flame.fill"
+                        )
                     }
                 }
 
-                if !series.intro.isEmpty {
-                    Text(series.intro)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                if !detailTags.isEmpty {
+                    TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                        ForEach(detailTags, id: \.self) { tag in
+                            DetailTagPill(text: tag)
+                        }
+                    }
+                    .frame(maxHeight: 64, alignment: .topLeading)
+                    .clipped()
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .padding(.top, 6)
+    }
+
+    private var introSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("基本信息")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                Spacer()
+                if !series.intro.isEmpty {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isIntroExpanded.toggle()
+                        }
+                    } label: {
+                        Label(isIntroExpanded ? "收起" : "展开", systemImage: isIntroExpanded ? "chevron.up" : "chevron.down")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(DetailTheme.accent)
+                }
+            }
+
+            if series.intro.isEmpty {
+                Text("暂无公开简介")
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(0.58))
+            } else {
+                Text(series.intro)
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(0.76))
+                    .lineLimit(isIntroExpanded ? nil : 3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+                .overlay(.white.opacity(0.12))
         }
     }
 
-    private var progressSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "观看进度", symbol: "bookmark.fill")
+    private var episodeSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("选集")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                Spacer()
+                Text(totalEpisodeCount > 0 ? "已看 \(totalWatchedCount) / 共\(totalEpisodeCount)集" : "等待集数资料")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.62))
+            }
 
-            if let personalRecord {
-                if let selectedSeason {
-                    Picker(
-                        "选择季",
-                        selection: Binding(
-                            get: { selectedSeasonNumber == 0 ? selectedSeason.seasonNumber : selectedSeasonNumber },
-                            set: { value in
-                                selectedSeasonNumber = value
+            if let selectedSeason {
+                Picker(
+                    "选择季",
+                    selection: Binding(
+                        get: { selectedSeasonNumber == 0 ? selectedSeason.seasonNumber : selectedSeasonNumber },
+                        set: { value in
+                            selectedSeasonNumber = value
+                            if let personalRecord {
                                 personalRecord.currentSeasonNumber = value
                                 personalRecord.currentEpisodeNumber = nil
                                 personalRecord.localShelfState = "watching"
                                 personalRecord.updatedAt = .now
                                 try? modelContext.save()
                             }
-                        )
-                    ) {
-                        ForEach(seasons, id: \.seasonNumber) { season in
-                            Text("第\(season.seasonNumber)季").tag(season.seasonNumber)
                         }
+                    )
+                ) {
+                    ForEach(seasons, id: \.seasonNumber) { season in
+                        Text(season.title.isEmpty ? "第\(season.seasonNumber)季" : season.title)
+                            .tag(season.seasonNumber)
                     }
-                    .pickerStyle(.menu)
-
-                    EpisodeProgressGrid(series: series, season: selectedSeason)
-                } else {
-                    Text("还没有季资料。请先更新公开资料，或手动添加一季。")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Picker("状态", selection: shelfStateBinding(for: personalRecord)) {
-                    Text("未开始").tag("unstarted")
-                    Text("观看中").tag("watching")
-                    Text("已看完").tag("finished")
-                    Text("暂时搁置").tag("paused")
                 }
                 .pickerStyle(.menu)
-            }
-        }
-        .padding(16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
+                .tint(.white)
 
-    private var seasonsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                SectionTitle(title: "分季", symbol: "square.stack.3d.up.fill")
-                Spacer()
-                Button {
-                    isShowingAddSeason = true
-                } label: {
-                    Label("添加季", systemImage: "plus")
-                        .font(.subheadline.weight(.semibold))
-                }
-            }
-
-            if seasons.isEmpty {
-                Text("还没有季记录。可以先添加第 1 季，再补充集数。")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                EpisodeProgressGrid(series: series, season: selectedSeason)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(seasons, id: \.sourceSeasonKey) { season in
-                        NavigationLink {
-                            SeasonDetailView(series: series, season: season)
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "book.closed")
-                                    .foregroundStyle(.tint)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(season.title.isEmpty ? "第\(season.seasonNumber)季" : season.title)
-                                        .font(.headline)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                    Text(episodeSummary(for: season))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    if let rating = season.myRating {
-                                        Text("我的评分 \(String(format: "%.0f", rating))/5")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                Spacer(minLength: 8)
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(.vertical, 12)
-                        }
-                        .buttonStyle(.plain)
-
-                        if season.sourceSeasonKey != seasons.last?.sourceSeasonKey {
-                            Divider()
-                        }
-                    }
-                }
+                Text("还没有季资料。请先更新公开资料，或从右上角添加一季。")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.62))
             }
         }
     }
 
     private var personalSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "整部作品的评分与点评", symbol: "star.bubble")
+            SectionTitle(title: "我的评分与点评", symbol: "star.bubble")
+                .foregroundStyle(.white)
 
             if let personalRecord {
+                Picker("书架状态", selection: shelfStateBinding(for: personalRecord)) {
+                    Text("未开始").tag("unstarted")
+                    Text("观看中").tag("watching")
+                    Text("已看完").tag("finished")
+                    Text("暂时搁置").tag("paused")
+                }
+                .pickerStyle(.menu)
+                .tint(.white)
+
                 RatingStars(rating: ratingBinding(for: personalRecord))
                 ReviewEditor(text: reviewBinding(for: personalRecord), placeholder: "写下整部漫剧的感受")
 
@@ -278,6 +275,24 @@ struct SeriesDetailView: View {
                 .buttonStyle(.bordered)
             }
         }
+    }
+
+    private var detailTags: [String] {
+        tagValues(series.tagsText)
+    }
+
+    private var totalEpisodeCount: Int {
+        seasons.reduce(0) { total, season in
+            let actual = allEpisodes
+                .filter { $0.sourceSeriesID == series.sourceSeriesID && $0.seasonNumber == season.seasonNumber }
+                .map(\.episodeNumber)
+                .max() ?? 0
+            return total + max(season.episodeCount, actual)
+        }
+    }
+
+    private var totalWatchedCount: Int {
+        allEpisodes.filter { $0.sourceSeriesID == series.sourceSeriesID && $0.isWatched }.count
     }
 
     private var selectedEpisode: EpisodeRecord? {
@@ -307,16 +322,6 @@ struct SeriesDetailView: View {
         let record = PersonalRecord(sourceSeriesID: series.sourceSeriesID)
         modelContext.insert(record)
         try? modelContext.save()
-    }
-
-    private func episodeSummary(for season: SeasonRecord) -> String {
-        let actual = allEpisodes.filter {
-            $0.sourceSeriesID == series.sourceSeriesID
-                && $0.seasonNumber == season.seasonNumber
-        }
-        let watched = actual.filter(\.isWatched).count
-        let total = max(season.episodeCount, actual.map(\.episodeNumber).max() ?? actual.count)
-        return total == 0 ? "还没有集数资料" : "\(watched)/\(total) 集已看"
     }
 
     private func shelfStateBinding(for personal: PersonalRecord) -> Binding<String> {
@@ -452,8 +457,46 @@ struct SeriesDetailView: View {
     }
 }
 
+private enum DetailTheme {
+    static let background = Color(red: 0.09, green: 0.08, blue: 0.31)
+    static let cell = Color.white.opacity(0.10)
+    static let accent = Color(red: 0.31, green: 0.30, blue: 0.92)
+}
+
+private struct DetailPill: View {
+    let text: String
+    let systemImage: String
+
+    var body: some View {
+        Label(text, systemImage: systemImage)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.86))
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color.white.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+}
+
+private struct DetailTagPill: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(0.80))
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color.white.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+}
+
 private struct EpisodeProgressGrid: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var colorScheme
 
     let series: SeriesRecord
     let season: SeasonRecord
@@ -506,30 +549,44 @@ private struct EpisodeProgressGrid: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("第\(season.seasonNumber)季 · \(watchedCount)/\(totalEpisodeCount) 集已看")
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(primaryText)
                 Spacer()
                 if let selectedRange {
                     Text("当前 \(selectedRange.start)-\(selectedRange.end)")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(secondaryText)
                 }
             }
 
             if ranges.count > 1 {
-                Picker("集数区间", selection: $selectedRangeStart) {
-                    ForEach(ranges) { range in
-                        Text("第\(range.start)-\(range.end)集").tag(range.start)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(ranges) { range in
+                            let isSelected = selectedRange?.start == range.start
+                            Button {
+                                selectedRangeStart = range.start
+                            } label: {
+                                Text("\(range.start)-\(range.end)")
+                                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                                    .foregroundStyle(isSelected ? Color.white : secondaryText)
+                                    .frame(minWidth: 64, minHeight: 44)
+                                    .background(isSelected ? DetailTheme.accent : DetailTheme.cell)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("第\(range.start)集到第\(range.end)集")
+                        }
                     }
                 }
-                .pickerStyle(.menu)
             }
 
             if visibleNumbers.isEmpty {
                 Text("还没有可展示的集数。请先更新公开资料，或手动填写本季集数。")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(secondaryText)
             } else {
                 LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5),
+                    columns: [GridItem(.adaptive(minimum: 44, maximum: 56), spacing: 8)],
                     spacing: 8
                 ) {
                     ForEach(visibleNumbers, id: \.self) { number in
@@ -546,12 +603,13 @@ private struct EpisodeProgressGrid: View {
                                 Image(systemName: episode?.isWatched == true ? "checkmark" : "circle")
                                     .font(.caption2.weight(.bold))
                             }
-                            .frame(maxWidth: .infinity, minHeight: 52)
-                            .foregroundStyle(episode?.isWatched == true ? Color.white : Color.primary)
-                            .background(episode?.isWatched == true ? Color.accentColor : Color(uiColor: .tertiarySystemGroupedBackground))
+                            .frame(maxWidth: .infinity)
+                            .aspectRatio(1, contentMode: .fit)
+                            .foregroundStyle(episode?.isWatched == true ? Color.white : primaryText)
+                            .background(episode?.isWatched == true ? DetailTheme.accent : cellBackground)
                             .overlay {
                                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .stroke(isCurrent ? Color.accentColor : .clear, lineWidth: 2)
+                                    .stroke(isCurrent ? Color.white : .clear, lineWidth: 2)
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                         }
@@ -563,16 +621,29 @@ private struct EpisodeProgressGrid: View {
 
             Text("点击集数即可标记已看，并将它设为当前观看位置。")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(secondaryText)
         }
         .onChange(of: season.seasonNumber) { _, _ in
             selectedRangeStart = 1
         }
         .task {
-            if let currentEpisode = personalRecord?.currentEpisodeNumber {
+            if personalRecord?.currentSeasonNumber == season.seasonNumber,
+               let currentEpisode = personalRecord?.currentEpisodeNumber {
                 selectedRangeStart = ((currentEpisode - 1) / 100) * 100 + 1
             }
         }
+    }
+
+    private var primaryText: Color {
+        colorScheme == .dark ? .white : .primary
+    }
+
+    private var secondaryText: Color {
+        colorScheme == .dark ? .white.opacity(0.62) : .secondary
+    }
+
+    private var cellBackground: Color {
+        colorScheme == .dark ? DetailTheme.cell : Color(uiColor: .tertiarySystemGroupedBackground)
     }
 
     private func toggleEpisode(_ number: Int, existing: EpisodeRecord?) {
@@ -1074,6 +1145,8 @@ private struct SectionTitle: View {
 }
 
 private struct ReviewEditor: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     @Binding var text: String
     let placeholder: String
 
@@ -1081,16 +1154,20 @@ private struct ReviewEditor: View {
         ZStack(alignment: .topLeading) {
             if text.isEmpty {
                 Text(placeholder)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.42) : Color(uiColor: .secondaryLabel))
                     .padding(.top, 8)
                     .padding(.leading, 5)
             }
             TextEditor(text: $text)
                 .frame(minHeight: 100)
+                .scrollContentBackground(.hidden)
+                .foregroundStyle(colorScheme == .dark ? Color.white : Color.primary)
         }
+        .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color(uiColor: .tertiarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(.quaternary, lineWidth: 0.5)
+                .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.14) : Color(uiColor: .separator), lineWidth: 0.5)
         }
     }
 }

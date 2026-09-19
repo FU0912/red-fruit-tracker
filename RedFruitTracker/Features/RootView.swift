@@ -55,6 +55,9 @@ private struct LibraryView: View {
     @Query(sort: \SeriesRecord.updatedAt, order: .reverse)
     private var series: [SeriesRecord]
 
+    @Query(sort: \SeasonRecord.seasonNumber)
+    private var seasons: [SeasonRecord]
+
     @Query(sort: \PersonalRecord.updatedAt, order: .reverse)
     private var personalRecords: [PersonalRecord]
 
@@ -81,16 +84,14 @@ private struct LibraryView: View {
                     LibraryEmptyState(isSearching: !searchText.isEmpty, onAdd: onAdd)
                 } else {
                     ScrollView {
-                        LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: 148), spacing: 16)],
-                            spacing: 20
-                        ) {
+                        LazyVStack(spacing: 12) {
                             ForEach(visibleSeries) { item in
                                 NavigationLink {
                                     SeriesDetailView(series: item)
                                 } label: {
                                     SeriesCard(
                                         series: item,
+                                        seasons: seasons.filter { $0.sourceSeriesID == item.sourceSeriesID },
                                         personal: personalRecords.first { $0.sourceSeriesID == item.sourceSeriesID }
                                     )
                                 }
@@ -194,28 +195,82 @@ private struct ShareImportBanner: View {
 
 private struct SeriesCard: View {
     let series: SeriesRecord
+    let seasons: [SeasonRecord]
     let personal: PersonalRecord?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        HStack(alignment: .top, spacing: 12) {
             CoverView(urlString: series.coverURL)
-                .frame(maxWidth: .infinity)
-                .aspectRatio(0.72, contentMode: .fit)
+                .frame(width: 92, height: 128)
+                .accessibilityLabel("\(series.title)封面")
 
-            Text(series.title)
-                .font(.headline)
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(series.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
 
-            HStack(spacing: 5) {
-                Image(systemName: "bookmark")
-                Text(progressText)
+                TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                    CompactInfoPill(
+                        text: totalEpisodeCount > 0 ? "共\(totalEpisodeCount)集" : "集数待补",
+                        systemImage: "list.number"
+                    )
+
+                    if let rating = series.officialRating {
+                        CompactInfoPill(
+                            text: String(format: "%.1f分", rating),
+                            systemImage: "star.fill",
+                            tint: .orange
+                        )
+                    }
+
+                    if let heat = series.officialHeatText, !heat.isEmpty {
+                        CompactInfoPill(
+                            text: heat.hasSuffix("热度") ? heat : "\(heat)热度",
+                            systemImage: "flame.fill",
+                            tint: .pink
+                        )
+                    }
+                }
+
+                if !tags.isEmpty {
+                    TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                        ForEach(tags, id: \.self) { tag in
+                            TagPill(text: tag)
+                        }
+                    }
+                    .frame(maxHeight: 52, alignment: .topLeading)
+                    .clipped()
+                }
+
+                Spacer(minLength: 0)
+
+                Label(progressText, systemImage: "bookmark")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: 128, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.quaternary, lineWidth: 0.5)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var tags: [String] {
+        tagValues(series.tagsText)
+    }
+
+    private var totalEpisodeCount: Int {
+        seasons.reduce(0) { $0 + $1.episodeCount }
     }
 
     private var progressText: String {
@@ -226,6 +281,114 @@ private struct SeriesCard: View {
         }
         return "看到第\(season)季 · 第\(episode)集"
     }
+}
+
+private struct CompactInfoPill: View {
+    let text: String
+    let systemImage: String
+    var tint: Color = .secondary
+
+    var body: some View {
+        Label(text, systemImage: systemImage)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(tint)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(tint.opacity(0.1))
+            .clipShape(Capsule())
+    }
+}
+
+struct TagPill: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(.quaternary.opacity(0.65))
+            .clipShape(Capsule())
+    }
+}
+
+struct TagFlowLayout: Layout {
+    var horizontalSpacing: CGFloat = 6
+    var verticalSpacing: CGFloat = 6
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let maxWidth = proposal.width ?? 320
+        var rowWidth: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        var rowCount = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let nextWidth = rowWidth == 0 ? size.width : rowWidth + horizontalSpacing + size.width
+            if rowWidth > 0, nextWidth > maxWidth {
+                totalHeight += rowHeight
+                rowCount += 1
+                rowWidth = size.width
+                rowHeight = size.height
+            } else {
+                rowWidth = nextWidth
+                rowHeight = max(rowHeight, size.height)
+            }
+        }
+
+        if rowWidth > 0 {
+            totalHeight += rowHeight
+            rowCount += 1
+        }
+
+        return CGSize(
+            width: proposal.width ?? min(maxWidth, rowWidth),
+            height: totalHeight + CGFloat(max(0, rowCount - 1)) * verticalSpacing
+        )
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + verticalSpacing
+                rowHeight = 0
+            }
+
+            subview.place(
+                at: CGPoint(x: x, y: y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: size.width, height: size.height)
+            )
+            x += size.width + horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
+func tagValues(_ value: String) -> [String] {
+    value
+        .components(separatedBy: CharacterSet(charactersIn: ",，、|丨·/"))
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
 }
 
 struct CoverView: View {

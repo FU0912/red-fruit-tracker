@@ -14,7 +14,8 @@ enum TitleNormalizer {
 
         let prefixPatterns = [
             #"^\s*(?:分享|推荐|给你分享|我在红果(?:漫剧|短剧)?看到的?)\s*[:：\-|丨_]*\s*"#,
-            #"^\s*红果(?:漫剧|短剧|视频)?\s*[:：\-|丨_]*\s*"#
+            #"^\s*红果(?:漫剧|短剧|视频)?\s*[:：\-|丨_]*\s*"#,
+            #"^\s*(?:免费观看|免费看片|免费在线观看|免费(?:观看|看剧|看)?|在线(?:观看|看)?)\s*[:：\-|丨_]*\s*"#
         ]
         for pattern in prefixPatterns {
             value = replacing(pattern, in: value)
@@ -37,6 +38,14 @@ enum TitleNormalizer {
         }
 
         value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let bookTitle = extractBookTitle(from: value),
+           (value.localizedCaseInsensitiveContains("免费")
+                || value.localizedCaseInsensitiveContains("红果")
+                || value.localizedCaseInsensitiveContains("观看")) {
+            value = bookTitle
+        }
+
         return value.isEmpty ? nil : value
     }
 
@@ -53,5 +62,14 @@ enum TitleNormalizer {
         }
         let range = NSRange(value.startIndex..<value.endIndex, in: value)
         return regex.stringByReplacingMatches(in: value, range: range, withTemplate: "")
+    }
+
+    private static func extractBookTitle(from value: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: #"《([^《》]{1,120})》"#),
+              let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..<value.endIndex, in: value)),
+              let titleRange = Range(match.range(at: 1), in: value) else {
+            return nil
+        }
+        return String(value[titleRange]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

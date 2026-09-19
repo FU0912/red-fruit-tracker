@@ -3,7 +3,7 @@ import XCTest
 final class RedFruitTrackerUITests: XCTestCase {
     func testLibraryEmptyStateScreenshot() {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing"]
+        app.launchArguments = ["--ui-testing", "--ui-testing-empty"]
         app.launch()
 
         XCTAssertTrue(app.navigationBars["漫剧记录"].waitForExistence(timeout: 5))
@@ -19,6 +19,27 @@ final class RedFruitTrackerUITests: XCTestCase {
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = "library-empty-state"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testSeriesCardAndDetailLayoutScreenshot() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-testing-fixture"]
+        app.launch()
+
+        let title = app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        title.tap()
+
+        XCTAssertTrue(app.staticTexts["基本信息"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["选集"].exists)
+        XCTAssertTrue(app.staticTexts["全189集"].exists)
+        XCTAssertTrue(app.buttons["第1集，已看"].exists)
+
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "series-detail-layout"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
