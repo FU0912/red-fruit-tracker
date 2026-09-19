@@ -30,6 +30,13 @@ final class RedFruitTrackerUITests: XCTestCase {
 
         let title = app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 5))
+
+        let libraryScreenshot = XCUIScreen.main.screenshot()
+        let libraryAttachment = XCTAttachment(screenshot: libraryScreenshot)
+        libraryAttachment.name = "series-library-card"
+        libraryAttachment.lifetime = .keepAlways
+        add(libraryAttachment)
+
         title.tap()
 
         XCTAssertTrue(app.staticTexts["基本信息"].waitForExistence(timeout: 5))

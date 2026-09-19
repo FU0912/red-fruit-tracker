@@ -77,6 +77,7 @@ struct SeriesDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(DetailTheme.background, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -156,7 +157,7 @@ struct SeriesDetailView: View {
                             DetailTagPill(text: tag)
                         }
                     }
-                    .frame(maxHeight: 64, alignment: .topLeading)
+                    .frame(maxHeight: 96, alignment: .topLeading)
                     .clipped()
                 }
             }
