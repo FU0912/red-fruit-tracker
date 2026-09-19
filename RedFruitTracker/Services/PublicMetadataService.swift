@@ -7,6 +7,22 @@ struct PublicSeriesMetadata {
     var tagsText: String?
     var officialRating: Double?
     var officialHeatText: String?
+    var seasons: [PublicSeasonMetadata]
+}
+
+struct PublicSeasonMetadata {
+    var seasonNumber: Int
+    var title: String?
+    var episodeCount: Int
+    var sourceURL: String?
+    var episodes: [PublicEpisodeMetadata]
+}
+
+struct PublicEpisodeMetadata {
+    var sourceVid: String
+    var episodeNumber: Int
+    var title: String?
+    var webURL: String?
 }
 
 enum PublicMetadataError: LocalizedError {
@@ -48,17 +64,23 @@ actor PublicMetadataService {
         }
 
         let html = String(decoding: data, as: UTF8.self)
+        let rawTitle = HTMLMetadata.value(for: ["og:title", "twitter:title"], in: html)
+            ?? HTMLMetadata.title(in: html)
         let metadata = PublicSeriesMetadata(
-            title: HTMLMetadata.value(for: ["og:title", "twitter:title"], in: html)
-                ?? HTMLMetadata.title(in: html),
+            title: TitleNormalizer.normalize(rawTitle) ?? TitleNormalizer.fallback(from: url),
             coverURL: HTMLMetadata.value(for: ["og:image", "twitter:image"], in: html),
             intro: HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: html),
             tagsText: HTMLMetadata.value(for: ["keywords"], in: html),
-            officialRating: Double(HTMLMetadata.value(for: ["rating", "og:rating"], in: html) ?? ""),
-            officialHeatText: HTMLMetadata.value(for: ["heat", "og:heat"], in: html)
+            officialRating: HTMLMetadata.decimalValue(for: ["rating", "og:rating"], in: html),
+            officialHeatText: HTMLMetadata.value(for: ["heat", "og:heat"], in: html),
+            seasons: HTMLMetadata.seasons(in: html, baseURL: url)
         )
 
-        guard metadata.title != nil || metadata.coverURL != nil || metadata.intro != nil else {
+        guard rawTitle != nil
+            || metadata.coverURL != nil
+            || metadata.intro != nil
+            || metadata.tagsText != nil
+            || !metadata.seasons.isEmpty else {
             throw PublicMetadataError.noMetadata
         }
         return metadata
@@ -111,6 +133,147 @@ private enum HTMLMetadata {
         return value.isEmpty ? nil : value
     }
 
+    static func decimalValue(for keys: [String], in html: String) -> Double? {
+        guard let value = value(for: keys, in: html),
+              let regex = try? NSRegularExpression(pattern: #"\d+(?:\.\d+)?"#),
+              let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..<value.endIndex, in: value)),
+              let range = Range(match.range, in: value) else {
+            return nil
+        }
+        return Double(String(value[range]))
+    }
+
+    static func seasons(in html: String, baseURL: URL) -> [PublicSeasonMetadata] {
+        var seasonsByNumber: [Int: PublicSeasonMetadata] = [:]
+        var unassignedEpisodes: [(number: Int, title: String?, url: String?, sourceVid: String)] = []
+
+        guard let anchorRegex = try? NSRegularExpression(
+            pattern: #"<a\b[^>]*>.*?</a>"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) else {
+            return []
+        }
+
+        let htmlRange = NSRange(html.startIndex..<html.endIndex, in: html)
+        for match in anchorRegex.matches(in: html, range: htmlRange) {
+            guard let matchRange = Range(match.range, in: html) else { continue }
+            let anchor = String(html[matchRange])
+            guard let openingEnd = anchor.firstIndex(of: ">"),
+                  let closingStart = anchor.range(of: "</a", options: [.caseInsensitive])?.lowerBound else {
+                continue
+            }
+
+            let openingTag = String(anchor[...openingEnd])
+            let rawText = String(anchor[anchor.index(after: openingEnd)..<closingStart])
+            let text = unescape(stripTags(rawText))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let href = attribute(named: "href", in: openingTag)
+            let resolvedURL = href.flatMap { URL(string: $0, relativeTo: baseURL)?.absoluteURL }
+            let resolvedString = resolvedURL?.absoluteString
+            let seasonNumber = attribute(named: "data-season", in: openingTag).flatMap { Int($0) }
+                ?? firstSeasonNumber(in: text)
+                ?? resolvedURL.flatMap { queryInt(named: ["season", "s"], in: $0) }
+                ?? firstSeasonNumber(in: resolvedString ?? "")
+            let episodeNumber = attribute(named: "data-episode", in: openingTag).flatMap { Int($0) }
+                ?? firstEpisodeNumber(in: text)
+                ?? resolvedURL.flatMap { queryInt(named: ["episode", "ep", "e"], in: $0) }
+                ?? firstEpisodeNumber(in: resolvedString ?? "")
+
+            if let seasonNumber, (1...999).contains(seasonNumber) {
+                var season = seasonsByNumber[seasonNumber] ?? PublicSeasonMetadata(
+                    seasonNumber: seasonNumber,
+                    title: "第\(seasonNumber)季",
+                    episodeCount: 0,
+                    sourceURL: resolvedString,
+                    episodes: []
+                )
+                if season.sourceURL == nil { season.sourceURL = resolvedString }
+                if !text.isEmpty, firstEpisodeNumber(in: text) == nil {
+                    season.title = TitleNormalizer.normalize(text) ?? season.title
+                }
+                if let count = episodeCount(in: text) {
+                    season.episodeCount = max(season.episodeCount, count)
+                }
+                if let episodeNumber, (1...99999).contains(episodeNumber) {
+                    let episode = PublicEpisodeMetadata(
+                        sourceVid: resolvedString ?? "s\(seasonNumber)-e\(episodeNumber)",
+                        episodeNumber: episodeNumber,
+                        title: episodeTitle(from: text, episodeNumber: episodeNumber),
+                        webURL: resolvedString
+                    )
+                    if !season.episodes.contains(where: { $0.episodeNumber == episodeNumber }) {
+                        season.episodes.append(episode)
+                    }
+                    season.episodeCount = max(season.episodeCount, episodeNumber)
+                }
+                seasonsByNumber[seasonNumber] = season
+            } else if let episodeNumber, (1...99999).contains(episodeNumber) {
+                unassignedEpisodes.append((
+                    number: episodeNumber,
+                    title: episodeTitle(from: text, episodeNumber: episodeNumber),
+                    url: resolvedString,
+                    sourceVid: resolvedString ?? "e\(episodeNumber)"
+                ))
+            }
+        }
+
+        let globalSeasonCount = firstNumber(in: html, patterns: [
+            #"(?:共|total\s*)\s*([0-9]{1,3})\s*(?:季|seasons?)"#
+        ])
+        if seasonsByNumber.isEmpty, let globalSeasonCount, (1...99).contains(globalSeasonCount) {
+            for number in 1...globalSeasonCount {
+                seasonsByNumber[number] = PublicSeasonMetadata(
+                    seasonNumber: number,
+                    title: "第\(number)季",
+                    episodeCount: 0,
+                    sourceURL: nil,
+                    episodes: []
+                )
+            }
+        }
+
+        if seasonsByNumber.isEmpty, !unassignedEpisodes.isEmpty {
+            seasonsByNumber[1] = PublicSeasonMetadata(
+                seasonNumber: 1,
+                title: "第1季",
+                episodeCount: 0,
+                sourceURL: nil,
+                episodes: []
+            )
+        }
+
+        if seasonsByNumber.count == 1, !unassignedEpisodes.isEmpty,
+           var season = seasonsByNumber.values.first {
+            for item in unassignedEpisodes where !season.episodes.contains(where: { $0.episodeNumber == item.number }) {
+                season.episodes.append(PublicEpisodeMetadata(
+                    sourceVid: item.sourceVid,
+                    episodeNumber: item.number,
+                    title: item.title,
+                    webURL: item.url
+                ))
+            }
+            season.episodeCount = max(season.episodeCount, season.episodes.map(\.episodeNumber).max() ?? 0)
+            seasonsByNumber[season.seasonNumber] = season
+        }
+
+        if seasonsByNumber.count == 1, let seasonNumber = seasonsByNumber.keys.first,
+           let totalEpisodeCount = firstNumber(in: html, patterns: [
+               #"(?:共|total\s*)\s*([0-9]{1,5})\s*(?:集|episodes?)"#
+           ]) {
+            var season = seasonsByNumber[seasonNumber]!
+            season.episodeCount = max(season.episodeCount, totalEpisodeCount)
+            seasonsByNumber[seasonNumber] = season
+        }
+
+        return seasonsByNumber.values
+            .map { season in
+                var copy = season
+                copy.episodes.sort { $0.episodeNumber < $1.episodeNumber }
+                return copy
+            }
+            .sorted { $0.seasonNumber < $1.seasonNumber }
+    }
+
     private static func attribute(named name: String, in tag: String) -> String? {
         let pattern = "\\b\(name)\\s*=\\s*([\\\"'])(.*?)\\1"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
@@ -122,6 +285,73 @@ private enum HTMLMetadata {
             return nil
         }
         return String(tag[valueRange])
+    }
+
+    private static func stripTags(_ value: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"<[^>]+>"#) else {
+            return value
+        }
+        return regex.stringByReplacingMatches(
+            in: value,
+            range: NSRange(value.startIndex..<value.endIndex, in: value),
+            withTemplate: " "
+        )
+    }
+
+    private static func firstSeasonNumber(in value: String) -> Int? {
+        firstNumber(in: value, patterns: [
+            #"(?:第\s*)?([0-9]{1,3})\s*季"#,
+            #"\bseason\s*([0-9]{1,3})\b"#,
+            #"\bs([0-9]{1,3})\b"#
+        ])
+    }
+
+    private static func firstEpisodeNumber(in value: String) -> Int? {
+        firstNumber(in: value, patterns: [
+            #"(?:第\s*)?([0-9]{1,5})\s*集"#,
+            #"\bepisode\s*([0-9]{1,5})\b"#,
+            #"\bep\.?\s*([0-9]{1,5})\b"#
+        ])
+    }
+
+    private static func episodeCount(in value: String) -> Int? {
+        firstNumber(in: value, patterns: [
+            #"(?:共|total\s*)\s*([0-9]{1,5})\s*(?:集|episodes?)"#
+        ])
+    }
+
+    private static func firstNumber(in value: String, patterns: [String]) -> Int? {
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+                  let match = regex.firstMatch(in: value, range: range),
+                  let numberRange = Range(match.range(at: 1), in: value),
+                  let number = Int(String(value[numberRange])) else {
+                continue
+            }
+            return number
+        }
+        return nil
+    }
+
+    private static func queryInt(named names: [String], in url: URL) -> Int? {
+        guard let items = URLComponents(url: url, resolvingAgainstBaseURL: true)?.queryItems else {
+            return nil
+        }
+        for name in names {
+            if let value = items.first(where: { $0.name.lowercased() == name })?.value,
+               let number = Int(value) {
+                return number
+            }
+        }
+        return nil
+    }
+
+    private static func episodeTitle(from text: String, episodeNumber: Int) -> String? {
+        let value = text
+            .replacingOccurrences(of: "第\(episodeNumber)集", with: "", options: [.caseInsensitive])
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "-_|丨·:：")))
+        return value.isEmpty ? nil : value
     }
 
     private static func unescape(_ value: String) -> String {

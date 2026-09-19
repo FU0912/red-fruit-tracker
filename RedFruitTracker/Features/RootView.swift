@@ -106,17 +106,26 @@ private struct LibraryView: View {
             }
             .navigationTitle("漫剧记录")
             .searchable(text: $searchText, prompt: "搜索作品、标签或简介")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: onAdd) {
-                        Label("添加作品", systemImage: "plus")
-                    }
-                }
-            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let pendingShareURL {
                     ShareImportBanner(url: pendingShareURL, onTap: onAdd)
                 }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 8) {
+                HStack {
+                    Spacer()
+                    Button(action: onAdd) {
+                        Image(systemName: "plus")
+                            .font(.title3.weight(.semibold))
+                            .frame(width: 56, height: 56)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .clipShape(Circle())
+                    .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
+                    .accessibilityLabel("添加作品")
+                }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 2)
             }
         }
     }
@@ -190,6 +199,7 @@ private struct SeriesCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             CoverView(urlString: series.coverURL)
+                .frame(maxWidth: .infinity)
                 .aspectRatio(0.72, contentMode: .fit)
 
             Text(series.title)
@@ -399,8 +409,8 @@ private struct AddSeriesView: View {
     let initialURL: URL?
     let onSaved: () -> Void
 
-    @State private var title: String
     @State private var sourceURLText: String
+    @State private var detectedTitle: String
     @State private var coverURLText = ""
     @State private var tagsText = ""
     @State private var intro = ""
@@ -413,20 +423,20 @@ private struct AddSeriesView: View {
     @State private var isFetching = false
     @State private var notice: String?
     @State private var errorMessage: String?
+    @State private var detectedSeasons: [PublicSeasonMetadata] = []
+    @State private var lastFetchedURL: String?
 
     init(initialURL: URL?, onSaved: @escaping () -> Void) {
         self.initialURL = initialURL
         self.onSaved = onSaved
-        _title = State(initialValue: "")
         _sourceURLText = State(initialValue: initialURL?.absoluteString ?? "")
+        _detectedTitle = State(initialValue: initialURL.flatMap { TitleNormalizer.fallback(from: $0) } ?? "")
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("作品名称", text: $title)
-                        .textInputAutocapitalization(.never)
                     TextField("红果分享链接", text: $sourceURLText, axis: .vertical)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
@@ -442,6 +452,27 @@ private struct AddSeriesView: View {
                     }
                     .disabled(isFetching || sourceURLText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
+                    if !detectedTitle.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("自动识别的作品", systemImage: "checkmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(detectedTitle)
+                                .font(.headline)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } else {
+                        Label("粘贴链接后自动读取名称", systemImage: "sparkles")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if !detectedSeasons.isEmpty {
+                        Label("已识别 \(detectedSeasons.count) 季公开资料", systemImage: "square.stack.3d.up.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
                     if let notice {
                         Text(notice)
                             .font(.caption)
@@ -450,7 +481,7 @@ private struct AddSeriesView: View {
                 } header: {
                     Text("作品")
                 } footer: {
-                    Text("分享链接能公开读取到什么，就填入什么；读取失败时仍可手动保存。")
+                    Text("可以直接粘贴带说明文字的分享内容，应用会自动提取其中的网页链接。")
                 }
 
                 Section("展示信息") {
@@ -502,26 +533,49 @@ private struct AddSeriesView: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+            .onChange(of: sourceURLText) { _, newValue in
+                handlePastedText(newValue)
+            }
+            .task {
+                guard let initialURL else { return }
+                fetchMetadata(for: initialURL, force: true)
+            }
         }
     }
 
     private func fetchMetadata() {
-        guard let url = URL(string: sourceURLText.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+        guard let url = URLExtractor.firstURL(in: sourceURLText) else {
             errorMessage = "请输入以 http:// 或 https:// 开头的分享链接。"
             return
         }
+        fetchMetadata(for: url, force: true)
+    }
+
+    private func handlePastedText(_ value: String) {
+        guard let url = URLExtractor.firstURL(in: value) else { return }
+        let normalizedURL = url.absoluteString
+        if value != normalizedURL {
+            sourceURLText = normalizedURL
+        }
+        guard lastFetchedURL != normalizedURL else { return }
+        fetchMetadata(for: url)
+    }
+
+    private func fetchMetadata(for url: URL, force: Bool = false) {
+        let normalizedURL = url.absoluteString
+        guard force || lastFetchedURL != normalizedURL || detectedTitle.isEmpty else { return }
 
         isFetching = true
         notice = nil
+        errorMessage = nil
+        lastFetchedURL = normalizedURL
 
         Task {
             do {
                 let metadata = try await PublicMetadataService.shared.fetch(from: url)
                 await MainActor.run {
-                    if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        title = metadata.title ?? ""
-                    }
+                    guard lastFetchedURL == normalizedURL else { return }
+                    detectedTitle = metadata.title ?? TitleNormalizer.fallback(from: url) ?? ""
                     if coverURLText.isEmpty { coverURLText = metadata.coverURL ?? "" }
                     if intro.isEmpty { intro = metadata.intro ?? "" }
                     if tagsText.isEmpty { tagsText = metadata.tagsText ?? "" }
@@ -529,12 +583,20 @@ private struct AddSeriesView: View {
                         officialRatingText = String(format: "%.1f", rating)
                     }
                     if officialHeatText.isEmpty { officialHeatText = metadata.officialHeatText ?? "" }
-                    notice = "已读取公开资料，请核对后保存。"
+                    detectedSeasons = metadata.seasons
+                    includeFirstSeason = metadata.seasons.isEmpty
+                    notice = metadata.seasons.isEmpty
+                        ? "已读取公开资料，请核对后保存。"
+                        : "已读取公开资料和 \(metadata.seasons.count) 季分集信息，请核对后保存。"
                     isFetching = false
                 }
             } catch {
                 await MainActor.run {
-                    notice = "没有读到完整公开资料，可以继续手动填写。"
+                    guard lastFetchedURL == normalizedURL else { return }
+                    detectedTitle = TitleNormalizer.fallback(from: url) ?? ""
+                    detectedSeasons = []
+                    includeFirstSeason = true
+                    notice = "没有读到完整公开资料，可以保存链接后再补充。"
                     isFetching = false
                 }
             }
@@ -542,13 +604,15 @@ private struct AddSeriesView: View {
     }
 
     private func save() {
-        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanTitle.isEmpty else {
-            errorMessage = "作品名称不能为空。"
+        guard let sourceURL = URLExtractor.firstURL(in: sourceURLText) else {
+            errorMessage = "请先粘贴有效的红果分享链接。"
             return
         }
 
-        let cleanURL = sourceURLText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTitle = TitleNormalizer.normalize(detectedTitle)
+            ?? TitleNormalizer.fallback(from: sourceURL)
+            ?? "待补充作品"
+        let cleanURL = sourceURL.absoluteString
         let sourceID = cleanURL.isEmpty ? "local-\(UUID().uuidString)" : cleanURL
 
         do {
@@ -574,7 +638,7 @@ private struct AddSeriesView: View {
             personal.localShelfState = shelfState
             modelContext.insert(personal)
 
-            if includeFirstSeason {
+            if detectedSeasons.isEmpty, includeFirstSeason {
                 modelContext.insert(SeasonRecord(
                     sourceSeriesID: sourceID,
                     seasonNumber: firstSeasonNumber,
@@ -582,6 +646,30 @@ private struct AddSeriesView: View {
                     episodeCount: firstSeasonEpisodeCount,
                     sourceURL: cleanURL.nilIfBlank
                 ))
+            } else {
+                for metadataSeason in detectedSeasons {
+                    let seasonKey = "\(sourceID)#\(metadataSeason.seasonNumber)"
+                    let season = SeasonRecord(
+                        sourceSeriesID: sourceID,
+                        seasonNumber: metadataSeason.seasonNumber,
+                        title: metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季",
+                        episodeCount: max(metadataSeason.episodeCount, metadataSeason.episodes.count),
+                        sourceURL: metadataSeason.sourceURL ?? cleanURL.nilIfBlank
+                    )
+                    modelContext.insert(season)
+
+                    for metadataEpisode in metadataSeason.episodes {
+                        let sourceVid = "\(seasonKey)#\(metadataEpisode.sourceVid)"
+                        modelContext.insert(EpisodeRecord(
+                            sourceVid: sourceVid,
+                            sourceSeriesID: sourceID,
+                            seasonNumber: metadataSeason.seasonNumber,
+                            episodeNumber: metadataEpisode.episodeNumber,
+                            title: metadataEpisode.title ?? "",
+                            webURL: metadataEpisode.webURL
+                        ))
+                    }
+                }
             }
 
             if Double(officialRatingText) != nil || officialHeatText.nilIfBlank != nil {

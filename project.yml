@@ -37,6 +37,7 @@ targets:
     platform: iOS
     sources:
       - path: RedFruitTrackerShareExtension
+      - path: RedFruitTracker/Services/URLExtractor.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.f.redfruittracker.share

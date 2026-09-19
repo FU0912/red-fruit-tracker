@@ -37,4 +37,30 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertTrue(episode.isWatched)
         XCTAssertEqual(episode.watchedAt, Date(timeIntervalSince1970: 123))
     }
+
+    func testMixedShareTextExtractsURL() {
+        let text = "我在红果漫剧看到一部不错的作品，分享给你：https://example.com/series/123?from=share。"
+
+        XCTAssertEqual(
+            URLExtractor.firstURL(in: text)?.absoluteString,
+            "https://example.com/series/123?from=share"
+        )
+    }
+
+    func testTitleNormalizerRemovesRedFruitBranding() {
+        XCTAssertEqual(TitleNormalizer.normalize("红果漫剧：《仙途归来》 - 红果"), "仙途归来")
+        XCTAssertEqual(TitleNormalizer.normalize("《仙途归来》 | 红果短剧"), "仙途归来")
+    }
+
+    func testSeasonKeepsIndependentRatingAndReview() {
+        let season = SeasonRecord(
+            sourceSeriesID: "series-1",
+            seasonNumber: 2,
+            myRating: 4,
+            review: "这一季节奏更紧。"
+        )
+
+        XCTAssertEqual(season.myRating, 4)
+        XCTAssertEqual(season.review, "这一季节奏更紧。")
+    }
 }

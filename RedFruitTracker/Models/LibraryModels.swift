@@ -53,6 +53,8 @@ final class SeasonRecord {
     var title: String
     var episodeCount: Int
     var sourceURL: String?
+    var myRating: Double?
+    var review: String = ""
     var updatedAt: Date
 
     init(
@@ -60,7 +62,9 @@ final class SeasonRecord {
         seasonNumber: Int,
         title: String = "",
         episodeCount: Int = 0,
-        sourceURL: String? = nil
+        sourceURL: String? = nil,
+        myRating: Double? = nil,
+        review: String = ""
     ) {
         self.sourceSeasonKey = "\(sourceSeriesID)#\(seasonNumber)"
         self.sourceSeriesID = sourceSeriesID
@@ -68,6 +72,8 @@ final class SeasonRecord {
         self.title = title
         self.episodeCount = episodeCount
         self.sourceURL = sourceURL
+        self.myRating = myRating
+        self.review = review
         self.updatedAt = .now
     }
 }

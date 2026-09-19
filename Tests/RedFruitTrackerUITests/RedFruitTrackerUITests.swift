@@ -12,7 +12,8 @@ final class RedFruitTrackerUITests: XCTestCase {
 
         app.buttons["添加作品"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["添加作品"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textFields["作品名称"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["红果分享链接"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.textFields["作品名称"].exists)
         XCTAssertTrue(app.buttons["保存"].exists)
 
         let screenshot = XCUIScreen.main.screenshot()

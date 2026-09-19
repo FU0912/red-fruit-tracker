@@ -37,7 +37,7 @@ final class ShareViewController: UIViewController {
 
         if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier) {
             provider.loadItem(forTypeIdentifier: UTType.text.identifier, options: nil) { [weak self] item, _ in
-                if let text = item as? String, let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                if let text = item as? String, let url = URLExtractor.firstURL(in: text) {
                     self?.save(url: url)
                 }
                 self?.finishOnMainThread()
