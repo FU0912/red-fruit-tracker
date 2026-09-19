@@ -77,6 +77,33 @@ jobs:
             echo "Simulator app was not found at $app_path"
           fi
 
+      - name: Build unsigned device archive
+        if: success()
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project RedFruitTracker.xcodeproj \
+            -scheme RedFruitTracker \
+            -destination 'generic/platform=iOS' \
+            -sdk iphoneos \
+            -configuration Debug \
+            -archivePath build/RedFruitTracker.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            | tee xcodebuild-device.log
+
+      - name: Package unsigned device IPA
+        if: always()
+        run: |
+          app_path="build/RedFruitTracker.xcarchive/Products/Applications/RedFruitTracker.app"
+          if [ -d "$app_path" ]; then
+            mkdir -p build/ipa/Payload
+            cp -R "$app_path" build/ipa/Payload/
+            (cd build/ipa && zip -qry "$GITHUB_WORKSPACE/artifacts/RedFruitTracker-unsigned-device.ipa" Payload)
+          else
+            echo "Unsigned device app was not found at $app_path"
+          fi
+
       - name: Export test attachments
         if: always()
         run: |
@@ -96,5 +123,6 @@ jobs:
           path: |
             xcodebuild-build.log
             xcodebuild-test.log
+            xcodebuild-device.log
             TestResults.xcresult
             artifacts

@@ -4,6 +4,8 @@
 
 GitHub Actions 当前生成的是 `RedFruitTracker-simulator.app.zip`。它是 iOS Simulator 构建包，只能在 macOS 的 iOS Simulator 中安装，不能直接安装到真实 iPhone。
 
+CI 还会尝试生成 `RedFruitTracker-unsigned-device.ipa`。这是面向真实 iPhone 架构的未签名测试包，不能直接安装；可以在 Windows 上用 Sideloadly 或 AltStore 由你自己的 Apple ID 进行本地签名。免费 Apple ID 通常有设备数和有效期限制，分享扩展/App Groups 也可能需要付费开发者账号。
+
 ## 真实 iPhone 安装包
 
 真实 iPhone 需要签名后的 `.ipa`。后续需要：
