@@ -29,9 +29,9 @@
 
 ## 当前状态
 
-- 已完成：项目初始化；确认 Windows + GitHub Actions macOS Runner 路线；确认日常 UI 使用模拟器测试和截图产物，真机只做跨 App 能力验收；完成 SwiftUI/SwiftData、Share Extension、单元测试和 UI 测试骨架；完成 CI 工作流；首次构建修复 Bundle 元数据后，第二次 CI 已完整通过。
-- 正在做：生成可下载的 Simulator App 压缩包，并尝试生成未签名的真机架构 IPA。
-- 下一步：下载并检查两个构建产物；真实 iPhone 通过本地签名或 Apple Developer/TestFlight 安装后，再接入公开分享链接解析。
+- 已完成：项目初始化；确认 Windows + GitHub Actions macOS Runner 路线；确认日常 UI 使用模拟器测试和截图产物，真机只做跨 App 能力验收；完成 SwiftUI/SwiftData、Share Extension、单元测试和 UI 测试骨架；修复 Bundle 元数据；CI 已通过 Simulator 编译、单元测试、UI 测试和截图导出；已生成 Simulator 压缩包和未签名真机 IPA。
+- 正在做：等待真实 iPhone 安装验证结果。
+- 下一步：根据安装结果修复签名或设备兼容问题；确认基础 App 可打开后，再接入公开分享链接解析。
 
 ## 关键决策
 
@@ -63,9 +63,9 @@ Windows:
 
 ## 完成标准
 
-- [ ] GitHub Actions 能生成 Xcode 项目并完成无签名模拟器构建。
-- [ ] 单元测试和 UI 测试能在 macOS Runner 执行。
-- [ ] CI 能保存 UI 截图、测试结果和构建日志。
+- [x] GitHub Actions 能生成 Xcode 项目并完成无签名模拟器构建。
+- [x] 单元测试和 UI 测试能在 macOS Runner 执行。
+- [x] CI 能保存 UI 截图、测试结果和构建日志。
 - [ ] Share Extension 能接收真实红果漫剧分享链接。
 - [ ] 公开资料能写入本地数据库并建立作品、季、集关系。
 - [ ] 真实 iPhone 已验证分享入口和红果跳转降级链路。
