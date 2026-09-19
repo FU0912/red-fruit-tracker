@@ -18,11 +18,15 @@ targets:
       - path: RedFruitTracker/App
       - path: RedFruitTracker/Models
       - path: RedFruitTracker/Features
+      - path: RedFruitTracker/Services
+    resources:
+      - path: RedFruitTracker/Resources/Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.f.redfruittracker
         INFOPLIST_FILE: RedFruitTracker/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: RedFruitTracker/Resources/RedFruitTracker.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1,2"
     dependencies:
       - target: RedFruitTrackerShareExtension

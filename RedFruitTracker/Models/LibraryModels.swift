@@ -5,6 +5,7 @@ import SwiftData
 final class SeriesRecord {
     @Attribute(.unique) var sourceSeriesID: String
     var title: String
+    var sourceURL: String?
     var coverURL: String?
     var intro: String
     var tagsText: String
@@ -12,11 +13,13 @@ final class SeriesRecord {
     var officialRatingCount: Int?
     var officialHeatScore: Double?
     var officialHeatText: String?
+    var createdAt: Date
     var updatedAt: Date
 
     init(
         sourceSeriesID: String,
         title: String,
+        sourceURL: String? = nil,
         coverURL: String? = nil,
         intro: String = "",
         tagsText: String = "",
@@ -24,10 +27,12 @@ final class SeriesRecord {
         officialRatingCount: Int? = nil,
         officialHeatScore: Double? = nil,
         officialHeatText: String? = nil,
+        createdAt: Date = .now,
         updatedAt: Date = .now
     ) {
         self.sourceSeriesID = sourceSeriesID
         self.title = title
+        self.sourceURL = sourceURL
         self.coverURL = coverURL
         self.intro = intro
         self.tagsText = tagsText
@@ -35,6 +40,7 @@ final class SeriesRecord {
         self.officialRatingCount = officialRatingCount
         self.officialHeatScore = officialHeatScore
         self.officialHeatText = officialHeatText
+        self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 }
@@ -46,14 +52,22 @@ final class SeasonRecord {
     var seasonNumber: Int
     var title: String
     var episodeCount: Int
+    var sourceURL: String?
     var updatedAt: Date
 
-    init(sourceSeriesID: String, seasonNumber: Int, title: String = "", episodeCount: Int = 0) {
+    init(
+        sourceSeriesID: String,
+        seasonNumber: Int,
+        title: String = "",
+        episodeCount: Int = 0,
+        sourceURL: String? = nil
+    ) {
         self.sourceSeasonKey = "\(sourceSeriesID)#\(seasonNumber)"
         self.sourceSeriesID = sourceSeriesID
         self.seasonNumber = seasonNumber
         self.title = title
         self.episodeCount = episodeCount
+        self.sourceURL = sourceURL
         self.updatedAt = .now
     }
 }
@@ -66,6 +80,8 @@ final class EpisodeRecord {
     var episodeNumber: Int
     var title: String
     var webURL: String?
+    var isWatched: Bool
+    var watchedAt: Date?
 
     init(
         sourceVid: String,
@@ -73,7 +89,9 @@ final class EpisodeRecord {
         seasonNumber: Int,
         episodeNumber: Int,
         title: String = "",
-        webURL: String? = nil
+        webURL: String? = nil,
+        isWatched: Bool = false,
+        watchedAt: Date? = nil
     ) {
         self.sourceVid = sourceVid
         self.sourceSeriesID = sourceSeriesID
@@ -81,6 +99,8 @@ final class EpisodeRecord {
         self.episodeNumber = episodeNumber
         self.title = title
         self.webURL = webURL
+        self.isWatched = isWatched
+        self.watchedAt = watchedAt
     }
 }
 
