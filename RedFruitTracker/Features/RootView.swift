@@ -674,7 +674,9 @@ private struct AddSeriesView: View {
                             .padding(.vertical, 4)
                         }
 
-                        Text("已优先选择人物海报；如果不合适，可以点选其他候选图。")
+                        Text(coverURLText.isEmpty
+                             ? "没有足够把握自动选封面，请点选人物海报或主角海报。"
+                             : "已优先选择官方主图；如果不合适，可以点选其他候选图。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -774,7 +776,7 @@ private struct AddSeriesView: View {
                     detectedTitle = metadata.title ?? TitleNormalizer.fallback(from: url) ?? ""
                     coverCandidates = metadata.coverCandidates
                     if coverURLText.isEmpty {
-                        coverURLText = metadata.coverURL ?? metadata.coverCandidates.first ?? ""
+                        coverURLText = metadata.coverURL ?? ""
                     }
                     if intro.isEmpty { intro = metadata.intro ?? "" }
                     if tagsText.isEmpty { tagsText = metadata.tagsText ?? "" }
@@ -784,9 +786,15 @@ private struct AddSeriesView: View {
                     if officialHeatText.isEmpty { officialHeatText = metadata.officialHeatText ?? "" }
                     detectedSeasons = metadata.seasons
                     includeFirstSeason = metadata.seasons.isEmpty
-                    notice = metadata.seasons.isEmpty
+                    let coverNotice = metadata.coverURL == nil && !metadata.coverCandidates.isEmpty
+                        ? "未自动采用不确定的图片，请在候选封面中选择人物海报。"
+                        : nil
+                    let metadataNotice = metadata.seasons.isEmpty
                         ? "已读取公开资料，请核对后保存。"
                         : "已读取公开资料和 \(metadata.seasons.count) 季分集信息，请核对后保存。"
+                    notice = [metadataNotice, coverNotice]
+                        .compactMap { $0 }
+                        .joined(separator: " ")
                     isFetching = false
                 }
             } catch {

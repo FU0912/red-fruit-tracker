@@ -84,6 +84,72 @@ final class LibraryModelTests: XCTestCase {
         )
     }
 
+    func testCoverSelectorPrefersOfficialDetailPosterOverUIImages() {
+        let title = "糯糯下山，师兄们都慌了第三季"
+        let officialPoster = "https://p3-novel.byteimg.com/novel-pic/6fe7b369dfa0b42b98e254fa1d1e8e23~tplv-shrink:640:0.webp"
+        let candidates = [
+            CoverImageCandidate(
+                url: "https://lf-dy-sourcecdn-tos.bytegecko.com/obj/lock.png",
+                context: "<img class=\"m-lock\" src=\"lock.png\">"
+            ),
+            CoverImageCandidate(
+                url: "https://p6-novel.byteimg.com/novel-pic/related.webp",
+                context: "<img class=\"related-card\" src=\"related.webp\">"
+            ),
+            CoverImageCandidate(
+                url: officialPoster,
+                context: "<link rel=\"preload\" as=\"image\" href=\"\(officialPoster)\">"
+            ),
+            CoverImageCandidate(
+                url: officialPoster,
+                context: "<img class=\"image-main\" alt=\"\(title)\" fetchpriority=\"high\" src=\"\(officialPoster)\">"
+            )
+        ]
+
+        XCTAssertEqual(
+            CoverURLSelector.preferred(candidates, title: title)?.url,
+            officialPoster
+        )
+    }
+
+    func testOfficialDetailHTMLExtractsPreloadedAndStructuredPoster() {
+        let title = "糯糯下山，师兄们都慌了第三季"
+        let poster = "https://p3-novel.byteimg.com/novel-pic/poster.webp"
+        let html = """
+        <link rel="preload" as="image" href="\(poster)" type="image/webp">
+        <script type="application/ld+json">
+        {"@type":"TVSeries","name":"\(title)","image":"\(poster)"}
+        </script>
+        <img class="image-main" src="\(poster)" alt="\(title)" fetchpriority="high">
+        <img class="m-lock" src="https://example.com/lock.png" alt="">
+        """
+
+        let candidates = HTMLMetadata.coverCandidates(
+            in: html,
+            baseURL: URL(string: "https://hongguoduanju.com/detail")!
+        )
+
+        XCTAssertEqual(
+            CoverURLSelector.preferred(candidates, title: title)?.url,
+            poster
+        )
+    }
+
+    func testCoverSelectorDoesNotAutoSelectLowConfidenceUIImage() {
+        let candidates = [
+            CoverImageCandidate(
+                url: "https://example.com/lock.png",
+                context: "<img class=\"m-lock\" src=\"lock.png\">"
+            ),
+            CoverImageCandidate(
+                url: "https://example.com/loading.png",
+                context: "<img class=\"loading\" src=\"loading.png\">"
+            )
+        ]
+
+        XCTAssertNil(CoverURLSelector.preferred(candidates, title: "测试漫剧"))
+    }
+
     func testCoverSelectorDeduplicatesURLs() {
         let candidates = [
             CoverImageCandidate(

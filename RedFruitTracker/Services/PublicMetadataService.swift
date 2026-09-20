@@ -17,43 +17,105 @@ struct CoverImageCandidate: Hashable {
 }
 
 enum CoverURLSelector {
-    static func ranked(_ candidates: [CoverImageCandidate]) -> [CoverImageCandidate] {
+    static func ranked(
+        _ candidates: [CoverImageCandidate],
+        title: String? = nil
+    ) -> [CoverImageCandidate] {
         var bestByURL: [String: CoverImageCandidate] = [:]
 
         for candidate in candidates {
             guard !candidate.url.isEmpty else { continue }
-            if let existing = bestByURL[candidate.url], score(existing) >= score(candidate) {
+            if let existing = bestByURL[candidate.url], score(existing, title: title) >= score(candidate, title: title) {
                 continue
             }
             bestByURL[candidate.url] = candidate
         }
 
         return bestByURL.values.sorted { lhs, rhs in
-            let leftScore = score(lhs)
-            let rightScore = score(rhs)
+            let leftScore = score(lhs, title: title)
+            let rightScore = score(rhs, title: title)
             if leftScore != rightScore { return leftScore > rightScore }
             return lhs.url < rhs.url
         }
     }
 
-    private static func score(_ candidate: CoverImageCandidate) -> Int {
+    static func preferred(
+        _ candidates: [CoverImageCandidate],
+        title: String? = nil
+    ) -> CoverImageCandidate? {
+        ranked(candidates, title: title).first { score($0, title: title) >= 8 }
+    }
+
+    private static func score(_ candidate: CoverImageCandidate, title: String?) -> Int {
         let value = "\(candidate.url) \(candidate.context)".lowercased()
         var result = 0
 
         for token in ["封面", "海报", "主角", "女主", "男主", "人物", "poster", "portrait", "cover"] {
-            if value.contains(token) { result += 8 }
+            if value.contains(token) { result += 10 }
         }
 
-        for token in ["banner", "background", "bg", "share", "logo", "icon", "qr", "sprite", "placeholder"] {
-            if value.contains(token) { result -= 10 }
+        for token in [
+            "banner", "background", "bg", "share", "logo", "icon", "lock", "empty",
+            "loading", "qr", "qrcode", "sprite", "placeholder", "avatar", "emoji", "badge",
+            ".svg", "data:image"
+        ] {
+            if value.contains(token) { result -= 24 }
         }
 
-        if candidate.context.lowercased().contains("<img") { result += 1 }
-        if candidate.context.lowercased().contains("og:image") { result += 5 }
+        let context = candidate.context.lowercased()
+        if context.contains("<img") { result += 2 }
+        if context.contains("fetchpriority=\"high\"") || context.contains("fetchpriority='high'") {
+            result += 14
+        }
+        if context.contains("rel=\"preload\"") && context.contains("as=\"image\"") {
+            result += 28
+        }
+        if context.contains("json-ld") || context.contains("\"@type\":\"tvseries\"") {
+            result += 24
+        }
+        if context.contains("og:image") { result += 4 }
+        if context.contains("novel-pic") { result += 6 }
+        if context.contains("width=\"160\"") && context.contains("height=\"224\"") {
+            result += 8
+        }
+
+        if let title {
+            let normalizedTitle = normalizedText(title)
+            let altText = attribute(named: "alt", in: context)
+            if let altText, !normalizedTitle.isEmpty {
+                let normalizedAlt = normalizedText(altText)
+                if !normalizedAlt.isEmpty,
+                   normalizedAlt.contains(normalizedTitle) || normalizedTitle.contains(normalizedAlt) {
+                    result += 32
+                } else if !normalizedAlt.isEmpty {
+                    result += 3
+                }
+            }
+        }
+
         if candidate.url.range(of: #"\.(?:jpe?g|png|webp)(?:\?|$)"#, options: .regularExpression) != nil {
             result += 1
         }
         return result
+    }
+
+    private static func attribute(named name: String, in tag: String) -> String? {
+        let pattern = "\\b\(name)\\s*=\\s*([\\\"'])(.*?)\\1"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(tag.startIndex..<tag.endIndex, in: tag)
+        guard let match = regex.firstMatch(in: tag, range: range),
+              let valueRange = Range(match.range(at: 2), in: tag) else {
+            return nil
+        }
+        return String(tag[valueRange])
+    }
+
+    private static func normalizedText(_ value: String) -> String {
+        value
+            .lowercased()
+            .replacingOccurrences(of: "[\\s《》<>:：|丨_\\-]", with: "", options: .regularExpression)
     }
 }
 
@@ -115,10 +177,10 @@ actor PublicMetadataService {
             ?? HTMLMetadata.title(in: html)
         let title = TitleNormalizer.normalize(rawTitle) ?? TitleNormalizer.fallback(from: url)
         let coverCandidates = HTMLMetadata.coverCandidates(in: html, baseURL: url)
-        let rankedCoverCandidates = CoverURLSelector.ranked(coverCandidates)
+        let rankedCoverCandidates = CoverURLSelector.ranked(coverCandidates, title: title)
         let metadata = PublicSeriesMetadata(
             title: title,
-            coverURL: rankedCoverCandidates.first?.url,
+            coverURL: CoverURLSelector.preferred(coverCandidates, title: title)?.url,
             coverCandidates: rankedCoverCandidates.prefix(8).map(\.url),
             intro: HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: html),
             tagsText: HTMLMetadata.value(for: ["keywords"], in: html),
@@ -138,7 +200,7 @@ actor PublicMetadataService {
     }
 }
 
-private enum HTMLMetadata {
+enum HTMLMetadata {
     static func value(for keys: [String], in html: String) -> String? {
         let metaPattern = #"<meta\b[^>]*>"#
         guard let regex = try? NSRegularExpression(pattern: metaPattern, options: [.caseInsensitive]) else {
@@ -230,7 +292,12 @@ private enum HTMLMetadata {
                 guard let tagRange = Range(match.range, in: html) else { continue }
                 let tag = String(html[tagRange])
                 let lowerTag = tag.lowercased()
-                guard lowerTag.contains("image_src") || lowerTag.contains("cover") || lowerTag.contains("poster"),
+                let isPreloadedImage = lowerTag.contains("rel=\"preload\"")
+                    && lowerTag.contains("as=\"image\"")
+                guard isPreloadedImage
+                    || lowerTag.contains("image_src")
+                    || lowerTag.contains("cover")
+                    || lowerTag.contains("poster"),
                       let rawValue = attribute(named: "href", in: tag) else { continue }
                 append(rawValue, context: tag, baseURL: baseURL, to: &candidates)
             }
@@ -251,8 +318,19 @@ private enum HTMLMetadata {
             }
         }
 
+        if let jsonLDRegex = try? NSRegularExpression(
+            pattern: #"<script\b[^>]*type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) {
+            for match in jsonLDRegex.matches(in: html, range: htmlRange) {
+                guard let valueRange = Range(match.range(at: 1), in: html) else { continue }
+                let json = unescape(String(html[valueRange]))
+                appendJSONImages(from: json, baseURL: baseURL, to: &candidates)
+            }
+        }
+
         if let jsonImageRegex = try? NSRegularExpression(
-            pattern: #"[\"'](?:cover|coverUrl|cover_url|poster|posterUrl|poster_url|imageUrl|image_url)[\"']\s*:\s*[\"']([^\"']+)[\"']"#,
+            pattern: #"[\"'](?:cover|coverUrl|cover_url|poster|posterUrl|poster_url|image|imageUrl|image_url|thumbnailUrl|thumbnail_url|contentUrl|content_url)[\"']\s*:\s*[\"']([^\"']+)[\"']"#,
             options: [.caseInsensitive]
         ) {
             for match in jsonImageRegex.matches(in: html, range: htmlRange) {
@@ -263,6 +341,44 @@ private enum HTMLMetadata {
         }
 
         return candidates
+    }
+
+    private static func appendJSONImages(
+        from json: String,
+        baseURL: URL,
+        to candidates: inout [CoverImageCandidate]
+    ) {
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) else {
+            return
+        }
+        appendJSONImages(from: object, context: "json-ld \(json)", baseURL: baseURL, to: &candidates)
+    }
+
+    private static func appendJSONImages(
+        from value: Any,
+        context: String,
+        baseURL: URL,
+        to candidates: inout [CoverImageCandidate]
+    ) {
+        if let dictionary = value as? [String: Any] {
+            for (key, child) in dictionary {
+                let lowerKey = key.lowercased()
+                if ["image", "cover", "coverurl", "cover_url", "poster", "posterurl", "poster_url", "thumbnailurl", "thumbnail_url", "contenturl", "content_url"].contains(lowerKey) {
+                    if let imageURL = child as? String {
+                        append(imageURL, context: context + " \"\(key)\":\"image\"", baseURL: baseURL, to: &candidates)
+                    } else if let imageDictionary = child as? [String: Any],
+                              let imageURL = imageDictionary["url"] as? String {
+                        append(imageURL, context: context + " \"\(key)\":\"image\"", baseURL: baseURL, to: &candidates)
+                    }
+                }
+                appendJSONImages(from: child, context: context, baseURL: baseURL, to: &candidates)
+            }
+        } else if let array = value as? [Any] {
+            for child in array {
+                appendJSONImages(from: child, context: context, baseURL: baseURL, to: &candidates)
+            }
+        }
     }
 
     private static func append(
