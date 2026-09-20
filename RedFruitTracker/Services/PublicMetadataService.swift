@@ -63,6 +63,9 @@ enum CoverURLSelector {
         }
 
         let context = candidate.context.lowercased()
+        if context.contains("official-current-series-cover") {
+            result += 160
+        }
         if context.contains("<img") { result += 2 }
         if context.contains("fetchpriority=\"high\"") || context.contains("fetchpriority='high'") {
             result += 14
@@ -340,7 +343,93 @@ enum HTMLMetadata {
             }
         }
 
+        if let currentSeriesCover = currentSeriesDetailCover(in: html, baseURL: baseURL) {
+            candidates.append(currentSeriesCover)
+        }
+
         return candidates
+    }
+
+    // The SSR payload identifies the current work; videoList contains related works.
+    private static func currentSeriesDetailCover(
+        in html: String,
+        baseURL: URL
+    ) -> CoverImageCandidate? {
+        guard let routerData = routerData(in: html),
+              let loaderData = routerData["loaderData"] as? [String: Any],
+              let detailPage = loaderData["detail_page"] as? [String: Any],
+              let seriesDetail = detailPage["seriesDetail"] as? [String: Any] else {
+            return nil
+        }
+
+        let coverKeys = ["series_cover", "small_series_cover", "series_cover_uri", "series_cover_info"]
+        let rawCover = coverKeys.lazy.compactMap { key -> String? in
+            if let value = seriesDetail[key] as? String { return value }
+            if let info = seriesDetail[key] as? [String: Any] {
+                return info["url"] as? String ?? info["uri"] as? String
+            }
+            return nil
+        }.first
+
+        guard let rawCover else { return nil }
+        var value = unescape(rawCover)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("//") { value = "https:\(value)" }
+        guard let url = URL(string: value, relativeTo: baseURL)?.absoluteURL,
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return nil
+        }
+
+        let seriesName = (seriesDetail["series_name"] as? String) ?? ""
+        let context = "official-current-series-cover seriesDetail series_name=\(seriesName)"
+        return CoverImageCandidate(url: url.absoluteString, context: context)
+    }
+
+    private static func routerData(in html: String) -> [String: Any]? {
+        guard let markerRange = html.range(of: "_ROUTER_DATA"),
+              let objectStart = html[markerRange.upperBound...].firstIndex(of: "{"),
+              let objectEnd = endOfJSONObject(in: html, from: objectStart) else {
+            return nil
+        }
+
+        let json = String(html[objectStart..<objectEnd])
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any] else {
+            return nil
+        }
+        return dictionary
+    }
+
+    private static func endOfJSONObject(in text: String, from start: String.Index) -> String.Index? {
+        var depth = 0
+        var insideString = false
+        var escaped = false
+        var index = start
+
+        while index < text.endIndex {
+            let character = text[index]
+            if insideString {
+                if escaped {
+                    escaped = false
+                } else if character == "\\" {
+                    escaped = true
+                } else if character == "\"" {
+                    insideString = false
+                }
+            } else if character == "\"" {
+                insideString = true
+            } else if character == "{" {
+                depth += 1
+            } else if character == "}" {
+                depth -= 1
+                if depth == 0 {
+                    return text.index(after: index)
+                }
+            }
+            index = text.index(after: index)
+        }
+        return nil
     }
 
     private static func appendJSONImages(
