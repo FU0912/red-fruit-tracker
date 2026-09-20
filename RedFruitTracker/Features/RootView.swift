@@ -253,8 +253,10 @@ private struct SeriesCard: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity, minHeight: 128, alignment: .topLeading)
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 128, alignment: .topLeading)
+            .layoutPriority(1)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -416,7 +418,6 @@ struct CoverView: View {
                 fallback
             }
         }
-        .frame(maxWidth: .infinity)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
@@ -587,6 +588,7 @@ private struct AddSeriesView: View {
     @State private var notice: String?
     @State private var errorMessage: String?
     @State private var detectedSeasons: [PublicSeasonMetadata] = []
+    @State private var coverCandidates: [String] = []
     @State private var lastFetchedURL: String?
 
     init(initialURL: URL?, onSaved: @escaping () -> Void) {
@@ -645,6 +647,37 @@ private struct AddSeriesView: View {
                     Text("作品")
                 } footer: {
                     Text("可以直接粘贴带说明文字的分享内容，应用会自动提取其中的网页链接。")
+                }
+
+                if !coverCandidates.isEmpty {
+                    Section("候选封面") {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(coverCandidates, id: \.self) { candidate in
+                                    Button {
+                                        coverURLText = candidate
+                                    } label: {
+                                        CoverView(urlString: candidate)
+                                            .frame(width: 72, height: 104)
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                    .stroke(
+                                                        candidate == coverURLText ? Color.accentColor : .clear,
+                                                        lineWidth: 3
+                                                    )
+                                            }
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(candidate == coverURLText ? "当前封面" : "选择候选封面")
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+
+                        Text("已优先选择人物海报；如果不合适，可以点选其他候选图。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("展示信息") {
@@ -739,7 +772,10 @@ private struct AddSeriesView: View {
                 await MainActor.run {
                     guard lastFetchedURL == normalizedURL else { return }
                     detectedTitle = metadata.title ?? TitleNormalizer.fallback(from: url) ?? ""
-                    if coverURLText.isEmpty { coverURLText = metadata.coverURL ?? "" }
+                    coverCandidates = metadata.coverCandidates
+                    if coverURLText.isEmpty {
+                        coverURLText = metadata.coverURL ?? metadata.coverCandidates.first ?? ""
+                    }
                     if intro.isEmpty { intro = metadata.intro ?? "" }
                     if tagsText.isEmpty { tagsText = metadata.tagsText ?? "" }
                     if officialRatingText.isEmpty, let rating = metadata.officialRating {

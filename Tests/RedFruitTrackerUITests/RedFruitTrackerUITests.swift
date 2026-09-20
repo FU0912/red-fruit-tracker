@@ -42,7 +42,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["基本信息"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["选集"].exists)
         XCTAssertTrue(app.staticTexts["全189集"].exists)
-        XCTAssertTrue(app.buttons["第1集，已看"].exists)
+        XCTAssertTrue(app.buttons["第1集，已看，当前"].exists)
 
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)

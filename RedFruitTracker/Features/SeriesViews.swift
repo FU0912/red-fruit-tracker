@@ -570,7 +570,7 @@ private struct EpisodeProgressGrid: View {
                                 Text("\(range.start)-\(range.end)")
                                     .font(.subheadline.weight(isSelected ? .semibold : .regular))
                                     .foregroundStyle(isSelected ? Color.white : secondaryText)
-                                    .frame(minWidth: 64, minHeight: 44)
+                                    .frame(minWidth: 72, minHeight: 48)
                                     .background(isSelected ? DetailTheme.accent : DetailTheme.cell)
                                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                             }
@@ -587,35 +587,33 @@ private struct EpisodeProgressGrid: View {
                     .foregroundStyle(secondaryText)
             } else {
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 44, maximum: 56), spacing: 8)],
-                    spacing: 8
+                    columns: [GridItem(.adaptive(minimum: 56, maximum: 72), spacing: 12)],
+                    spacing: 12
                 ) {
                     ForEach(visibleNumbers, id: \.self) { number in
                         let episode = episodes.first(where: { $0.episodeNumber == number })
+                        let isWatched = episode?.isWatched == true
                         let isCurrent = personalRecord?.currentSeasonNumber == season.seasonNumber
                             && personalRecord?.currentEpisodeNumber == number
 
                         Button {
                             toggleEpisode(number, existing: episode)
                         } label: {
-                            VStack(spacing: 4) {
-                                Text("\(number)")
-                                    .font(.subheadline.weight(.semibold))
-                                Image(systemName: episode?.isWatched == true ? "checkmark" : "circle")
-                                    .font(.caption2.weight(.bold))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .aspectRatio(1, contentMode: .fit)
-                            .foregroundStyle(episode?.isWatched == true ? Color.white : primaryText)
-                            .background(episode?.isWatched == true ? DetailTheme.accent : cellBackground)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .stroke(isCurrent ? Color.white : .clear, lineWidth: 2)
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            Text("\(number)")
+                                .font(.body.weight(.semibold))
+                                .frame(maxWidth: .infinity, minHeight: 52)
+                                .foregroundStyle(isWatched || isCurrent ? Color.white : primaryText)
+                                .background(
+                                    isCurrent
+                                        ? Color.white.opacity(0.24)
+                                        : isWatched ? DetailTheme.accent : cellBackground
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("第\(number)集\(episode?.isWatched == true ? "，已看" : "，未看")")
+                        .accessibilityLabel(
+                            "第\(number)集\(isWatched ? "，已看" : "，未看")\(isCurrent ? "，当前" : "")"
+                        )
                     }
                 }
             }
@@ -670,6 +668,11 @@ private struct EpisodeProgressGrid: View {
             personal.currentEpisodeNumber = number
             personal.localShelfState = watchedCount + 1 >= totalEpisodeCount ? "finished" : "watching"
             personal.updatedAt = .now
+        } else if let personalRecord,
+                  personalRecord.currentSeasonNumber == season.seasonNumber,
+                  personalRecord.currentEpisodeNumber == number {
+            personalRecord.currentEpisodeNumber = nil
+            personalRecord.updatedAt = .now
         }
         season.updatedAt = .now
         try? modelContext.save()

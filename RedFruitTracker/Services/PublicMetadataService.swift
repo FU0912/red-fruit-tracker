@@ -3,11 +3,58 @@ import Foundation
 struct PublicSeriesMetadata {
     var title: String?
     var coverURL: String?
+    var coverCandidates: [String]
     var intro: String?
     var tagsText: String?
     var officialRating: Double?
     var officialHeatText: String?
     var seasons: [PublicSeasonMetadata]
+}
+
+struct CoverImageCandidate: Hashable {
+    let url: String
+    let context: String
+}
+
+enum CoverURLSelector {
+    static func ranked(_ candidates: [CoverImageCandidate]) -> [CoverImageCandidate] {
+        var bestByURL: [String: CoverImageCandidate] = [:]
+
+        for candidate in candidates {
+            guard !candidate.url.isEmpty else { continue }
+            if let existing = bestByURL[candidate.url], score(existing) >= score(candidate) {
+                continue
+            }
+            bestByURL[candidate.url] = candidate
+        }
+
+        return bestByURL.values.sorted { lhs, rhs in
+            let leftScore = score(lhs)
+            let rightScore = score(rhs)
+            if leftScore != rightScore { return leftScore > rightScore }
+            return lhs.url < rhs.url
+        }
+    }
+
+    private static func score(_ candidate: CoverImageCandidate) -> Int {
+        let value = "\(candidate.url) \(candidate.context)".lowercased()
+        var result = 0
+
+        for token in ["封面", "海报", "主角", "女主", "男主", "人物", "poster", "portrait", "cover"] {
+            if value.contains(token) { result += 8 }
+        }
+
+        for token in ["banner", "background", "bg", "share", "logo", "icon", "qr", "sprite", "placeholder"] {
+            if value.contains(token) { result -= 10 }
+        }
+
+        if candidate.context.lowercased().contains("<img") { result += 1 }
+        if candidate.context.lowercased().contains("og:image") { result += 5 }
+        if candidate.url.range(of: #"\.(?:jpe?g|png|webp)(?:\?|$)"#, options: .regularExpression) != nil {
+            result += 1
+        }
+        return result
+    }
 }
 
 struct PublicSeasonMetadata {
@@ -66,9 +113,13 @@ actor PublicMetadataService {
         let html = String(decoding: data, as: UTF8.self)
         let rawTitle = HTMLMetadata.value(for: ["og:title", "twitter:title"], in: html)
             ?? HTMLMetadata.title(in: html)
+        let title = TitleNormalizer.normalize(rawTitle) ?? TitleNormalizer.fallback(from: url)
+        let coverCandidates = HTMLMetadata.coverCandidates(in: html, baseURL: url)
+        let rankedCoverCandidates = CoverURLSelector.ranked(coverCandidates)
         let metadata = PublicSeriesMetadata(
-            title: TitleNormalizer.normalize(rawTitle) ?? TitleNormalizer.fallback(from: url),
-            coverURL: HTMLMetadata.value(for: ["og:image", "twitter:image"], in: html),
+            title: title,
+            coverURL: rankedCoverCandidates.first?.url,
+            coverCandidates: rankedCoverCandidates.prefix(8).map(\.url),
             intro: HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: html),
             tagsText: HTMLMetadata.value(for: ["keywords"], in: html),
             officialRating: HTMLMetadata.decimalValue(for: ["rating", "og:rating"], in: html),
@@ -141,6 +192,102 @@ private enum HTMLMetadata {
             return nil
         }
         return Double(String(value[range]))
+    }
+
+    static func coverCandidates(in html: String, baseURL: URL) -> [CoverImageCandidate] {
+        var candidates: [CoverImageCandidate] = []
+
+        guard let metaRegex = try? NSRegularExpression(pattern: #"<meta\b[^>]*>"#, options: [.caseInsensitive]) else {
+            return candidates
+        }
+        let htmlRange = NSRange(html.startIndex..<html.endIndex, in: html)
+        for match in metaRegex.matches(in: html, range: htmlRange) {
+            guard let tagRange = Range(match.range, in: html) else { continue }
+            let tag = String(html[tagRange])
+            let lowerTag = tag.lowercased()
+            let isImageMeta = [
+                "og:image",
+                "og:image:url",
+                "twitter:image",
+                "twitter:image:src"
+            ].contains { key in
+                lowerTag.contains("property=\"\(key)\"")
+                    || lowerTag.contains("name=\"\(key)\"")
+                    || lowerTag.contains("property='\(key)'")
+                    || lowerTag.contains("name='\(key)'")
+            }
+            let isCoverMeta = lowerTag.contains("cover")
+                || lowerTag.contains("poster")
+                || lowerTag.contains("\"image\"")
+                || lowerTag.contains("'image'")
+            guard isImageMeta || isCoverMeta,
+                  let rawValue = attribute(named: "content", in: tag) else { continue }
+            append(rawValue, context: tag, baseURL: baseURL, to: &candidates)
+        }
+
+        if let linkRegex = try? NSRegularExpression(pattern: #"<link\b[^>]*>"#, options: [.caseInsensitive]) {
+            for match in linkRegex.matches(in: html, range: htmlRange) {
+                guard let tagRange = Range(match.range, in: html) else { continue }
+                let tag = String(html[tagRange])
+                let lowerTag = tag.lowercased()
+                guard lowerTag.contains("image_src") || lowerTag.contains("cover") || lowerTag.contains("poster"),
+                      let rawValue = attribute(named: "href", in: tag) else { continue }
+                append(rawValue, context: tag, baseURL: baseURL, to: &candidates)
+            }
+        }
+
+        if let imageRegex = try? NSRegularExpression(pattern: #"<img\b[^>]*>"#, options: [.caseInsensitive]) {
+            for match in imageRegex.matches(in: html, range: htmlRange) {
+                guard let tagRange = Range(match.range, in: html) else { continue }
+                let tag = String(html[tagRange])
+                for attributeName in ["src", "data-src", "data-original", "data-lazy-src", "data-image"] {
+                    if let rawValue = attribute(named: attributeName, in: tag) {
+                        append(rawValue, context: tag, baseURL: baseURL, to: &candidates)
+                    }
+                }
+                if let rawValue = attribute(named: "srcset", in: tag) {
+                    append(firstSrcsetValue(rawValue), context: tag, baseURL: baseURL, to: &candidates)
+                }
+            }
+        }
+
+        if let jsonImageRegex = try? NSRegularExpression(
+            pattern: #"[\"'](?:cover|coverUrl|cover_url|poster|posterUrl|poster_url|imageUrl|image_url)[\"']\s*:\s*[\"']([^\"']+)[\"']"#,
+            options: [.caseInsensitive]
+        ) {
+            for match in jsonImageRegex.matches(in: html, range: htmlRange) {
+                guard let valueRange = Range(match.range(at: 1), in: html),
+                      let matchRange = Range(match.range, in: html) else { continue }
+                append(String(html[valueRange]), context: String(html[matchRange]), baseURL: baseURL, to: &candidates)
+            }
+        }
+
+        return candidates
+    }
+
+    private static func append(
+        _ rawValue: String,
+        context: String,
+        baseURL: URL,
+        to candidates: inout [CoverImageCandidate]
+    ) {
+        var value = unescape(rawValue)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("//") { value = "https:\(value)" }
+        guard let url = URL(string: value, relativeTo: baseURL)?.absoluteURL,
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return
+        }
+        candidates.append(CoverImageCandidate(url: url.absoluteString, context: context))
+    }
+
+    private static func firstSrcsetValue(_ value: String) -> String {
+        value
+            .split(separator: ",", maxSplits: 1)
+            .first?
+            .split(whereSeparator: \.isWhitespace)
+            .first
+            .map(String.init) ?? value
     }
 
     static func seasons(in html: String, baseURL: URL) -> [PublicSeasonMetadata] {

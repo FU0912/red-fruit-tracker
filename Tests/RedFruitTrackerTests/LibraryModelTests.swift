@@ -65,4 +65,37 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(season.myRating, 4)
         XCTAssertEqual(season.review, "这一季节奏更紧。")
     }
+
+    func testCoverSelectorPrefersCharacterPosterOverBanner() {
+        let candidates = [
+            CoverImageCandidate(
+                url: "https://example.com/images/series-hero-banner.jpg",
+                context: "<img class=\"hero-banner\" src=\"series-hero-banner.jpg\">"
+            ),
+            CoverImageCandidate(
+                url: "https://example.com/images/main-character-poster.jpg",
+                context: "<img class=\"poster cover\" alt=\"作品封面 主角\" src=\"main-character-poster.jpg\">"
+            )
+        ]
+
+        XCTAssertEqual(
+            CoverURLSelector.ranked(candidates).first?.url,
+            "https://example.com/images/main-character-poster.jpg"
+        )
+    }
+
+    func testCoverSelectorDeduplicatesURLs() {
+        let candidates = [
+            CoverImageCandidate(
+                url: "https://example.com/cover.jpg",
+                context: "<meta property=\"og:image\" content=\"cover.jpg\">"
+            ),
+            CoverImageCandidate(
+                url: "https://example.com/cover.jpg",
+                context: "<img class=\"cover\" src=\"cover.jpg\">"
+            )
+        ]
+
+        XCTAssertEqual(CoverURLSelector.ranked(candidates).map(\.url), ["https://example.com/cover.jpg"])
+    }
 }

@@ -1,14 +1,19 @@
 # 安装与当前验证方式
 
-## 当前可交付包
+## 最近一次已验证包
 
-本轮本地 MVP 包：
+当前最新包：
 
-artifacts/RedFruitTracker-unsigned-device-mvp.ipa
+artifacts/RedFruitTracker-unsigned-device-v1.1.0-build2.ipa
 
-已验证包体约 524 KiB，SHA-256：
+已验证包体 738262 字节，SHA-256：
 
-97866EC3C10AED9306BE5E21558B059A170DA931B4DC576C82862C6A80BB860B
+9B624BC148F042F8D6220A76AF2F27AD7937E47B25DFE7FFEBB68BFB3F97BDB0
+
+旧版本仍保留：
+
+- `artifacts/RedFruitTracker-unsigned-device-v2.ipa`
+- `artifacts/RedFruitTracker-unsigned-device-mvp.ipa`
 
 包内已确认包含 Assets.car、iPhone/iPad App Icon、主 App 和 Share Extension。
 
@@ -30,5 +35,5 @@ CI 已生成 `RedFruitTracker-unsigned-device.ipa`。这是面向真实 iPhone �
 ## 验证顺序
 
 1. 先看 Simulator 构建包和 UI 测试截图，验证页面能启动。
-2. 使用自己的签名工具签名 artifacts/RedFruitTracker-unsigned-device-mvp.ipa。
+2. v1.2.0 CI 成功后，优先使用新生成的 `RedFruitTracker-unsigned-device-v1.2.0-build3.ipa`；在此之前可使用 `artifacts/RedFruitTracker-unsigned-device-v1.1.0-build2.ipa` 做基线签名验证。
 3. 在真实 iPhone 上验证作品添加、季集记录、进度、评分点评、分享扩展、红果跳转和本地数据保存。

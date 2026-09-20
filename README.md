@@ -2,6 +2,8 @@
 
 这是一个本地优先的原生 iOS 项目，用来记录红果漫剧作品、季、集、观看进度、个人评分点评和官方数据历史。
 
+当前源代码版本为 `v1.2.0` / build `3`，正在等待 GitHub Actions 验证本轮 UI 与封面修复。最近一次已验证的 CI 产物仍是 `v1.1.0` / build `2`。
+
 当前版本已经具备可操作的本地 MVP：作品画廊和搜索、分享链接/手动添加、封面和公开 metadata 读取、分季分集、已看标记、观看进度、红果链接跳转、个人评分点评、统计和评分趋势图。
 
 ## 当前开发方式
@@ -11,7 +13,7 @@
 - iOS Simulator：在 CI 中执行 UI 测试并保存截图和日志。
 - 真实 iPhone：只用于 Share Extension、红果跳转和系统行为的阶段性验收。
 
-本项目不依赖本地 macOS 虚拟机。当前可下载的未签名真机包位于 artifacts/RedFruitTracker-unsigned-device-mvp.ipa。
+本项目不依赖本地 macOS 虚拟机。最近一次已验证的未签名真机包位于 `artifacts/RedFruitTracker-unsigned-device-v1.1.0-build2.ipa`；MVP 和 v2 旧包仍保留在同一目录。v1.2.0 产物需等待本轮 CI 成功后更新。
 
 ## 生成项目
 
