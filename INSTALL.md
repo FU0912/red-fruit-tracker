@@ -4,11 +4,11 @@
 
 当前最新包：
 
-artifacts/RedFruitTracker-unsigned-device-v1.1.0-build2.ipa
+artifacts/RedFruitTracker-unsigned-device-v1.2.1-build4.ipa
 
-已验证包体 738262 字节，SHA-256：
+已验证包体 771003 字节，SHA-256：
 
-9B624BC148F042F8D6220A76AF2F27AD7937E47B25DFE7FFEBB68BFB3F97BDB0
+6BB25427BF01F47205503A6E7A76595B4B6D7C7682B7329AAA224BD081A8475A
 
 旧版本仍保留：
 
