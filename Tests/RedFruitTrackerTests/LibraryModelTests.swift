@@ -135,6 +135,65 @@ final class LibraryModelTests: XCTestCase {
         )
     }
 
+    func testOfficialSeriesDetailCoverBeatsHeroAndRelatedWorkCovers() {
+        let title = "当前作品第三季"
+        let officialPoster = "https://p3-novel.byteimg.com/novel-pic/zzz-current.image"
+        let html = """
+        <link rel="preload" as="image" href="https://example.com/hero-background.jpg">
+        <meta property="og:image" content="https://example.com/share-banner.jpg">
+        <script>
+        _ROUTER_DATA = {
+          "loaderData": {
+            "detail_page": {
+              "videoList": [
+                {"series_name":"相关作品","series_cover":"https://p3-novel.byteimg.com/novel-pic/aaa-related.image"}
+              ],
+              "seriesDetail": {
+                "series_id":"current-series",
+                "series_name":"\(title)",
+                "series_cover":"\(officialPoster)"
+              }
+            }
+          }
+        };
+        function runWindowFn() {}
+        </script>
+        """
+
+        let candidates = HTMLMetadata.coverCandidates(
+            in: html,
+            baseURL: URL(string: "https://hongguoduanju.com/detail?series_id=current-series")!
+        )
+
+        XCTAssertEqual(
+            CoverURLSelector.preferred(candidates, title: title)?.url,
+            officialPoster
+        )
+    }
+
+    func testRealOfficialDetailSampleUsesCurrentSeriesCover() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sampleURL = projectRoot
+            .appendingPathComponent("artifacts")
+            .appendingPathComponent("hongguoduanju-detail-sample.html")
+        let html = try String(contentsOf: sampleURL, encoding: .utf8)
+        let expected = "https://p3-novel.byteimg.com/novel-pic/6fe7b369dfa0b42b98e254fa1d1e8e23~tplv-shrink:640:0.image"
+        let title = "糯糯下山，师兄们都慌了第三季"
+
+        let candidates = HTMLMetadata.coverCandidates(
+            in: html,
+            baseURL: URL(string: "https://hongguoduanju.com/detail?series_id=7685224734895655960")!
+        )
+
+        XCTAssertEqual(
+            CoverURLSelector.preferred(candidates, title: title)?.url,
+            expected
+        )
+    }
+
     func testCoverSelectorDoesNotAutoSelectLowConfidenceUIImage() {
         let candidates = [
             CoverImageCandidate(
