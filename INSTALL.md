@@ -2,14 +2,17 @@
 
 ## 最近一次已验证包
 
-当前代码版本为 `v1.2.2` / build `5`；CI 成功后会生成：
+当前代码版本为 `v1.2.2` / build `5`；CI 已生成：
 
 artifacts/RedFruitTracker-unsigned-device-v1.2.2-build5.ipa
 
-包体大小和 SHA-256 以本次 CI 产物为准，完成后补写到本节。
+已验证包体 777922 字节，SHA-256：
+
+6AE5689F4D8000F84608013F8CA2176F0D1776F4BCCAD7BC02EF952B60CFFC7F
 
 旧版本仍保留：
 
+- `artifacts/RedFruitTracker-unsigned-device-v1.2.1-build4.ipa`
 - `artifacts/RedFruitTracker-unsigned-device-v2.ipa`
 - `artifacts/RedFruitTracker-unsigned-device-mvp.ipa`
 
@@ -33,5 +36,5 @@ CI 已生成 `RedFruitTracker-unsigned-device.ipa`。这是面向真实 iPhone �
 ## 验证顺序
 
 1. 先看 Simulator 构建包和 UI 测试截图，验证页面能启动。
-2. v1.2.2 CI 成功后，优先使用新生成的 `RedFruitTracker-unsigned-device-v1.2.2-build5.ipa`；历史版本 IPA 继续保留在 `artifacts` 目录。
+2. v1.2.2 CI 已成功，优先使用新生成的 `RedFruitTracker-unsigned-device-v1.2.2-build5.ipa`；历史版本 IPA 继续保留在 `artifacts` 目录。
 3. 在真实 iPhone 上验证作品添加、季集记录、进度、评分点评、分享扩展、红果跳转和本地数据保存。
