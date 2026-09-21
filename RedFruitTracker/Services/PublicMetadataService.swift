@@ -252,23 +252,23 @@ enum HTMLMetadata {
         return nil
     }
 
-    private static func scalarText(_ value: Any) -> String? {
-        if let text = value as? String {
+    private static func scalarText(_ rawValue: Any) -> String? {
+        if let text = rawValue as? String {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
-        if let number = value as? NSNumber, !(value is Bool) {
+        if let number = rawValue as? NSNumber, !(rawValue is Bool) {
             return number.stringValue
         }
-        if let values = value as? [String] {
+        if let values = rawValue as? [String] {
             let joined = values.joined(separator: ",")
             return joined.isEmpty ? nil : joined
         }
-        if let values = value as? [Any] {
+        if let values = rawValue as? [Any] {
             let texts = values.compactMap { scalarText($0) }
             return texts.isEmpty ? nil : texts.joined(separator: ",")
         }
-        if let dictionary = value as? [String: Any] {
+        if let dictionary = rawValue as? [String: Any] {
             for key in ["value", "text", "name", "score", "count"] {
                 if let nested = value(for: key, in: dictionary), let text = scalarText(nested) {
                     return text
