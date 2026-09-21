@@ -7,6 +7,8 @@ struct PublicSeriesMetadata {
     var intro: String?
     var tagsText: String?
     var officialRating: Double?
+    var officialRatingCount: Int?
+    var officialHeatScore: Double?
     var officialHeatText: String?
     var seasons: [PublicSeasonMetadata]
 }
@@ -182,17 +184,30 @@ actor PublicMetadataService {
         let title = TitleNormalizer.normalize(rawTitle) ?? TitleNormalizer.fallback(from: url)
         let coverCandidates = HTMLMetadata.coverCandidates(in: html, baseURL: url)
         let rankedCoverCandidates = CoverURLSelector.ranked(coverCandidates, title: title)
+        let officialCoverURL = HTMLMetadata.currentSeriesDetailCover(in: html, baseURL: url)?.url
         let metadata = PublicSeriesMetadata(
             title: title,
-            coverURL: CoverURLSelector.preferred(coverCandidates, title: title)?.url,
+            coverURL: officialCoverURL ?? CoverURLSelector.preferred(coverCandidates, title: title)?.url,
             coverCandidates: rankedCoverCandidates.prefix(8).map(\.url),
             intro: HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: html)
                 ?? HTMLMetadata.currentSeriesDetailValue(for: ["series_intro", "intro", "description", "abstract", "desc"], in: html),
-            tagsText: HTMLMetadata.value(for: ["keywords"], in: html)
-                ?? HTMLMetadata.currentSeriesDetailValue(for: ["tags", "tag_list", "series_tags", "category", "category_name", "type", "type_name", "genre", "genres", "label", "labels"], in: html),
+            tagsText: HTMLMetadata.currentSeriesDetailValue(for: ["tags", "tag_list", "series_tags", "category", "category_name", "type", "type_name", "genre", "genres", "label", "labels"], in: html)
+                ?? HTMLMetadata.value(for: ["keywords"], in: html),
             officialRating: HTMLMetadata.decimalValue(for: ["rating", "og:rating"], in: html)
+                ?? HTMLMetadata.currentSeriesSocialInfoDecimalValue(for: ["rating", "score", "series_score", "official_score"], in: html)
                 ?? HTMLMetadata.currentSeriesDetailDecimalValue(for: ["rating", "score", "series_score", "official_score"], in: html),
+            officialRatingCount: HTMLMetadata.currentSeriesSocialInfoIntValue(for: ["rating_count", "ratingCount"], in: html),
+            officialHeatScore: HTMLMetadata.currentSeriesSocialInfoDecimalValue(
+                for: ["score", "hot_score", "hot_value"],
+                nestedKeys: ["hot_score_data"],
+                in: html
+            ),
             officialHeatText: HTMLMetadata.value(for: ["heat", "og:heat"], in: html)
+                ?? HTMLMetadata.currentSeriesSocialInfoValue(
+                    for: ["text", "heat", "hot_text", "hot_value", "play_count", "total_play_count", "view_count"],
+                    nestedKeys: ["hot_score_data"],
+                    in: html
+                )
                 ?? HTMLMetadata.currentSeriesDetailValue(for: ["heat", "heat_score", "hot_value", "play_count", "total_play_count", "view_count"], in: html),
             seasons: HTMLMetadata.seasons(in: html, baseURL: url)
         )
@@ -230,6 +245,41 @@ enum HTMLMetadata {
         return Double(String(value[range]))
     }
 
+    static func currentSeriesSocialInfoValue(
+        for keys: [String],
+        nestedKeys: [String] = [],
+        in html: String
+    ) -> String? {
+        guard let socialInfo = currentSeriesSocialInfo(in: html) else { return nil }
+        for nestedKey in nestedKeys {
+            guard let nested = value(for: nestedKey, in: socialInfo) as? [String: Any] else { continue }
+            if let text = firstScalarText(for: keys, in: nested) { return text }
+        }
+        return firstScalarText(for: keys, in: socialInfo)
+    }
+
+    static func currentSeriesSocialInfoDecimalValue(
+        for keys: [String],
+        nestedKeys: [String] = [],
+        in html: String
+    ) -> Double? {
+        guard let value = currentSeriesSocialInfoValue(for: keys, nestedKeys: nestedKeys, in: html),
+              let regex = try? NSRegularExpression(pattern: #"\d+(?:\.\d+)?"#),
+              let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..<value.endIndex, in: value)),
+              let range = Range(match.range, in: value) else {
+            return nil
+        }
+        return Double(String(value[range]))
+    }
+
+    static func currentSeriesSocialInfoIntValue(for keys: [String], in html: String) -> Int? {
+        guard let value = currentSeriesSocialInfoValue(for: keys, in: html),
+              let number = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return nil
+        }
+        return number
+    }
+
     private static func currentSeriesDetail(in html: String) -> [String: Any]? {
         guard let routerData = routerData(in: html),
               let loaderData = routerData["loaderData"] as? [String: Any],
@@ -238,6 +288,25 @@ enum HTMLMetadata {
             return nil
         }
         return seriesDetail
+    }
+
+    private static func currentSeriesSocialInfo(in html: String) -> [String: Any]? {
+        guard let routerData = routerData(in: html),
+              let loaderData = routerData["loaderData"] as? [String: Any],
+              let detailPage = loaderData["detail_page"] as? [String: Any],
+              let socialInfo = detailPage["seriesSocialInfo"] as? [String: Any] else {
+            return nil
+        }
+        return socialInfo
+    }
+
+    private static func firstScalarText(for keys: [String], in dictionary: [String: Any]) -> String? {
+        for key in keys {
+            if let rawValue = value(for: key, in: dictionary), let text = scalarText(rawValue) {
+                return text
+            }
+        }
+        return nil
     }
 
     private static func value(for key: String, in dictionary: [String: Any]) -> Any? {
@@ -425,7 +494,7 @@ enum HTMLMetadata {
     }
 
     // The SSR payload identifies the current work; videoList contains related works.
-    private static func currentSeriesDetailCover(
+    static func currentSeriesDetailCover(
         in html: String,
         baseURL: URL
     ) -> CoverImageCandidate? {
@@ -573,6 +642,33 @@ enum HTMLMetadata {
         var seasonsByNumber: [Int: PublicSeasonMetadata] = [:]
         var unassignedEpisodes: [(number: Int, title: String?, url: String?, sourceVid: String)] = []
 
+        if let currentSeason = currentSeriesSeason(in: html, baseURL: baseURL) {
+            seasonsByNumber[currentSeason.seasonNumber] = currentSeason
+        }
+        for season in relatedSeasons(in: html, baseURL: baseURL) {
+            if let existing = seasonsByNumber[season.seasonNumber] {
+                var merged = existing
+                merged.episodeCount = max(merged.episodeCount, season.episodeCount)
+                if merged.episodes.count < season.episodes.count { merged.episodes = season.episodes }
+                if merged.sourceURL == nil { merged.sourceURL = season.sourceURL }
+                seasonsByNumber[season.seasonNumber] = merged
+            } else {
+                seasonsByNumber[season.seasonNumber] = season
+            }
+        }
+
+        // The SSR payload is authoritative for the current work. Avoid letting
+        // unrelated navigation links create phantom seasons or episodes.
+        if !seasonsByNumber.isEmpty {
+            return seasonsByNumber.values
+                .map { season in
+                    var copy = season
+                    copy.episodes.sort { $0.episodeNumber < $1.episodeNumber }
+                    return copy
+                }
+                .sorted { $0.seasonNumber < $1.seasonNumber }
+        }
+
         guard let anchorRegex = try? NSRegularExpression(
             pattern: #"<a\b[^>]*>.*?</a>"#,
             options: [.caseInsensitive, .dotMatchesLineSeparators]
@@ -700,6 +796,90 @@ enum HTMLMetadata {
             .sorted { $0.seasonNumber < $1.seasonNumber }
     }
 
+    private static func currentSeriesSeason(in html: String, baseURL: URL) -> PublicSeasonMetadata? {
+        guard let detail = currentSeriesDetail(in: html),
+              let name = value(for: "series_name", in: detail).flatMap({ scalarText($0) }) else {
+            return nil
+        }
+
+        let seasonNumber = firstSeasonNumber(in: name) ?? 1
+        let episodeCount = intValue(for: ["episode_cnt", "episode_count"], in: detail)
+            ?? nestedIntValue(
+                for: ["episode_cnt", "episode_total_cnt"],
+                nestedKeys: ["series_episode_info"],
+                in: detail
+            )
+            ?? 0
+        let sourceURL = URLComponents(url: baseURL, resolvingAgainstBaseURL: true)?.url?.absoluteString
+        let vidValues: [String] = (value(for: "vid_list", in: detail) as? [Any] ?? [])
+            .compactMap { scalarText($0) }
+        let episodes = vidValues.enumerated().map { index, sourceVid in
+            PublicEpisodeMetadata(
+                sourceVid: sourceVid,
+                episodeNumber: index + 1,
+                title: nil,
+                webURL: nil
+            )
+        }
+
+        guard episodeCount > 0 || !episodes.isEmpty else { return nil }
+        return PublicSeasonMetadata(
+            seasonNumber: seasonNumber,
+            title: "第\(seasonNumber)季",
+            episodeCount: max(episodeCount, episodes.count),
+            sourceURL: sourceURL,
+            episodes: episodes
+        )
+    }
+
+    private static func relatedSeasons(in html: String, baseURL: URL) -> [PublicSeasonMetadata] {
+        guard let routerData = routerData(in: html),
+              let loaderData = routerData["loaderData"] as? [String: Any],
+              let detailPage = loaderData["detail_page"] as? [String: Any],
+              let currentDetail = detailPage["seriesDetail"] as? [String: Any],
+              let currentName = value(for: "series_name", in: currentDetail).flatMap({ scalarText($0) }),
+              let videoList = detailPage["videoList"] as? [[String: Any]] else {
+            return []
+        }
+
+        let currentBase = seasonBaseName(currentName)
+        return videoList.compactMap { item in
+            guard let name = value(for: "series_name", in: item).flatMap({ scalarText($0) }),
+                  seasonBaseName(name) == currentBase,
+                  let seasonNumber = firstSeasonNumber(in: name),
+                  let seriesID = value(for: "series_id", in: item).flatMap({ scalarText($0) }) else {
+                return nil
+            }
+
+            let episodeCount = intValue(for: ["episode_cnt", "episode_count"], in: item)
+                ?? nestedIntValue(for: ["episode_cnt", "episode_total_cnt"], nestedKeys: ["series_episode_info"], in: item)
+                ?? 0
+            let vidValues = (value(for: "vid_list", in: item) as? [Any] ?? [])
+                .compactMap { scalarText($0) }
+            let episodes = vidValues.enumerated().map { index, sourceVid in
+                PublicEpisodeMetadata(sourceVid: sourceVid, episodeNumber: index + 1, title: nil, webURL: nil)
+            }
+            guard episodeCount > 0 || !episodes.isEmpty else { return nil }
+
+            var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: true)
+            components?.queryItems = [URLQueryItem(name: "series_id", value: seriesID)]
+            return PublicSeasonMetadata(
+                seasonNumber: seasonNumber,
+                title: TitleNormalizer.normalize(name) ?? "第\(seasonNumber)季",
+                episodeCount: max(episodeCount, episodes.count),
+                sourceURL: components?.url?.absoluteString,
+                episodes: episodes
+            )
+        }
+    }
+
+    private static func seasonBaseName(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: #"第\s*[0-9一二三四五六七八九十百零〇两]+\s*季"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\bseason\s*[0-9]+\b"#, with: "", options: [.regularExpression, .caseInsensitive])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private static func attribute(named name: String, in tag: String) -> String? {
         let pattern = "\\b\(name)\\s*=\\s*([\\\"'])(.*?)\\1"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
@@ -725,11 +905,22 @@ enum HTMLMetadata {
     }
 
     private static func firstSeasonNumber(in value: String) -> Int? {
-        firstNumber(in: value, patterns: [
+        if let number = firstNumber(in: value, patterns: [
             #"(?:第\s*)?([0-9]{1,3})\s*季"#,
             #"\bseason\s*([0-9]{1,3})\b"#,
             #"\bs([0-9]{1,3})\b"#
-        ])
+        ]) {
+            return number
+        }
+        guard let regex = try? NSRegularExpression(
+            pattern: #"第\s*([一二三四五六七八九十百零〇两]+)\s*季"#,
+            options: [.caseInsensitive]
+        ),
+              let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..<value.endIndex, in: value)),
+              let range = Range(match.range(at: 1), in: value) else {
+            return nil
+        }
+        return chineseNumeralValue(String(value[range]))
     }
 
     private static func firstEpisodeNumber(in value: String) -> Int? {
@@ -758,6 +949,48 @@ enum HTMLMetadata {
             return number
         }
         return nil
+    }
+
+    private static func intValue(for keys: [String], in dictionary: [String: Any]) -> Int? {
+        for key in keys {
+            guard let rawValue = value(for: key, in: dictionary) else { continue }
+            if let number = rawValue as? NSNumber, !(rawValue is Bool) {
+                return number.intValue
+            }
+            if let text = scalarText(rawValue), let number = Int(text) {
+                return number
+            }
+        }
+        return nil
+    }
+
+    private static func nestedIntValue(
+        for keys: [String],
+        nestedKeys: [String],
+        in dictionary: [String: Any]
+    ) -> Int? {
+        for nestedKey in nestedKeys {
+            guard let nested = value(for: nestedKey, in: dictionary) as? [String: Any] else { continue }
+            if let number = intValue(for: keys, in: nested) { return number }
+        }
+        return nil
+    }
+
+    private static func chineseNumeralValue(_ value: String) -> Int? {
+        let digits: [Character: Int] = [
+            "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3,
+            "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9
+        ]
+        if value == "十" { return 10 }
+        if value.hasPrefix("十") {
+            return 10 + (digits[value.dropFirst().first ?? "零"] ?? 0)
+        }
+        if value.contains("十"), let tensIndex = value.firstIndex(of: "十") {
+            let before = value[..<tensIndex].compactMap { digits[$0] }.first ?? 1
+            let after = value[value.index(after: tensIndex)...].compactMap { digits[$0] }.first ?? 0
+            return before * 10 + after
+        }
+        return value.compactMap { digits[$0] }.first
     }
 
     private static func queryInt(named names: [String], in url: URL) -> Int? {

@@ -167,6 +167,8 @@ private struct LibraryView: View {
                 if let intro = metadata.intro, !intro.isEmpty { item.intro = intro }
                 if let tagsText = metadata.tagsText, !tagsText.isEmpty { item.tagsText = tagsText }
                 if let rating = metadata.officialRating { item.officialRating = rating }
+                if let ratingCount = metadata.officialRatingCount { item.officialRatingCount = ratingCount }
+                if let heatScore = metadata.officialHeatScore { item.officialHeatScore = heatScore }
                 if let heat = metadata.officialHeatText, !heat.isEmpty { item.officialHeatText = heat }
                 item.updatedAt = .now
             } catch {
@@ -649,7 +651,9 @@ private struct AddSeriesView: View {
     @State private var tagsText = ""
     @State private var intro = ""
     @State private var officialRatingText = ""
+    @State private var officialRatingCount: Int?
     @State private var officialHeatText = ""
+    @State private var officialHeatScore: Double?
     @State private var shelfState = "unstarted"
     @State private var includeFirstSeason = true
     @State private var firstSeasonNumber = 1
@@ -852,7 +856,9 @@ private struct AddSeriesView: View {
                     if officialRatingText.isEmpty, let rating = metadata.officialRating {
                         officialRatingText = String(format: "%.1f", rating)
                     }
+                    officialRatingCount = metadata.officialRatingCount
                     if officialHeatText.isEmpty { officialHeatText = metadata.officialHeatText ?? "" }
+                    officialHeatScore = metadata.officialHeatScore
                     detectedSeasons = metadata.seasons
                     includeFirstSeason = metadata.seasons.isEmpty
                     let coverNotice = metadata.coverURL == nil && !metadata.coverCandidates.isEmpty
@@ -906,6 +912,8 @@ private struct AddSeriesView: View {
                 intro: intro.trimmingCharacters(in: .whitespacesAndNewlines),
                 tagsText: tagsText.trimmingCharacters(in: .whitespacesAndNewlines),
                 officialRating: Double(officialRatingText),
+                officialRatingCount: officialRatingCount,
+                officialHeatScore: officialHeatScore,
                 officialHeatText: officialHeatText.nilIfBlank
             )
             modelContext.insert(record)
@@ -951,6 +959,8 @@ private struct AddSeriesView: View {
             if Double(officialRatingText) != nil || officialHeatText.nilIfBlank != nil {
                 let snapshot = OfficialSnapshot(sourceSeriesID: sourceID)
                 snapshot.officialRating = Double(officialRatingText)
+                snapshot.officialRatingCount = officialRatingCount
+                snapshot.officialHeatScore = officialHeatScore
                 snapshot.officialHeatText = officialHeatText.nilIfBlank
                 modelContext.insert(snapshot)
             }

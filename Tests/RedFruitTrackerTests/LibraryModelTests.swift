@@ -112,6 +112,22 @@ final class LibraryModelTests: XCTestCase {
         )
     }
 
+    func testCurrentSeriesCoverIsSelectedDirectlyBeforeGenericImageRanking() {
+        let html = """
+        <script>
+        _ROUTER_DATA = {"loaderData":{"detail_page":{"seriesDetail":{"series_name":"当前作品第三季","series_cover":"https:\\u002F\\u002Fp3-novel.byteimg.com\\u002Fnovel-pic\\u002Fofficial-cover.image"}}}};
+        </script>
+        """
+
+        XCTAssertEqual(
+            HTMLMetadata.currentSeriesDetailCover(
+                in: html,
+                baseURL: URL(string: "https://hongguoduanju.com/detail")!
+            )?.url,
+            "https://p3-novel.byteimg.com/novel-pic/official-cover.image"
+        )
+    }
+
     func testOfficialDetailHTMLExtractsPreloadedAndStructuredPoster() {
         let title = "糯糯下山，师兄们都慌了第三季"
         let poster = "https://p3-novel.byteimg.com/novel-pic/poster.webp"
@@ -194,6 +210,35 @@ final class LibraryModelTests: XCTestCase {
             CoverURLSelector.preferred(candidates, title: title)?.url,
             expected
         )
+    }
+
+    func testOfficialDetailFixtureExtractsSocialFieldsAndSeasonEpisodeTotals() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sampleURL = projectRoot
+            .appendingPathComponent("Tests")
+            .appendingPathComponent("RedFruitTrackerTests")
+            .appendingPathComponent("Fixtures")
+            .appendingPathComponent("hongguoduanju-series-detail.html")
+        let html = try String(contentsOf: sampleURL, encoding: .utf8)
+
+        XCTAssertEqual(HTMLMetadata.currentSeriesSocialInfoDecimalValue(for: ["rating"], in: html), 9)
+        XCTAssertEqual(HTMLMetadata.currentSeriesSocialInfoIntValue(for: ["rating_count"], in: html), 5611)
+        XCTAssertEqual(
+            HTMLMetadata.currentSeriesSocialInfoValue(for: ["text"], nestedKeys: ["hot_score_data"], in: html),
+            "10116万热度"
+        )
+
+        let seasons = HTMLMetadata.seasons(
+            in: html,
+            baseURL: URL(string: "https://hongguoduanju.com/detail?series_id=7685224734895655960")!
+        )
+        XCTAssertEqual(seasons.map(\.seasonNumber), [2, 3])
+        XCTAssertEqual(seasons.first(where: { $0.seasonNumber == 3 })?.episodeCount, 152)
+        XCTAssertEqual(seasons.first(where: { $0.seasonNumber == 3 })?.episodes.count, 3)
+        XCTAssertEqual(seasons.first(where: { $0.seasonNumber == 2 })?.episodeCount, 128)
     }
 
     func testSSRCurrentSeriesMetadataExposesOfficialFields() {

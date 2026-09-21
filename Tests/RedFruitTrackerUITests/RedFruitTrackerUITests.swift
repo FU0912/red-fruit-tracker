@@ -66,6 +66,14 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["official-rating"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["official-heat"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["official-tags"].exists)
+        XCTAssertGreaterThanOrEqual(
+            app.descendants(matching: .any)["official-rating"].frame.minX,
+            detailCover.frame.maxX - 4
+        )
+        XCTAssertGreaterThanOrEqual(
+            app.descendants(matching: .any)["official-heat"].frame.minX,
+            detailCover.frame.maxX - 4
+        )
 
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)

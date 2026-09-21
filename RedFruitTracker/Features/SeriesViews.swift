@@ -83,7 +83,9 @@ struct SeriesDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("更新公开资料", systemImage: "arrow.clockwise", action: refreshMetadata)
+                    Button("更新公开资料", systemImage: "arrow.clockwise") {
+                        refreshMetadata(showNotice: true)
+                    }
                         .disabled(isRefreshing || series.sourceURL == nil)
                     Button("编辑作品", systemImage: "pencil") {
                         isShowingEdit = true
@@ -122,7 +124,7 @@ struct SeriesDetailView: View {
                 selectedSeasonNumber = personalRecord?.currentSeasonNumber ?? seasons.first?.seasonNumber ?? 0
             }
             if shouldAutoRefreshMetadata {
-                refreshMetadata()
+                refreshMetadata(showNotice: false)
             }
         }
     }
@@ -158,13 +160,14 @@ struct SeriesDetailView: View {
                     Text(totalEpisodeCount > 0 ? "全\(totalEpisodeCount)集" : "集数待补")
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.68))
+
+                    officialMetadataSection
                 }
                 .frame(maxWidth: .infinity, minHeight: 184, alignment: .topLeading)
                 .layoutPriority(1)
             }
             .frame(maxWidth: .infinity, minHeight: 184, alignment: .topLeading)
 
-            officialMetadataSection
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 6)
@@ -426,10 +429,12 @@ struct SeriesDetailView: View {
         }
     }
 
-    private func refreshMetadata() {
+    private func refreshMetadata(showNotice: Bool) {
         guard let sourceURL = series.sourceURL,
               let url = URL(string: sourceURL) else {
-            notice = "这部作品没有网页链接，无法更新公开资料。"
+            if showNotice {
+                notice = "这部作品没有网页链接，无法更新公开资料。"
+            }
             return
         }
 
@@ -443,25 +448,33 @@ struct SeriesDetailView: View {
                     if let intro = metadata.intro { series.intro = intro }
                     if let tagsText = metadata.tagsText { series.tagsText = tagsText }
                     if let rating = metadata.officialRating { series.officialRating = rating }
+                    if let ratingCount = metadata.officialRatingCount { series.officialRatingCount = ratingCount }
+                    if let heatScore = metadata.officialHeatScore { series.officialHeatScore = heatScore }
                     if let heat = metadata.officialHeatText { series.officialHeatText = heat }
                     mergePublicSeasons(metadata.seasons)
                     series.updatedAt = .now
 
                     let snapshot = OfficialSnapshot(sourceSeriesID: series.sourceSeriesID)
                     snapshot.officialRating = metadata.officialRating ?? series.officialRating
+                    snapshot.officialRatingCount = metadata.officialRatingCount ?? series.officialRatingCount
+                    snapshot.officialHeatScore = metadata.officialHeatScore ?? series.officialHeatScore
                     snapshot.officialHeatText = metadata.officialHeatText ?? series.officialHeatText
                     snapshot.episodeCount = metadata.seasons.map(\.episodeCount).reduce(0, +)
                     modelContext.insert(snapshot)
                     try? modelContext.save()
                     isRefreshing = false
-                    notice = metadata.seasons.isEmpty
-                        ? "公开资料已更新，并保存了一条数据快照。"
-                        : "公开资料、季集信息已更新，并保存了一条数据快照。"
+                    if showNotice {
+                        notice = metadata.seasons.isEmpty
+                            ? "公开资料已更新，并保存了一条数据快照。"
+                            : "公开资料、季集信息已更新，并保存了一条数据快照。"
+                    }
                 }
             } catch {
                 await MainActor.run {
                     isRefreshing = false
-                    notice = "没有读取到可更新的公开资料，请检查链接或稍后重试。"
+                    if showNotice {
+                        notice = "没有读取到可更新的公开资料，请检查链接或稍后重试。"
+                    }
                 }
             }
         }
@@ -617,7 +630,7 @@ private struct EpisodeProgressGrid: View {
                                 Text("\(range.start)-\(range.end)")
                                     .font(.subheadline.weight(isSelected ? .semibold : .regular))
                                     .foregroundStyle(isSelected ? Color.white : secondaryText)
-                                    .frame(minWidth: 72, minHeight: 48)
+                                    .frame(minWidth: 64, minHeight: 44)
                                     .background(isSelected ? DetailTheme.accent : DetailTheme.cell)
                                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                             }
@@ -634,8 +647,8 @@ private struct EpisodeProgressGrid: View {
                     .foregroundStyle(secondaryText)
             } else {
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 56, maximum: 72), spacing: 12)],
-                    spacing: 12
+                    columns: [GridItem(.adaptive(minimum: 48, maximum: 56), spacing: 8)],
+                    spacing: 8
                 ) {
                     ForEach(visibleNumbers, id: \.self) { number in
                         let episode = episodes.first(where: { $0.episodeNumber == number })
@@ -648,7 +661,7 @@ private struct EpisodeProgressGrid: View {
                         } label: {
                             Text("\(number)")
                                 .font(.body.weight(.semibold))
-                                .frame(maxWidth: .infinity, minHeight: 52)
+                                .frame(maxWidth: .infinity, minHeight: 44)
                                 .foregroundStyle(isWatched || isCurrent ? Color.white : primaryText)
                                 .background(
                                     isCurrent
@@ -1227,7 +1240,7 @@ private struct RatingStars: View {
     var usesDarkAppearance = false
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 4) {
             ForEach(1...5, id: \.self) { value in
                 Button {
                     rating = Double(value)
