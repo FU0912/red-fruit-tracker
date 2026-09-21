@@ -2,17 +2,18 @@
 
 ## 最近一次已验证包
 
-当前代码版本为 `v1.2.5` / build `8`；本轮 CI 正在验证。最近一次已通过的 CI 为 `v1.2.4` / build `7`，Run `35556208404`。
+当前代码版本为 `v1.2.5` / build `8`；本轮 CI 已通过：Run `35556774826`。
 
-artifacts/RedFruitTracker-unsigned-device.ipa
+`artifacts/RedFruitTracker-unsigned-device-v1.2.5-build8.ipa`
 
-已验证包体 777922 字节，SHA-256：
+已验证包体 805152 字节，SHA-256：
 
-6AE5689F4D8000F84608013F8CA2176F0D1776F4BCCAD7BC02EF952B60CFFC7F
+05CBA12DDAB347644BB60F3A15C7D80C48E97092D3E85A345F9A8B5AF461A957
 
 旧版本仍保留：
 
 - `artifacts/RedFruitTracker-unsigned-device-v1.2.1-build4.ipa`
+- `artifacts/RedFruitTracker-unsigned-device-v1.2.4-build7.ipa`（本轮之前的已验证版本）
 - `artifacts/RedFruitTracker-unsigned-device-v2.ipa`
 - `artifacts/RedFruitTracker-unsigned-device-mvp.ipa`
 
@@ -20,7 +21,7 @@ artifacts/RedFruitTracker-unsigned-device.ipa
 
 GitHub Actions 当前生成的是 `RedFruitTracker-simulator.app.zip`。它是 iOS Simulator 构建包，只能在 macOS 的 iOS Simulator 中安装，不能直接安装到真实 iPhone。
 
-CI 已生成 `RedFruitTracker-unsigned-device.ipa`。这是面向真实 iPhone 架构的未签名测试包，不能直接安装；可以在 Windows 上用 Sideloadly 或 AltStore 由你自己的 Apple ID 进行本地签名。免费 Apple ID 通常有设备数和有效期限制，分享扩展/App Groups 也可能需要付费开发者账号。
+CI 已生成 `RedFruitTracker-unsigned-device-v1.2.5-build8.ipa`。这是面向真实 iPhone 架构的未签名测试包，不能直接安装；可以在 Windows 上用 Sideloadly 或 AltStore 由你自己的 Apple ID 进行本地签名。免费 Apple ID 通常有设备数和有效期限制，分享扩展/App Groups 也可能需要付费开发者账号。
 
 ## 真实 iPhone 安装包
 
@@ -36,5 +37,5 @@ CI 已生成 `RedFruitTracker-unsigned-device.ipa`。这是面向真实 iPhone �
 ## 验证顺序
 
 1. 先看 Simulator 构建包和 UI 测试截图，验证页面能启动。
-2. 等 v1.2.3 / build 6 CI 成功后，优先使用本轮生成的 `RedFruitTracker-unsigned-device.ipa`；历史版本 IPA 继续保留在 `artifacts` 目录。
+2. 优先使用 `v1.2.5` / build `8` 的 `RedFruitTracker-unsigned-device-v1.2.5-build8.ipa`；历史版本 IPA 继续保留在 `artifacts` 目录。
 3. 在真实 iPhone 上验证作品添加、季集记录、进度、评分点评、分享扩展、红果跳转和本地数据保存。

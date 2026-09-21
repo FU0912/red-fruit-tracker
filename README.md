@@ -13,7 +13,7 @@
 - iOS Simulator：在 CI 中执行 UI 测试并保存截图和日志。
 - 真实 iPhone：只用于 Share Extension、红果跳转和系统行为的阶段性验收。
 
-本项目不依赖本地 macOS 虚拟机。最新已验证的未签名真机包来自 GitHub Actions Run `35556208404`；`v1.2.5` 会由本轮 CI 生成，历史版本仍保留在 `artifacts` 目录。
+本项目不依赖本地 macOS 虚拟机。最新已验证的未签名真机包来自 GitHub Actions Run `35556774826`，文件为 `artifacts/RedFruitTracker-unsigned-device-v1.2.5-build8.ipa`；历史版本仍保留在 `artifacts` 目录。
 
 ## 生成项目
 
@@ -36,7 +36,9 @@ xcodegen generate --spec project.yml
 
 签名、TestFlight 和真实设备安装暂不自动化，等模拟器构建稳定后再配置。
 
-最近一次 CI Run 为 `35556208404`，13 个单元测试和 2 个 UI 测试全部通过，并生成模拟器包和无签名真机 IPA。当前版本新增首页/详情页固定布局、官方字段稳定显示和返回路径回归断言；CI fixture 使用占位封面，因此截图中的占位图不代表真实红果分享链接的最终封面。
+最近一次 CI Run 为 `35556774826`，13 个单元测试和 2 个 UI 测试全部通过，并生成模拟器包和无签名真机 IPA。当前版本新增首页/详情页固定布局、官方字段稳定显示、返回路径回归断言和详情页底部安全留白；CI fixture 使用占位封面，因此截图中的占位图不代表真实红果分享链接的最终封面。
+
+v1.2.5 IPA：805152 字节；SHA-256 为 `05CBA12DDAB347644BB60F3A15C7D80C48E97092D3E85A345F9A8B5AF461A957`。
 
 ## 数据边界
 
