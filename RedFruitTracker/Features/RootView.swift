@@ -234,6 +234,7 @@ private struct SeriesCard: View {
                         )
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 if !tags.isEmpty {
                     TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
@@ -241,7 +242,7 @@ private struct SeriesCard: View {
                             TagPill(text: tag)
                         }
                     }
-                    .frame(maxHeight: 52, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, maxHeight: 52, alignment: .topLeading)
                     .clipped()
                 }
 
@@ -396,34 +397,48 @@ func tagValues(_ value: String) -> [String] {
 struct CoverView: View {
     let urlString: String?
 
+    let width: CGFloat
+    let height: CGFloat
+
+    init(urlString: String?, width: CGFloat = 92, height: CGFloat = 128) {
+        self.urlString = urlString
+        self.width = width
+        self.height = height
+    }
+
     var body: some View {
-        Group {
+        ZStack {
+            fallback
+
             if let urlString, let url = URL(string: urlString) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
-                        image.resizable().scaledToFill()
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: width, height: height)
+                            .clipped()
                     case .failure:
-                        fallback
+                        EmptyView()
                     case .empty:
-                        ZStack {
-                            fallback
-                            ProgressView()
-                        }
+                        ProgressView()
                     @unknown default:
-                        fallback
+                        EmptyView()
                     }
                 }
             } else {
-                fallback
+                EmptyView()
             }
         }
+        .frame(width: width, height: height)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(.quaternary, lineWidth: 0.5)
         }
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var fallback: some View {
@@ -657,8 +672,7 @@ private struct AddSeriesView: View {
                                     Button {
                                         coverURLText = candidate
                                     } label: {
-                                        CoverView(urlString: candidate)
-                                            .frame(width: 72, height: 104)
+                                        CoverView(urlString: candidate, width: 72, height: 104)
                                             .overlay {
                                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                                                     .stroke(

@@ -196,6 +196,31 @@ final class LibraryModelTests: XCTestCase {
         )
     }
 
+    func testSSRCurrentSeriesMetadataExposesOfficialFields() {
+        let html = #"""
+        <script>
+        _ROUTER_DATA = {
+          "loaderData": {
+            "detail_page": {
+              "seriesDetail": {
+                "series_name": "测试作品",
+                "series_intro": "这是公开简介。",
+                "score": 8.8,
+                "heat": "3930万",
+                "tags": ["修仙", "爽剧"]
+              }
+            }
+          }
+        };
+        </script>
+        """#
+
+        XCTAssertEqual(HTMLMetadata.currentSeriesDetailValue(for: ["series_intro"], in: html), "这是公开简介。")
+        XCTAssertEqual(HTMLMetadata.currentSeriesDetailDecimalValue(for: ["score"], in: html), 8.8)
+        XCTAssertEqual(HTMLMetadata.currentSeriesDetailValue(for: ["heat"], in: html), "3930万")
+        XCTAssertEqual(HTMLMetadata.currentSeriesDetailValue(for: ["tags"], in: html), "修仙,爽剧")
+    }
+
     func testCoverSelectorDoesNotAutoSelectLowConfidenceUIImage() {
         let candidates = [
             CoverImageCandidate(

@@ -42,6 +42,9 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["基本信息"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["选集"].exists)
         XCTAssertTrue(app.staticTexts["全189集"].exists)
+        XCTAssertTrue(app.staticTexts["8.8分"].exists)
+        XCTAssertTrue(app.staticTexts["3930万热度"].exists)
+        XCTAssertTrue(app.staticTexts["修仙"].exists)
         XCTAssertTrue(app.buttons["第1集，已看，当前"].exists)
 
         let screenshot = XCUIScreen.main.screenshot()
@@ -49,5 +52,9 @@ final class RedFruitTrackerUITests: XCTestCase {
         attachment.name = "series-detail-layout"
         attachment.lifetime = .keepAlways
         add(attachment)
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars["漫剧记录"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch.exists)
     }
 }

@@ -71,11 +71,12 @@ struct SeriesDetailView: View {
             .padding(.horizontal, 16)
             .padding(.top, 10)
             .padding(.bottom, 8)
-            .background(.ultraThinMaterial)
+            .background(DetailTheme.background.opacity(0.97))
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(DetailTheme.background, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
@@ -120,50 +121,65 @@ struct SeriesDetailView: View {
                 selectedSeasonNumber = personalRecord?.currentSeasonNumber ?? seasons.first?.seasonNumber ?? 0
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     private var detailHeader: some View {
-        HStack(alignment: .top, spacing: 16) {
-            CoverView(urlString: series.coverURL)
-                .frame(width: 132, height: 184)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 16) {
+                CoverView(urlString: series.coverURL, width: 132, height: 184)
+                    .accessibilityIdentifier("series-detail-cover")
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text(series.title)
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(4)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(series.title)
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                Text(totalEpisodeCount > 0 ? "全\(totalEpisodeCount)集" : "集数待补")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.68))
-
-                TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
-                    if let rating = series.officialRating {
-                        DetailPill(text: String(format: "%.1f分", rating), systemImage: "star.fill")
-                    }
-                    if let heat = series.officialHeatText, !heat.isEmpty {
-                        DetailPill(
-                            text: heat.hasSuffix("热度") ? heat : "\(heat)热度",
-                            systemImage: "flame.fill"
-                        )
-                    }
+                    Text(totalEpisodeCount > 0 ? "全\(totalEpisodeCount)集" : "集数待补")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.68))
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+            }
 
-                if !detailTags.isEmpty {
-                    TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
-                        ForEach(detailTags, id: \.self) { tag in
-                            DetailTagPill(text: tag)
+            if hasOfficialMetadata {
+                VStack(alignment: .leading, spacing: 10) {
+                    TagFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+                        if let rating = series.officialRating {
+                            DetailPill(text: String(format: "%.1f分", rating), systemImage: "star.fill")
+                                .accessibilityLabel(String(format: "官方评分 %.1f分", rating))
+                        }
+                        if let heat = series.officialHeatText, !heat.isEmpty {
+                            DetailPill(
+                                text: heat.hasSuffix("热度") ? heat : "\(heat)热度",
+                                systemImage: "flame.fill"
+                            )
                         }
                     }
-                    .frame(maxHeight: 96, alignment: .topLeading)
-                    .clipped()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if !detailTags.isEmpty {
+                        TagFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+                            ForEach(detailTags, id: \.self) { tag in
+                                DetailTagPill(text: tag)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 6)
+    }
+
+    private var hasOfficialMetadata: Bool {
+        series.officialRating != nil
+            || !(series.officialHeatText?.isEmpty ?? true)
+            || !detailTags.isEmpty
     }
 
     private var introSection: some View {
@@ -241,7 +257,7 @@ struct SeriesDetailView: View {
                 .pickerStyle(.menu)
                 .tint(.white)
 
-                EpisodeProgressGrid(series: series, season: selectedSeason)
+                EpisodeProgressGrid(series: series, season: selectedSeason, usesDarkAppearance: true)
             } else {
                 Text("还没有季资料。请先更新公开资料，或从右上角添加一季。")
                     .font(.subheadline)
@@ -265,8 +281,12 @@ struct SeriesDetailView: View {
                 .pickerStyle(.menu)
                 .tint(.white)
 
-                RatingStars(rating: ratingBinding(for: personalRecord))
-                ReviewEditor(text: reviewBinding(for: personalRecord), placeholder: "写下整部漫剧的感受")
+                RatingStars(rating: ratingBinding(for: personalRecord), usesDarkAppearance: true)
+                ReviewEditor(
+                    text: reviewBinding(for: personalRecord),
+                    placeholder: "写下整部漫剧的感受",
+                    usesDarkAppearance: true
+                )
 
                 Button("保存总记录") {
                     personalRecord.updatedAt = .now
@@ -497,10 +517,10 @@ private struct DetailTagPill: View {
 
 private struct EpisodeProgressGrid: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.colorScheme) private var colorScheme
 
     let series: SeriesRecord
     let season: SeasonRecord
+    var usesDarkAppearance = false
 
     @Query(sort: \EpisodeRecord.episodeNumber)
     private var allEpisodes: [EpisodeRecord]
@@ -634,15 +654,15 @@ private struct EpisodeProgressGrid: View {
     }
 
     private var primaryText: Color {
-        colorScheme == .dark ? .white : .primary
+        usesDarkAppearance ? .white : .primary
     }
 
     private var secondaryText: Color {
-        colorScheme == .dark ? .white.opacity(0.62) : .secondary
+        usesDarkAppearance ? .white.opacity(0.62) : .secondary
     }
 
     private var cellBackground: Color {
-        colorScheme == .dark ? DetailTheme.cell : Color(uiColor: .tertiarySystemGroupedBackground)
+        usesDarkAppearance ? DetailTheme.cell : Color(uiColor: .tertiarySystemGroupedBackground)
     }
 
     private func toggleEpisode(_ number: Int, existing: EpisodeRecord?) {
@@ -1149,35 +1169,35 @@ private struct SectionTitle: View {
 }
 
 private struct ReviewEditor: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     @Binding var text: String
     let placeholder: String
+    var usesDarkAppearance = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             if text.isEmpty {
                 Text(placeholder)
-                    .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.42) : Color(uiColor: .secondaryLabel))
+                    .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.42) : Color(uiColor: .secondaryLabel))
                     .padding(.top, 8)
                     .padding(.leading, 5)
             }
             TextEditor(text: $text)
                 .frame(minHeight: 100)
                 .scrollContentBackground(.hidden)
-                .foregroundStyle(colorScheme == .dark ? Color.white : Color.primary)
+                .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
         }
-        .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color(uiColor: .tertiarySystemGroupedBackground))
+        .background(usesDarkAppearance ? Color.white.opacity(0.08) : Color(uiColor: .tertiarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(colorScheme == .dark ? Color.white.opacity(0.14) : Color(uiColor: .separator), lineWidth: 0.5)
+                .strokeBorder(usesDarkAppearance ? Color.white.opacity(0.14) : Color(uiColor: .separator), lineWidth: 0.5)
         }
     }
 }
 
 private struct RatingStars: View {
     @Binding var rating: Double?
+    var usesDarkAppearance = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1187,7 +1207,7 @@ private struct RatingStars: View {
                 } label: {
                     Image(systemName: (rating ?? 0) >= Double(value) ? "star.fill" : "star")
                         .font(.title2)
-                        .foregroundStyle((rating ?? 0) >= Double(value) ? .yellow : .secondary)
+                        .foregroundStyle((rating ?? 0) >= Double(value) ? .yellow : (usesDarkAppearance ? Color.white.opacity(0.62) : .secondary))
                 }
                 .buttonStyle(.plain)
                 .frame(minWidth: 44, minHeight: 44)
@@ -1197,7 +1217,7 @@ private struct RatingStars: View {
                     rating = nil
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.62) : .secondary)
             }
         }
     }

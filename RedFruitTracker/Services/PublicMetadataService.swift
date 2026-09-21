@@ -177,6 +177,7 @@ actor PublicMetadataService {
 
         let html = String(decoding: data, as: UTF8.self)
         let rawTitle = HTMLMetadata.value(for: ["og:title", "twitter:title"], in: html)
+            ?? HTMLMetadata.currentSeriesDetailValue(for: ["series_name", "title", "name"], in: html)
             ?? HTMLMetadata.title(in: html)
         let title = TitleNormalizer.normalize(rawTitle) ?? TitleNormalizer.fallback(from: url)
         let coverCandidates = HTMLMetadata.coverCandidates(in: html, baseURL: url)
@@ -185,10 +186,14 @@ actor PublicMetadataService {
             title: title,
             coverURL: CoverURLSelector.preferred(coverCandidates, title: title)?.url,
             coverCandidates: rankedCoverCandidates.prefix(8).map(\.url),
-            intro: HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: html),
-            tagsText: HTMLMetadata.value(for: ["keywords"], in: html),
-            officialRating: HTMLMetadata.decimalValue(for: ["rating", "og:rating"], in: html),
-            officialHeatText: HTMLMetadata.value(for: ["heat", "og:heat"], in: html),
+            intro: HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: html)
+                ?? HTMLMetadata.currentSeriesDetailValue(for: ["series_intro", "intro", "description", "abstract", "desc"], in: html),
+            tagsText: HTMLMetadata.value(for: ["keywords"], in: html)
+                ?? HTMLMetadata.currentSeriesDetailValue(for: ["tags", "tag_list", "series_tags", "category", "category_name", "type", "type_name", "genre", "genres", "label", "labels"], in: html),
+            officialRating: HTMLMetadata.decimalValue(for: ["rating", "og:rating"], in: html)
+                ?? HTMLMetadata.currentSeriesDetailDecimalValue(for: ["rating", "score", "series_score", "official_score"], in: html),
+            officialHeatText: HTMLMetadata.value(for: ["heat", "og:heat"], in: html)
+                ?? HTMLMetadata.currentSeriesDetailValue(for: ["heat", "heat_score", "hot_value", "play_count", "total_play_count", "view_count"], in: html),
             seasons: HTMLMetadata.seasons(in: html, baseURL: url)
         )
 
@@ -204,6 +209,75 @@ actor PublicMetadataService {
 }
 
 enum HTMLMetadata {
+    static func currentSeriesDetailValue(for keys: [String], in html: String) -> String? {
+        guard let detail = currentSeriesDetail(in: html) else { return nil }
+
+        for key in keys {
+            if let value = value(for: key, in: detail), let text = scalarText(value) {
+                return text
+            }
+        }
+        return nil
+    }
+
+    static func currentSeriesDetailDecimalValue(for keys: [String], in html: String) -> Double? {
+        guard let value = currentSeriesDetailValue(for: keys, in: html),
+              let regex = try? NSRegularExpression(pattern: #"\d+(?:\.\d+)?"#),
+              let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..<value.endIndex, in: value)),
+              let range = Range(match.range, in: value) else {
+            return nil
+        }
+        return Double(String(value[range]))
+    }
+
+    private static func currentSeriesDetail(in html: String) -> [String: Any]? {
+        guard let routerData = routerData(in: html),
+              let loaderData = routerData["loaderData"] as? [String: Any],
+              let detailPage = loaderData["detail_page"] as? [String: Any],
+              let seriesDetail = detailPage["seriesDetail"] as? [String: Any] else {
+            return nil
+        }
+        return seriesDetail
+    }
+
+    private static func value(for key: String, in dictionary: [String: Any]) -> Any? {
+        if let value = dictionary[key] { return value }
+        if let match = dictionary.first(where: { $0.key.caseInsensitiveCompare(key) == .orderedSame }) {
+            return match.value
+        }
+        for nestedKey in ["info", "data", "metadata", "series_info"] {
+            guard let nested = dictionary[nestedKey] as? [String: Any] else { continue }
+            if let value = value(for: key, in: nested) { return value }
+        }
+        return nil
+    }
+
+    private static func scalarText(_ value: Any) -> String? {
+        if let text = value as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let number = value as? NSNumber, !(value is Bool) {
+            return number.stringValue
+        }
+        if let values = value as? [String] {
+            let joined = values.joined(separator: ",")
+            return joined.isEmpty ? nil : joined
+        }
+        if let values = value as? [Any] {
+            let texts = values.compactMap { scalarText($0) }
+            return texts.isEmpty ? nil : texts.joined(separator: ",")
+        }
+        if let dictionary = value as? [String: Any] {
+            for key in ["value", "text", "name", "score", "count"] {
+                if let nested = value(for: key, in: dictionary), let text = scalarText(nested) {
+                    return text
+                }
+            }
+        }
+        return nil
+    }
+
     static func value(for keys: [String], in html: String) -> String? {
         let metaPattern = #"<meta\b[^>]*>"#
         guard let regex = try? NSRegularExpression(pattern: metaPattern, options: [.caseInsensitive]) else {
