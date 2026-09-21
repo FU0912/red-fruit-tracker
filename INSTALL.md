@@ -2,13 +2,13 @@
 
 ## 最近一次已验证包
 
-当前代码版本为 `v1.2.6` / build `9`；本轮正在等待 GitHub Actions 验证。
+当前代码版本为 `v1.2.6` / build `9`；本轮 CI 已通过：Run `35570088726`。
 
-CI 成功后使用：`artifacts/RedFruitTracker-unsigned-device-v1.2.6-build9.ipa`
+`artifacts/RedFruitTracker-unsigned-device-v1.2.6-build9.ipa`
 
-已验证包体 805152 字节，SHA-256：
+已验证包体 826323 字节，SHA-256：
 
-05CBA12DDAB347644BB60F3A15C7D80C48E97092D3E85A345F9A8B5AF461A957
+9411BAC95C1BF324BAB2DA0E948C09D37371DC1DF3106DA48D8BDBFFACA38772
 
 旧版本仍保留：
 
