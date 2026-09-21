@@ -31,6 +31,14 @@ final class RedFruitTrackerUITests: XCTestCase {
         let title = app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 5))
 
+        let libraryCover = app.descendants(matching: .any)["series-card-cover"].firstMatch
+        let libraryTitle = app.staticTexts["series-card-title"].firstMatch
+        XCTAssertTrue(libraryCover.exists)
+        XCTAssertTrue(libraryTitle.exists)
+        XCTAssertLessThanOrEqual(libraryCover.frame.width, 100)
+        XCTAssertGreaterThan(libraryCover.frame.height, libraryCover.frame.width)
+        XCTAssertGreaterThanOrEqual(libraryTitle.frame.minX, libraryCover.frame.maxX - 4)
+
         let libraryScreenshot = XCUIScreen.main.screenshot()
         let libraryAttachment = XCTAttachment(screenshot: libraryScreenshot)
         libraryAttachment.name = "series-library-card"
@@ -46,6 +54,18 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["3930万热度"].exists)
         XCTAssertTrue(app.staticTexts["修仙"].exists)
         XCTAssertTrue(app.buttons["第1集，已看，当前"].exists)
+
+        let detailCover = app.descendants(matching: .any)["series-detail-cover"].firstMatch
+        let detailTitle = app.staticTexts["series-detail-title"].firstMatch
+        XCTAssertTrue(detailCover.exists)
+        XCTAssertTrue(detailTitle.exists)
+        XCTAssertLessThanOrEqual(detailCover.frame.width, 140)
+        XCTAssertGreaterThan(detailCover.frame.height, detailCover.frame.width)
+        XCTAssertGreaterThanOrEqual(detailTitle.frame.minX, detailCover.frame.maxX - 4)
+
+        XCTAssertTrue(app.descendants(matching: .any)["official-rating"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["official-heat"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["official-tags"].exists)
 
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)

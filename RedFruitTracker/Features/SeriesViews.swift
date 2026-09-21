@@ -120,13 +120,30 @@ struct SeriesDetailView: View {
             if selectedSeasonNumber == 0 {
                 selectedSeasonNumber = personalRecord?.currentSeasonNumber ?? seasons.first?.seasonNumber ?? 0
             }
+            if shouldAutoRefreshMetadata {
+                refreshMetadata()
+            }
         }
+    }
+
+    private var shouldAutoRefreshMetadata: Bool {
+        guard series.sourceURL != nil,
+              !ProcessInfo.processInfo.arguments.contains("--ui-testing") else {
+            return false
+        }
+        return series.coverURL == nil
+            || series.intro.isEmpty
+            || series.tagsText.isEmpty
+            || series.officialRating == nil
+            || series.officialHeatText == nil
+            || seasons.isEmpty
     }
 
     private var detailHeader: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 16) {
                 CoverView(urlString: series.coverURL, width: 132, height: 184)
+                    .fixedSize()
                     .accessibilityIdentifier("series-detail-cover")
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -135,50 +152,60 @@ struct SeriesDetailView: View {
                         .foregroundStyle(.white)
                         .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("series-detail-title")
 
                     Text(totalEpisodeCount > 0 ? "全\(totalEpisodeCount)集" : "集数待补")
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.68))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: 184, alignment: .topLeading)
                 .layoutPriority(1)
             }
+            .frame(maxWidth: .infinity, minHeight: 184, alignment: .topLeading)
 
-            if hasOfficialMetadata {
-                VStack(alignment: .leading, spacing: 10) {
-                    TagFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
-                        if let rating = series.officialRating {
-                            DetailPill(text: String(format: "%.1f分", rating), systemImage: "star.fill")
-                        }
-                        if let heat = series.officialHeatText, !heat.isEmpty {
-                            DetailPill(
-                                text: heat.hasSuffix("热度") ? heat : "\(heat)热度",
-                                systemImage: "flame.fill"
-                            )
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if !detailTags.isEmpty {
-                        TagFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
-                            ForEach(detailTags, id: \.self) { tag in
-                                DetailTagPill(text: tag)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            officialMetadataSection
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 6)
     }
 
-    private var hasOfficialMetadata: Bool {
-        series.officialRating != nil
-            || !(series.officialHeatText?.isEmpty ?? true)
-            || !detailTags.isEmpty
+    private var officialMetadataSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TagFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+                DetailPill(
+                    text: series.officialRating.map { String(format: "%.1f分", $0) } ?? "暂无评分",
+                    systemImage: "star.fill"
+                )
+                .accessibilityIdentifier("official-rating")
+
+                DetailPill(
+                    text: officialHeatText,
+                    systemImage: "flame.fill"
+                )
+                .accessibilityIdentifier("official-heat")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            TagFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+                if detailTags.isEmpty {
+                    DetailTagPill(text: "暂无标签")
+                } else {
+                    ForEach(detailTags, id: \.self) { tag in
+                        DetailTagPill(text: tag)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("official-tags")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var officialHeatText: String {
+        guard let heat = series.officialHeatText, !heat.isEmpty else {
+            return "暂无热度"
+        }
+        return heat.hasSuffix("热度") ? heat : "\(heat)热度"
     }
 
     private var introSection: some View {

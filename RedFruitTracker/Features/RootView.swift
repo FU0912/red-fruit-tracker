@@ -52,6 +52,8 @@ struct RootView: View {
 }
 
 private struct LibraryView: View {
+    @Environment(\.modelContext) private var modelContext
+
     @Query(sort: \SeriesRecord.updatedAt, order: .reverse)
     private var series: [SeriesRecord]
 
@@ -65,6 +67,7 @@ private struct LibraryView: View {
     let onAdd: () -> Void
 
     @State private var searchText = ""
+    @State private var hasAutoRefreshedMetadata = false
 
     private var visibleSeries: [SeriesRecord] {
         let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -128,7 +131,49 @@ private struct LibraryView: View {
                 .padding(.horizontal, 18)
                 .padding(.bottom, 2)
             }
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
+            .toolbarColorScheme(.light, for: .navigationBar)
+            .task {
+                await refreshMissingMetadata()
+            }
         }
+    }
+
+    private func refreshMissingMetadata() async {
+        guard !hasAutoRefreshedMetadata,
+              !ProcessInfo.processInfo.arguments.contains("--ui-testing") else {
+            return
+        }
+        hasAutoRefreshedMetadata = true
+
+        let candidates = series.filter { item in
+            guard item.sourceURL != nil else { return false }
+            return item.coverURL == nil
+                || item.intro.isEmpty
+                || item.tagsText.isEmpty
+                || item.officialRating == nil
+                || item.officialHeatText == nil
+        }
+
+        for item in candidates {
+            guard let sourceURL = item.sourceURL,
+                  let url = URL(string: sourceURL) else { continue }
+            do {
+                let metadata = try await PublicMetadataService.shared.fetch(from: url)
+                if let title = metadata.title, !title.isEmpty { item.title = title }
+                if let coverURL = metadata.coverURL { item.coverURL = coverURL }
+                if let intro = metadata.intro, !intro.isEmpty { item.intro = intro }
+                if let tagsText = metadata.tagsText, !tagsText.isEmpty { item.tagsText = tagsText }
+                if let rating = metadata.officialRating { item.officialRating = rating }
+                if let heat = metadata.officialHeatText, !heat.isEmpty { item.officialHeatText = heat }
+                item.updatedAt = .now
+            } catch {
+                continue
+            }
+        }
+        try? modelContext.save()
     }
 }
 
@@ -202,6 +247,8 @@ private struct SeriesCard: View {
         HStack(alignment: .top, spacing: 12) {
             CoverView(urlString: series.coverURL)
                 .frame(width: 92, height: 128)
+                .fixedSize()
+                .accessibilityIdentifier("series-card-cover")
                 .accessibilityLabel("\(series.title)封面")
 
             VStack(alignment: .leading, spacing: 8) {
@@ -211,6 +258,7 @@ private struct SeriesCard: View {
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
+                    .accessibilityIdentifier("series-card-title")
 
                 TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
                     CompactInfoPill(
@@ -218,33 +266,31 @@ private struct SeriesCard: View {
                         systemImage: "list.number"
                     )
 
-                    if let rating = series.officialRating {
-                        CompactInfoPill(
-                            text: String(format: "%.1f分", rating),
-                            systemImage: "star.fill",
-                            tint: .orange
-                        )
-                    }
+                    CompactInfoPill(
+                        text: series.officialRating.map { String(format: "%.1f分", $0) } ?? "评分待读取",
+                        systemImage: "star.fill",
+                        tint: .orange
+                    )
 
-                    if let heat = series.officialHeatText, !heat.isEmpty {
-                        CompactInfoPill(
-                            text: heat.hasSuffix("热度") ? heat : "\(heat)热度",
-                            systemImage: "flame.fill",
-                            tint: .pink
-                        )
-                    }
+                    CompactInfoPill(
+                        text: officialHeatText,
+                        systemImage: "flame.fill",
+                        tint: .pink
+                    )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                if !tags.isEmpty {
-                    TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                    if tags.isEmpty {
+                        TagPill(text: "标签待读取")
+                    } else {
                         ForEach(tags, id: \.self) { tag in
                             TagPill(text: tag)
                         }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: 52, alignment: .topLeading)
-                    .clipped()
                 }
+                .frame(maxWidth: .infinity, maxHeight: 52, alignment: .topLeading)
+                .clipped()
 
                 Spacer(minLength: 0)
 
@@ -270,6 +316,13 @@ private struct SeriesCard: View {
 
     private var tags: [String] {
         tagValues(series.tagsText)
+    }
+
+    private var officialHeatText: String {
+        guard let heat = series.officialHeatText, !heat.isEmpty else {
+            return "热度待读取"
+        }
+        return heat.hasSuffix("热度") ? heat : "\(heat)热度"
     }
 
     private var totalEpisodeCount: Int {
@@ -427,6 +480,8 @@ struct CoverView: View {
                         EmptyView()
                     }
                 }
+                .frame(width: width, height: height)
+                .clipped()
             } else {
                 EmptyView()
             }

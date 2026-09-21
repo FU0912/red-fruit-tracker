@@ -2,7 +2,7 @@
 
 ## 最近一次已验证包
 
-当前代码版本为 `v1.2.3` / build `6`；本轮 CI 正在验证：
+当前代码版本为 `v1.2.4` / build `7`；本轮 CI 正在验证：
 
 artifacts/RedFruitTracker-unsigned-device.ipa
 
