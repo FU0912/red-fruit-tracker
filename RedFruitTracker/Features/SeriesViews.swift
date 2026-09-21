@@ -56,7 +56,8 @@ struct SeriesDetailView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
-            .padding(.bottom, 32)
+            // Keep the final episode row above the fixed playback action.
+            .padding(.bottom, 112)
         }
         .scrollIndicators(.hidden)
         .background(DetailTheme.background.ignoresSafeArea())
