@@ -149,7 +149,6 @@ struct SeriesDetailView: View {
                     TagFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
                         if let rating = series.officialRating {
                             DetailPill(text: String(format: "%.1f分", rating), systemImage: "star.fill")
-                                .accessibilityLabel(String(format: "官方评分 %.1f分", rating))
                         }
                         if let heat = series.officialHeatText, !heat.isEmpty {
                             DetailPill(
