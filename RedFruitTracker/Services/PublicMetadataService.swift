@@ -548,12 +548,7 @@ enum HTMLMetadata {
         in html: String,
         baseURL: URL
     ) -> CoverImageCandidate? {
-        guard let routerData = routerData(in: html),
-              let loaderData = routerData["loaderData"] as? [String: Any],
-              let detailPage = loaderData["detail_page"] as? [String: Any],
-              let seriesDetail = detailPage["seriesDetail"] as? [String: Any] else {
-            return nil
-        }
+        guard let seriesDetail = currentSeriesDetail(in: html) else { return nil }
 
         let coverKeys = ["series_cover", "small_series_cover", "series_cover_uri", "series_cover_info"]
         let rawCover = coverKeys.lazy.compactMap { key -> String? in
