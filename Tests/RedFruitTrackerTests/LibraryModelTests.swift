@@ -267,6 +267,14 @@ final class LibraryModelTests: XCTestCase {
             38_927_338
         )
         XCTAssertEqual(
+            HTMLMetadata.currentSeriesDetailCompactCountText(for: ["popularity"], in: html),
+            "3892.7万"
+        )
+        XCTAssertEqual(
+            HTMLMetadata.selectedCoverURL(in: html, baseURL: baseURL, title: "红袖伴我，修清玄第一季"),
+            "https://p6-novel.byteimg.com/novel-pic/current-series-cover.image"
+        )
+        XCTAssertEqual(
             HTMLMetadata.currentSeriesDetailValue(for: ["category_list"], in: html),
             "玄幻,穿越,系统,修真,异界"
         )
@@ -275,7 +283,21 @@ final class LibraryModelTests: XCTestCase {
         let seasons = HTMLMetadata.seasons(in: html, baseURL: baseURL)
         XCTAssertEqual(seasons.map(\.seasonNumber), [1])
         XCTAssertEqual(seasons.first?.episodeCount, 245)
-        XCTAssertEqual(seasons.first?.episodes.map(\.sourceVid), ["chapter-1", "chapter-2", "chapter-3"])
+        XCTAssertEqual(seasons.first?.episodes.count, 12)
+        XCTAssertEqual(seasons.first?.episodes.last?.sourceVid, "chapter-12")
+    }
+
+    func testManjuSharePageDoesNotUseGenericImageWhenOfficialCoverIsMissing() {
+        let html = #"""
+        <meta property="og:image" content="https://example.com/video-first-frame.jpg">
+        <script>
+        _ROUTER_DATA = {"loaderData":{"video-animation-share_page":{"pageData":{"series_data":{"title":"测试作品"}}}}};
+        </script>
+        """#
+        let baseURL = URL(string: "https://kylin.hainanyuyue.com/s/example/")!
+
+        XCTAssertNil(HTMLMetadata.selectedCoverURL(in: html, baseURL: baseURL, title: "测试作品"))
+        XCTAssertTrue(HTMLMetadata.coverCandidates(in: html, baseURL: baseURL).isEmpty)
     }
 
     func testSSRCurrentSeriesMetadataExposesOfficialFields() {

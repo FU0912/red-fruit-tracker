@@ -178,20 +178,19 @@ actor PublicMetadataService {
         }
 
         let html = String(decoding: data, as: UTF8.self)
-        let rawTitle = HTMLMetadata.value(for: ["og:title", "twitter:title"], in: html)
-            ?? HTMLMetadata.currentSeriesDetailValue(for: ["series_name", "title", "name"], in: html)
+        let rawTitle = HTMLMetadata.currentSeriesDetailValue(for: ["series_name", "title", "name"], in: html)
+            ?? HTMLMetadata.value(for: ["og:title", "twitter:title"], in: html)
             ?? HTMLMetadata.title(in: html)
         let title = TitleNormalizer.normalize(rawTitle) ?? TitleNormalizer.fallback(from: url)
         let coverCandidates = HTMLMetadata.coverCandidates(in: html, baseURL: url)
         let rankedCoverCandidates = CoverURLSelector.ranked(coverCandidates, title: title)
-        let officialCoverURL = HTMLMetadata.currentSeriesDetailCover(in: html, baseURL: url)?.url
         let metadata = PublicSeriesMetadata(
             title: title,
-            coverURL: officialCoverURL ?? CoverURLSelector.preferred(coverCandidates, title: title)?.url,
+            coverURL: HTMLMetadata.selectedCoverURL(in: html, baseURL: url, title: title),
             coverCandidates: rankedCoverCandidates.prefix(8).map(\.url),
             intro: HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: html)
                 ?? HTMLMetadata.currentSeriesDetailValue(for: ["series_intro", "intro", "description", "abstract", "desc"], in: html),
-            tagsText: HTMLMetadata.currentSeriesDetailValue(for: ["tags", "tag_list", "series_tags", "category", "category_name", "type", "type_name", "genre", "genres", "label", "labels"], in: html)
+            tagsText: HTMLMetadata.currentSeriesDetailValue(for: ["tags", "tag_list", "series_tags", "category_list", "category", "category_name", "type", "type_name", "genre", "genres", "label", "labels"], in: html)
                 ?? HTMLMetadata.value(for: ["keywords"], in: html),
             officialRating: HTMLMetadata.decimalValue(for: ["rating", "og:rating"], in: html)
                 ?? HTMLMetadata.currentSeriesSocialInfoDecimalValue(for: ["rating", "score", "series_score", "official_score"], in: html)
@@ -201,14 +200,15 @@ actor PublicMetadataService {
                 for: ["score", "hot_score", "hot_value"],
                 nestedKeys: ["hot_score_data"],
                 in: html
-            ),
+            ) ?? HTMLMetadata.currentSeriesDetailDecimalValue(for: ["popularity"], in: html),
             officialHeatText: HTMLMetadata.value(for: ["heat", "og:heat"], in: html)
                 ?? HTMLMetadata.currentSeriesSocialInfoValue(
                     for: ["text", "heat", "hot_text", "hot_value", "play_count", "total_play_count", "view_count"],
                     nestedKeys: ["hot_score_data"],
                     in: html
                 )
-                ?? HTMLMetadata.currentSeriesDetailValue(for: ["heat", "heat_score", "hot_value", "play_count", "total_play_count", "view_count"], in: html),
+                ?? HTMLMetadata.currentSeriesDetailValue(for: ["heat", "heat_score", "hot_value", "play_count", "total_play_count", "view_count"], in: html)
+                ?? HTMLMetadata.currentSeriesDetailCompactCountText(for: ["popularity"], in: html),
             seasons: HTMLMetadata.seasons(in: html, baseURL: url)
         )
 
@@ -243,6 +243,31 @@ enum HTMLMetadata {
             return nil
         }
         return Double(String(value[range]))
+    }
+
+    static func currentSeriesDetailCompactCountText(for keys: [String], in html: String) -> String? {
+        guard let detail = currentSeriesDetail(in: html),
+              let count = intValue(for: keys, in: detail), count >= 0 else {
+            return nil
+        }
+
+        if count >= 100_000_000 {
+            return String(format: "%.1f亿", Double(count) / 100_000_000)
+        }
+        if count >= 10_000 {
+            return String(format: "%.1f万", Double(count) / 10_000)
+        }
+        return String(count)
+    }
+
+    static func selectedCoverURL(in html: String, baseURL: URL, title: String?) -> String? {
+        if isVideoAnimationSharePage(in: html) {
+            return currentSeriesDetailCover(in: html, baseURL: baseURL)?.url
+        }
+
+        let candidates = coverCandidates(in: html, baseURL: baseURL)
+        return currentSeriesDetailCover(in: html, baseURL: baseURL)?.url
+            ?? CoverURLSelector.preferred(candidates, title: title)?.url
     }
 
     static func currentSeriesSocialInfoValue(
@@ -282,12 +307,33 @@ enum HTMLMetadata {
 
     private static func currentSeriesDetail(in html: String) -> [String: Any]? {
         guard let routerData = routerData(in: html),
-              let loaderData = routerData["loaderData"] as? [String: Any],
-              let detailPage = loaderData["detail_page"] as? [String: Any],
-              let seriesDetail = detailPage["seriesDetail"] as? [String: Any] else {
+              let loaderData = routerData["loaderData"] as? [String: Any] else {
             return nil
         }
-        return seriesDetail
+
+        if let detailPage = loaderData["detail_page"] as? [String: Any],
+           let seriesDetail = detailPage["seriesDetail"] as? [String: Any] {
+            return seriesDetail
+        }
+
+        return currentVideoAnimationSharePage(in: routerData)?["series_data"] as? [String: Any]
+    }
+
+    private static func currentVideoAnimationSharePage(in html: String) -> [String: Any]? {
+        guard let routerData = routerData(in: html) else { return nil }
+        return currentVideoAnimationSharePage(in: routerData)
+    }
+
+    private static func currentVideoAnimationSharePage(in routerData: [String: Any]) -> [String: Any]? {
+        guard let loaderData = routerData["loaderData"] as? [String: Any],
+              let sharePage = loaderData["video-animation-share_page"] as? [String: Any] else {
+            return nil
+        }
+        return sharePage["pageData"] as? [String: Any]
+    }
+
+    private static func isVideoAnimationSharePage(in html: String) -> Bool {
+        currentVideoAnimationSharePage(in: html)?["series_data"] is [String: Any]
     }
 
     private static func currentSeriesSocialInfo(in html: String) -> [String: Any]? {
@@ -404,6 +450,10 @@ enum HTMLMetadata {
 
     static func coverCandidates(in html: String, baseURL: URL) -> [CoverImageCandidate] {
         var candidates: [CoverImageCandidate] = []
+
+        if isVideoAnimationSharePage(in: html) {
+            return currentSeriesDetailCover(in: html, baseURL: baseURL).map { [$0] } ?? []
+        }
 
         guard let metaRegex = try? NSRegularExpression(pattern: #"<meta\b[^>]*>"#, options: [.caseInsensitive]) else {
             return candidates
@@ -523,7 +573,7 @@ enum HTMLMetadata {
             return nil
         }
 
-        let seriesName = (seriesDetail["series_name"] as? String) ?? ""
+        let seriesName = (seriesDetail["series_name"] as? String) ?? (seriesDetail["title"] as? String) ?? ""
         let context = "official-current-series-cover seriesDetail series_name=\(seriesName)"
         return CoverImageCandidate(url: url.absoluteString, context: context)
     }
@@ -798,12 +848,13 @@ enum HTMLMetadata {
 
     private static func currentSeriesSeason(in html: String, baseURL: URL) -> PublicSeasonMetadata? {
         guard let detail = currentSeriesDetail(in: html),
-              let name = value(for: "series_name", in: detail).flatMap({ scalarText($0) }) else {
+              let name = value(for: "series_name", in: detail).flatMap({ scalarText($0) })
+                ?? value(for: "title", in: detail).flatMap({ scalarText($0) }) else {
             return nil
         }
 
         let seasonNumber = firstSeasonNumber(in: name) ?? 1
-        let episodeCount = intValue(for: ["episode_cnt", "episode_count"], in: detail)
+        let episodeCount = intValue(for: ["episode_cnt", "episode_count", "serial_count"], in: detail)
             ?? nestedIntValue(
                 for: ["episode_cnt", "episode_total_cnt"],
                 nestedKeys: ["series_episode_info"],
@@ -811,7 +862,13 @@ enum HTMLMetadata {
             )
             ?? 0
         let sourceURL = URLComponents(url: baseURL, resolvingAgainstBaseURL: true)?.url?.absoluteString
-        let vidValues: [String] = (value(for: "vid_list", in: detail) as? [Any] ?? [])
+        let routerData = routerData(in: html)
+        let sharePage = routerData.flatMap { currentVideoAnimationSharePage(in: $0) }
+        let listedVids = value(for: "vid_list", in: detail) as? [Any] ?? []
+        let rawIDs = listedVids.isEmpty
+            ? (sharePage.flatMap { value(for: "chapter_ids", in: $0) as? [Any] } ?? [])
+            : listedVids
+        let vidValues: [String] = rawIDs
             .compactMap { scalarText($0) }
         let episodes = vidValues.enumerated().map { index, sourceVid in
             PublicEpisodeMetadata(
