@@ -54,6 +54,92 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(TitleNormalizer.normalize("女主全都坏掉免费观看《仙途归来》"), "仙途归来")
     }
 
+    func testSeriesIdentityMergesChineseSeasonSuffixes() {
+        let titles = [
+            "天幕直播：古人每周来我家",
+            "天幕直播：古人每周来我家第二季",
+            "天幕直播：古人每周来我家第三季"
+        ]
+
+        XCTAssertEqual(
+            Set(titles.compactMap { TitleNormalizer.seriesKey($0) }).count,
+            1
+        )
+        XCTAssertEqual(
+            TitleNormalizer.seriesTitle("天幕直播：古人每周来我家第二季"),
+            "天幕直播：古人每周来我家"
+        )
+        XCTAssertEqual(TitleNormalizer.seasonNumber("天幕直播：古人每周来我家第二季"), 2)
+        XCTAssertEqual(TitleNormalizer.seasonNumber("天幕直播：古人每周来我家第三季"), 3)
+    }
+
+    func testSeriesImportMatcherFindsExistingWorkByBaseTitle() {
+        let firstURL = URL(string: "https://kylin.hainanyuyue.com/s/GXf3C13NXeQ/")!
+        let secondURL = URL(string: "https://kylin.hainanyuyue.com/s/vOnryac5EoE/")!
+        let firstIdentity = SeriesImportIdentity(title: "天幕直播：古人每周来我家", fallbackURL: firstURL)
+        let secondIdentity = SeriesImportIdentity(title: "天幕直播：古人每周来我家第二季", fallbackURL: secondURL)
+        let existing = SeriesRecord(
+            sourceSeriesID: firstIdentity.sourceID,
+            title: firstIdentity.baseTitle,
+            sourceURL: firstURL.absoluteString
+        )
+
+        XCTAssertEqual(firstIdentity.sourceID, secondIdentity.sourceID)
+        XCTAssertTrue(SeriesImportMatcher.matches(existing, identity: secondIdentity))
+    }
+
+    func testThreeManjuSharePagesKeepTheirOwnSeasonMetadata() {
+        let pages = [
+            ("天幕直播：古人每周来我家", 148, "41878916", "脑洞,穿越,系统,都市", "GXf3C13NXeQ"),
+            ("天幕直播：古人每周来我家第二季", 168, "51710454", "脑洞,穿越,系统,都市", "vOnryac5EoE"),
+            ("天幕直播：古人每周来我家第三季", 176, "3339296", "快穿,历史脑洞,时空之旅", "r9o11qGv1Rc")
+        ]
+
+        for (title, episodeCount, popularity, tags, token) in pages {
+            let html = manjuShareFixture(
+                title: title,
+                episodeCount: episodeCount,
+                popularity: popularity,
+                tags: tags
+            )
+            let baseURL = URL(string: "https://kylin.hainanyuyue.com/s/\(token)/")!
+            let metadataTitle = HTMLMetadata.currentSeriesDetailValue(for: ["title"], in: html)
+            let seasons = HTMLMetadata.seasons(in: html, baseURL: baseURL)
+
+            XCTAssertEqual(metadataTitle, title)
+            XCTAssertEqual(seasons.map(\.seasonNumber), [TitleNormalizer.seasonNumber(title) ?? 1])
+            XCTAssertEqual(seasons.first?.episodeCount, episodeCount)
+            XCTAssertEqual(
+                HTMLMetadata.currentSeriesDetailValue(for: ["category_list"], in: html),
+                tags
+            )
+            XCTAssertEqual(
+                HTMLMetadata.currentSeriesDetailDecimalValue(for: ["popularity"], in: html),
+                Double(popularity)
+            )
+        }
+    }
+
+    func testEpisodeSelectionMovesOrClearsOneCurrentPosition() {
+        XCTAssertEqual(
+            EpisodeSelectionReducer.nextPosition(
+                selectedSeason: 1,
+                selectedEpisode: 8,
+                currentSeason: 1,
+                currentEpisode: 3
+            ),
+            EpisodePosition(season: 1, episode: 8)
+        )
+        XCTAssertNil(
+            EpisodeSelectionReducer.nextPosition(
+                selectedSeason: 1,
+                selectedEpisode: 8,
+                currentSeason: 1,
+                currentEpisode: 8
+            )
+        )
+    }
+
     func testSeasonKeepsIndependentRatingAndReview() {
         let season = SeasonRecord(
             sourceSeriesID: "series-1",
@@ -353,5 +439,19 @@ final class LibraryModelTests: XCTestCase {
         ]
 
         XCTAssertEqual(CoverURLSelector.ranked(candidates).map(\.url), ["https://example.com/cover.jpg"])
+    }
+
+    private func manjuShareFixture(
+        title: String,
+        episodeCount: Int,
+        popularity: String,
+        tags: String
+    ) -> String {
+        let tagValues = tags.split(separator: ",").map { "\"\($0)\"" }.joined(separator: ",")
+        return #"""
+        <script>
+        window._ROUTER_DATA = {"loaderData":{"video-animation-share_page":{"pageData":{"series_data":{"title":"\#(title)","series_cover":"https:\u002F\u002Fp3-novel.byteimg.com\u002Fnovel-pic\u002Fcover.image","popularity":\#(popularity),"serial_count":\#(episodeCount),"category_list":[\#(tagValues)]},"chapter_ids":["chapter-1","chapter-2"]}}}}};
+        </script>
+        """#
     }
 }

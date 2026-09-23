@@ -443,7 +443,9 @@ struct SeriesDetailView: View {
             do {
                 let metadata = try await PublicMetadataService.shared.fetch(from: url)
                 await MainActor.run {
-                    if let title = metadata.title, !title.isEmpty { series.title = title }
+                    if let title = metadata.title, !title.isEmpty {
+                        series.title = TitleNormalizer.seriesTitle(title) ?? title
+                    }
                     if let coverURL = metadata.coverURL { series.coverURL = coverURL }
                     if let intro = metadata.intro { series.intro = intro }
                     if let tagsText = metadata.tagsText { series.tagsText = tagsText }
@@ -662,11 +664,9 @@ private struct EpisodeProgressGrid: View {
                             Text("\(number)")
                                 .font(.body.weight(.semibold))
                                 .frame(maxWidth: .infinity, minHeight: 44)
-                                .foregroundStyle(isWatched || isCurrent ? Color.white : primaryText)
+                                .foregroundStyle(isCurrent ? Color.white : primaryText)
                                 .background(
-                                    isCurrent
-                                        ? Color.white.opacity(0.24)
-                                        : isWatched ? DetailTheme.accent : cellBackground
+                                    isCurrent ? DetailTheme.accent : cellBackground
                                 )
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
@@ -678,7 +678,7 @@ private struct EpisodeProgressGrid: View {
                 }
             }
 
-            Text("点击集数即可标记已看，并将它设为当前观看位置。")
+            Text("点击集数设为当前观看位置，再次点击当前集可取消定位。")
                 .font(.caption)
                 .foregroundStyle(secondaryText)
         }
@@ -720,18 +720,27 @@ private struct EpisodeProgressGrid: View {
             season.episodeCount = max(season.episodeCount, number)
         }
 
-        episode.isWatched.toggle()
-        episode.watchedAt = episode.isWatched ? .now : nil
-        if episode.isWatched {
+        let nextPosition = EpisodeSelectionReducer.nextPosition(
+            selectedSeason: season.seasonNumber,
+            selectedEpisode: number,
+            currentSeason: personalRecord?.currentSeasonNumber,
+            currentEpisode: personalRecord?.currentEpisodeNumber
+        )
+        if let nextPosition {
+            episode.isWatched = true
+            episode.watchedAt = episode.watchedAt ?? .now
             let personal = personalRecord ?? makePersonalRecord()
-            personal.currentSeasonNumber = season.seasonNumber
-            personal.currentEpisodeNumber = number
-            personal.localShelfState = watchedCount + 1 >= totalEpisodeCount ? "finished" : "watching"
+            personal.currentSeasonNumber = nextPosition.season
+            personal.currentEpisodeNumber = nextPosition.episode
+            let watchedAfter = episodes.filter(\.isWatched).count
+            personal.localShelfState = totalEpisodeCount > 0 && watchedAfter >= totalEpisodeCount
+                ? "finished"
+                : "watching"
             personal.updatedAt = .now
-        } else if let personalRecord,
-                  personalRecord.currentSeasonNumber == season.seasonNumber,
-                  personalRecord.currentEpisodeNumber == number {
+        } else if let personalRecord {
+            personalRecord.currentSeasonNumber = nil
             personalRecord.currentEpisodeNumber = nil
+            personalRecord.localShelfState = watchedCount > 0 ? "watching" : "unstarted"
             personalRecord.updatedAt = .now
         }
         season.updatedAt = .now

@@ -1,6 +1,25 @@
 import Foundation
 import SwiftData
 
+struct EpisodePosition: Equatable {
+    let season: Int
+    let episode: Int
+}
+
+enum EpisodeSelectionReducer {
+    static func nextPosition(
+        selectedSeason: Int,
+        selectedEpisode: Int,
+        currentSeason: Int?,
+        currentEpisode: Int?
+    ) -> EpisodePosition? {
+        if currentSeason == selectedSeason && currentEpisode == selectedEpisode {
+            return nil
+        }
+        return EpisodePosition(season: selectedSeason, episode: selectedEpisode)
+    }
+}
+
 @Model
 final class SeriesRecord {
     @Attribute(.unique) var sourceSeriesID: String

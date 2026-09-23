@@ -162,7 +162,9 @@ private struct LibraryView: View {
                   let url = URL(string: sourceURL) else { continue }
             do {
                 let metadata = try await PublicMetadataService.shared.fetch(from: url)
-                if let title = metadata.title, !title.isEmpty { item.title = title }
+                if let title = metadata.title, !title.isEmpty {
+                    item.title = TitleNormalizer.seriesTitle(title) ?? title
+                }
                 if let coverURL = metadata.coverURL { item.coverURL = coverURL }
                 if let intro = metadata.intro, !intro.isEmpty { item.intro = intro }
                 if let tagsText = metadata.tagsText, !tagsText.isEmpty { item.tagsText = tagsText }
@@ -891,77 +893,111 @@ private struct AddSeriesView: View {
             return
         }
 
-        let cleanTitle = TitleNormalizer.normalize(detectedTitle)
-            ?? TitleNormalizer.fallback(from: sourceURL)
-            ?? "待补充作品"
+        let identity = SeriesImportIdentity(title: detectedTitle, fallbackURL: sourceURL)
+        let cleanTitle = identity.baseTitle.isEmpty ? "待补充作品" : identity.baseTitle
         let cleanURL = sourceURL.absoluteString
-        let sourceID = cleanURL.isEmpty ? "local-\(UUID().uuidString)" : cleanURL
 
         do {
             let existing = try modelContext.fetch(FetchDescriptor<SeriesRecord>())
-            guard !existing.contains(where: { $0.sourceSeriesID == sourceID }) else {
-                errorMessage = "这个链接已经在书架里了。"
-                return
-            }
-
-            let record = SeriesRecord(
+            let record = existing.first { SeriesImportMatcher.matches($0, identity: identity) }
+            let sourceID = record?.sourceSeriesID ?? identity.sourceID
+            let target = record ?? SeriesRecord(
                 sourceSeriesID: sourceID,
                 title: cleanTitle,
-                sourceURL: cleanURL.nilIfBlank,
-                coverURL: coverURLText.nilIfBlank,
-                intro: intro.trimmingCharacters(in: .whitespacesAndNewlines),
-                tagsText: tagsText.trimmingCharacters(in: .whitespacesAndNewlines),
-                officialRating: Double(officialRatingText),
-                officialRatingCount: officialRatingCount,
-                officialHeatScore: officialHeatScore,
-                officialHeatText: officialHeatText.nilIfBlank
+                sourceURL: cleanURL.nilIfBlank
             )
-            modelContext.insert(record)
+            if record == nil {
+                modelContext.insert(target)
+            }
 
-            let personal = PersonalRecord(sourceSeriesID: sourceID)
-            personal.localShelfState = shelfState
-            modelContext.insert(personal)
+            target.title = cleanTitle
+            if target.coverURL == nil { target.coverURL = coverURLText.nilIfBlank }
+            if target.intro.isEmpty {
+                target.intro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if target.tagsText.isEmpty {
+                target.tagsText = tagsText.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if let rating = Double(officialRatingText) { target.officialRating = rating }
+            if let officialRatingCount { target.officialRatingCount = officialRatingCount }
+            if let officialHeatScore { target.officialHeatScore = officialHeatScore }
+            if let heat = officialHeatText.nilIfBlank { target.officialHeatText = heat }
+            target.updatedAt = .now
+
+            let personalRecords = try modelContext.fetch(FetchDescriptor<PersonalRecord>())
+            if let personal = personalRecords.first(where: { $0.sourceSeriesID == sourceID }) {
+                if record == nil { personal.localShelfState = shelfState }
+                personal.updatedAt = .now
+            } else {
+                let personal = PersonalRecord(sourceSeriesID: sourceID)
+                personal.localShelfState = shelfState
+                modelContext.insert(personal)
+            }
+
+            let existingSeasons = try modelContext.fetch(FetchDescriptor<SeasonRecord>())
+            let existingEpisodes = try modelContext.fetch(FetchDescriptor<EpisodeRecord>())
+            var importedSeasons = detectedSeasons
 
             if detectedSeasons.isEmpty, includeFirstSeason {
-                modelContext.insert(SeasonRecord(
-                    sourceSeriesID: sourceID,
-                    seasonNumber: firstSeasonNumber,
-                    title: "第\(firstSeasonNumber)季",
+                let fallbackSeasonNumber = identity.inferredSeasonNumber ?? firstSeasonNumber
+                importedSeasons = [PublicSeasonMetadata(
+                    seasonNumber: fallbackSeasonNumber,
+                    title: "第\(fallbackSeasonNumber)季",
                     episodeCount: firstSeasonEpisodeCount,
-                    sourceURL: cleanURL.nilIfBlank
-                ))
-            } else {
-                for metadataSeason in detectedSeasons {
-                    let seasonKey = "\(sourceID)#\(metadataSeason.seasonNumber)"
-                    let season = SeasonRecord(
+                    sourceURL: cleanURL.nilIfBlank,
+                    episodes: []
+                )]
+            }
+
+            for metadataSeason in importedSeasons {
+                let season = existingSeasons.first {
+                    $0.sourceSeriesID == sourceID
+                        && $0.seasonNumber == metadataSeason.seasonNumber
+                } ?? SeasonRecord(
+                    sourceSeriesID: sourceID,
+                    seasonNumber: metadataSeason.seasonNumber
+                )
+                if !existingSeasons.contains(where: { $0 === season }) {
+                    modelContext.insert(season)
+                }
+
+                season.title = metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季"
+                season.episodeCount = max(
+                    season.episodeCount,
+                    max(metadataSeason.episodeCount, metadataSeason.episodes.count)
+                )
+                season.sourceURL = metadataSeason.sourceURL ?? cleanURL.nilIfBlank ?? season.sourceURL
+                season.updatedAt = .now
+
+                for metadataEpisode in metadataSeason.episodes {
+                    let episode = existingEpisodes.first {
+                        $0.sourceSeriesID == sourceID
+                            && $0.seasonNumber == metadataSeason.seasonNumber
+                            && $0.episodeNumber == metadataEpisode.episodeNumber
+                    } ?? EpisodeRecord(
+                        sourceVid: "\(sourceID)#s\(metadataSeason.seasonNumber)#e\(metadataEpisode.episodeNumber)",
                         sourceSeriesID: sourceID,
                         seasonNumber: metadataSeason.seasonNumber,
-                        title: metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季",
-                        episodeCount: max(metadataSeason.episodeCount, metadataSeason.episodes.count),
-                        sourceURL: metadataSeason.sourceURL ?? cleanURL.nilIfBlank
+                        episodeNumber: metadataEpisode.episodeNumber
                     )
-                    modelContext.insert(season)
-
-                    for metadataEpisode in metadataSeason.episodes {
-                        let sourceVid = "\(seasonKey)#\(metadataEpisode.sourceVid)"
-                        modelContext.insert(EpisodeRecord(
-                            sourceVid: sourceVid,
-                            sourceSeriesID: sourceID,
-                            seasonNumber: metadataSeason.seasonNumber,
-                            episodeNumber: metadataEpisode.episodeNumber,
-                            title: metadataEpisode.title ?? "",
-                            webURL: metadataEpisode.webURL
-                        ))
+                    if !existingEpisodes.contains(where: { $0 === episode }) {
+                        modelContext.insert(episode)
                     }
+                    if let title = metadataEpisode.title, !title.isEmpty { episode.title = title }
+                    if let webURL = metadataEpisode.webURL { episode.webURL = webURL }
+                }
+
+                if metadataSeason.seasonNumber == 1 || target.sourceURL == nil {
+                    target.sourceURL = metadataSeason.sourceURL ?? cleanURL.nilIfBlank
                 }
             }
 
             if Double(officialRatingText) != nil || officialHeatText.nilIfBlank != nil {
                 let snapshot = OfficialSnapshot(sourceSeriesID: sourceID)
-                snapshot.officialRating = Double(officialRatingText)
-                snapshot.officialRatingCount = officialRatingCount
-                snapshot.officialHeatScore = officialHeatScore
-                snapshot.officialHeatText = officialHeatText.nilIfBlank
+                snapshot.officialRating = target.officialRating
+                snapshot.officialRatingCount = target.officialRatingCount
+                snapshot.officialHeatScore = target.officialHeatScore
+                snapshot.officialHeatText = target.officialHeatText
                 modelContext.insert(snapshot)
             }
 
