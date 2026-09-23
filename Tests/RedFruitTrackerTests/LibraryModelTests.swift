@@ -241,6 +241,43 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(seasons.first(where: { $0.seasonNumber == 2 })?.episodeCount, 128)
     }
 
+    func testRedFruitManjuShareFixtureUsesCurrentSeriesMetadataOnly() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sampleURL = projectRoot
+            .appendingPathComponent("Tests")
+            .appendingPathComponent("RedFruitTrackerTests")
+            .appendingPathComponent("Fixtures")
+            .appendingPathComponent("redfruit-manju-share.html")
+        let html = try String(contentsOf: sampleURL, encoding: .utf8)
+        let baseURL = URL(string: "https://kylin.hainanyuyue.com/s/Km7WJeQrFIE/")!
+
+        XCTAssertEqual(
+            HTMLMetadata.currentSeriesDetailValue(for: ["title"], in: html),
+            "红袖伴我，修清玄第一季"
+        )
+        XCTAssertEqual(
+            HTMLMetadata.currentSeriesDetailCover(in: html, baseURL: baseURL)?.url,
+            "https://p6-novel.byteimg.com/novel-pic/current-series-cover.image"
+        )
+        XCTAssertEqual(
+            HTMLMetadata.currentSeriesDetailDecimalValue(for: ["popularity"], in: html),
+            38_927_338
+        )
+        XCTAssertEqual(
+            HTMLMetadata.currentSeriesDetailValue(for: ["category_list"], in: html),
+            "玄幻,穿越,系统,修真,异界"
+        )
+        XCTAssertNil(HTMLMetadata.currentSeriesSocialInfoDecimalValue(for: ["rating"], in: html))
+
+        let seasons = HTMLMetadata.seasons(in: html, baseURL: baseURL)
+        XCTAssertEqual(seasons.map(\.seasonNumber), [1])
+        XCTAssertEqual(seasons.first?.episodeCount, 245)
+        XCTAssertEqual(seasons.first?.episodes.map(\.sourceVid), ["chapter-1", "chapter-2", "chapter-3"])
+    }
+
     func testSSRCurrentSeriesMetadataExposesOfficialFields() {
         let html = #"""
         <script>
