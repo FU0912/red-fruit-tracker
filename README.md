@@ -36,7 +36,9 @@ xcodegen generate --spec project.yml
 
 签名、TestFlight 和真实设备安装暂不自动化，等模拟器构建稳定后再配置。
 
-上一版 CI Run `35813922101` 的 21 个单元测试和 2 个 UI 测试全部通过；本轮 v1.2.9 新增集数完整展示、集数索引和评分回退测试，等待新 CI 结果。
+本轮 CI Run `35942565874` 的 25 个单元测试和 2 个 UI 测试全部通过，并生成模拟器包和无签名真机 IPA。本轮新增集数完整展示、集数索引和评分回退测试；主 App 与 Share Extension 均为 build 12。
+
+v1.2.9 IPA：835843 字节；SHA-256 为 `1EC5E5298E9FC3E2000E21070A7FCF7263235ED2EF9F636118D32FDD4F1ADA77`。该 IPA 面向真机架构但未签名，不能直接安装到 iPhone。
 
 v1.2.7 IPA：827153 字节；SHA-256 为 `7D954D19D5EB08560DB9DDEBE7F8F01BCFB44EBA27C88E05CAD4906B140FFC21`。该 IPA 面向真机架构但未签名，不能直接安装到 iPhone。
 
