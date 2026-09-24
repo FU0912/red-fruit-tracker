@@ -1,6 +1,52 @@
 import Foundation
 import SwiftData
 
+enum RatingPresentation: Equatable {
+    case official(Double)
+    case personal(Double)
+    case unavailable
+
+    static func resolve(officialRating: Double?, personalRating: Double?) -> Self {
+        if let officialRating {
+            return .official(officialRating)
+        }
+        if let personalRating {
+            return .personal(personalRating)
+        }
+        return .unavailable
+    }
+
+    var text: String {
+        switch self {
+        case .official(let rating):
+            return "官方 \(Self.formatted(rating))"
+        case .personal(let rating):
+            return "我的 \(Self.formatted(rating))"
+        case .unavailable:
+            return "暂无评分"
+        }
+    }
+
+    private static func formatted(_ rating: Double) -> String {
+        String(format: "%.1f分", rating)
+    }
+}
+
+enum EpisodeGridSupport {
+    static func visibleNumbers(totalEpisodeCount: Int) -> [Int] {
+        guard totalEpisodeCount > 0 else { return [] }
+        return Array(1...totalEpisodeCount)
+    }
+
+    static func index(_ episodes: [EpisodeRecord]) -> [Int: EpisodeRecord] {
+        episodes.reduce(into: [:]) { result, episode in
+            if result[episode.episodeNumber] == nil {
+                result[episode.episodeNumber] = episode
+            }
+        }
+    }
+}
+
 struct EpisodePosition: Equatable {
     let season: Int
     let episode: Int

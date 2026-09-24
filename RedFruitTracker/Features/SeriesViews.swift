@@ -24,9 +24,31 @@ struct SeriesDetailView: View {
     @State private var isIntroExpanded = false
     @State private var notice: String?
 
+    init(series: SeriesRecord) {
+        self.series = series
+
+        let sourceSeriesID = series.sourceSeriesID
+        _allSeasons = Query(
+            filter: #Predicate<SeasonRecord> { season in
+                season.sourceSeriesID == sourceSeriesID
+            },
+            sort: \SeasonRecord.seasonNumber
+        )
+        _allEpisodes = Query(
+            filter: #Predicate<EpisodeRecord> { episode in
+                episode.sourceSeriesID == sourceSeriesID
+            },
+            sort: \EpisodeRecord.episodeNumber
+        )
+        _personalRecords = Query(
+            filter: #Predicate<PersonalRecord> { personal in
+                personal.sourceSeriesID == sourceSeriesID
+            }
+        )
+    }
+
     private var seasons: [SeasonRecord] {
         allSeasons
-            .filter { $0.sourceSeriesID == series.sourceSeriesID }
             .sorted { $0.seasonNumber < $1.seasonNumber }
     }
 
@@ -137,7 +159,6 @@ struct SeriesDetailView: View {
         return series.coverURL == nil
             || series.intro.isEmpty
             || series.tagsText.isEmpty
-            || series.officialRating == nil
             || series.officialHeatText == nil
             || seasons.isEmpty
     }
@@ -177,7 +198,10 @@ struct SeriesDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             TagFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
                 DetailPill(
-                    text: series.officialRating.map { String(format: "%.1f分", $0) } ?? "暂无评分",
+                    text: RatingPresentation.resolve(
+                        officialRating: series.officialRating,
+                        personalRating: personalRecord?.myRating
+                    ).text,
                     systemImage: "star.fill"
                 )
                 .accessibilityIdentifier("official-rating")
@@ -335,7 +359,7 @@ struct SeriesDetailView: View {
     private var totalEpisodeCount: Int {
         seasons.reduce(0) { total, season in
             let actual = allEpisodes
-                .filter { $0.sourceSeriesID == series.sourceSeriesID && $0.seasonNumber == season.seasonNumber }
+                .filter { $0.seasonNumber == season.seasonNumber }
                 .map(\.episodeNumber)
                 .max() ?? 0
             return total + max(season.episodeCount, actual)
@@ -343,7 +367,7 @@ struct SeriesDetailView: View {
     }
 
     private var totalWatchedCount: Int {
-        allEpisodes.filter { $0.sourceSeriesID == series.sourceSeriesID && $0.isWatched }.count
+        allEpisodes.filter(\.isWatched).count
     }
 
     private var selectedEpisode: EpisodeRecord? {
@@ -353,8 +377,7 @@ struct SeriesDetailView: View {
             return nil
         }
         return allEpisodes.first {
-            $0.sourceSeriesID == series.sourceSeriesID
-                && $0.seasonNumber == seasonNumber
+            $0.seasonNumber == seasonNumber
                 && $0.episodeNumber == episodeNumber
         }
     }
@@ -502,8 +525,7 @@ struct SeriesDetailView: View {
 
             for metadataEpisode in metadataSeason.episodes {
                 let existingEpisode = allEpisodes.first {
-                    $0.sourceSeriesID == series.sourceSeriesID
-                        && $0.seasonNumber == metadataSeason.seasonNumber
+                    $0.seasonNumber == metadataSeason.seasonNumber
                         && $0.episodeNumber == metadataEpisode.episodeNumber
                 }
                 let episode = existingEpisode ?? EpisodeRecord(
@@ -570,37 +592,37 @@ private struct EpisodeProgressGrid: View {
     @Query
     private var personalRecords: [PersonalRecord]
 
-    @State private var selectedRangeStart = 1
+    init(series: SeriesRecord, season: SeasonRecord, usesDarkAppearance: Bool = false) {
+        self.series = series
+        self.season = season
+        self.usesDarkAppearance = usesDarkAppearance
 
-    private var episodes: [EpisodeRecord] {
-        allEpisodes.filter {
-            $0.sourceSeriesID == series.sourceSeriesID
-                && $0.seasonNumber == season.seasonNumber
-        }
+        let sourceSeriesID = series.sourceSeriesID
+        let seasonNumber = season.seasonNumber
+        _allEpisodes = Query(
+            filter: #Predicate<EpisodeRecord> { episode in
+                episode.sourceSeriesID == sourceSeriesID
+                    && episode.seasonNumber == seasonNumber
+            },
+            sort: \EpisodeRecord.episodeNumber
+        )
+        _personalRecords = Query(
+            filter: #Predicate<PersonalRecord> { personal in
+                personal.sourceSeriesID == sourceSeriesID
+            }
+        )
+    }
+
+    private var episodeIndex: [Int: EpisodeRecord] {
+        EpisodeGridSupport.index(allEpisodes)
     }
 
     private var totalEpisodeCount: Int {
-        max(season.episodeCount, episodes.map(\.episodeNumber).max() ?? episodes.count)
-    }
-
-    private var ranges: [EpisodeRange] {
-        guard totalEpisodeCount > 0 else { return [] }
-        return stride(from: 1, through: totalEpisodeCount, by: 100).map { start in
-            EpisodeRange(start: start, end: min(start + 99, totalEpisodeCount))
-        }
-    }
-
-    private var selectedRange: EpisodeRange? {
-        ranges.first(where: { $0.start == selectedRangeStart }) ?? ranges.first
-    }
-
-    private var visibleNumbers: [Int] {
-        guard let selectedRange else { return [] }
-        return Array(selectedRange.start...selectedRange.end)
+        max(season.episodeCount, episodeIndex.keys.max() ?? 0)
     }
 
     private var watchedCount: Int {
-        episodes.filter(\.isWatched).count
+        episodeIndex.values.filter(\.isWatched).count
     }
 
     private var personalRecord: PersonalRecord? {
@@ -608,39 +630,17 @@ private struct EpisodeProgressGrid: View {
     }
 
     var body: some View {
+        let episodeIndex = self.episodeIndex
+        let totalEpisodeCount = max(season.episodeCount, episodeIndex.keys.max() ?? 0)
+        let visibleNumbers = EpisodeGridSupport.visibleNumbers(totalEpisodeCount: totalEpisodeCount)
+        let watchedCount = episodeIndex.values.filter(\.isWatched).count
+
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text("第\(season.seasonNumber)季 · \(watchedCount)/\(totalEpisodeCount) 集已看")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(primaryText)
                 Spacer()
-                if let selectedRange {
-                    Text("当前 \(selectedRange.start)-\(selectedRange.end)")
-                        .font(.caption)
-                        .foregroundStyle(secondaryText)
-                }
-            }
-
-            if ranges.count > 1 {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(ranges) { range in
-                            let isSelected = selectedRange?.start == range.start
-                            Button {
-                                selectedRangeStart = range.start
-                            } label: {
-                                Text("\(range.start)-\(range.end)")
-                                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                                    .foregroundStyle(isSelected ? Color.white : secondaryText)
-                                    .frame(minWidth: 64, minHeight: 44)
-                                    .background(isSelected ? DetailTheme.accent : DetailTheme.cell)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("第\(range.start)集到第\(range.end)集")
-                        }
-                    }
-                }
             }
 
             if visibleNumbers.isEmpty {
@@ -653,7 +653,7 @@ private struct EpisodeProgressGrid: View {
                     spacing: 8
                 ) {
                     ForEach(visibleNumbers, id: \.self) { number in
-                        let episode = episodes.first(where: { $0.episodeNumber == number })
+                        let episode = episodeIndex[number]
                         let isWatched = episode?.isWatched == true
                         let isCurrent = personalRecord?.currentSeasonNumber == season.seasonNumber
                             && personalRecord?.currentEpisodeNumber == number
@@ -682,15 +682,6 @@ private struct EpisodeProgressGrid: View {
                 .font(.caption)
                 .foregroundStyle(secondaryText)
         }
-        .onChange(of: season.seasonNumber) { _, _ in
-            selectedRangeStart = 1
-        }
-        .task {
-            if personalRecord?.currentSeasonNumber == season.seasonNumber,
-               let currentEpisode = personalRecord?.currentEpisodeNumber {
-                selectedRangeStart = ((currentEpisode - 1) / 100) * 100 + 1
-            }
-        }
     }
 
     private var primaryText: Color {
@@ -706,6 +697,7 @@ private struct EpisodeProgressGrid: View {
     }
 
     private func toggleEpisode(_ number: Int, existing: EpisodeRecord?) {
+        let wasWatched = existing?.isWatched == true
         let episode: EpisodeRecord
         if let existing {
             episode = existing
@@ -732,7 +724,7 @@ private struct EpisodeProgressGrid: View {
             let personal = personalRecord ?? makePersonalRecord()
             personal.currentSeasonNumber = nextPosition.season
             personal.currentEpisodeNumber = nextPosition.episode
-            let watchedAfter = episodes.filter(\.isWatched).count
+            let watchedAfter = watchedCount + (episode.isWatched && !wasWatched ? 1 : 0)
             personal.localShelfState = totalEpisodeCount > 0 && watchedAfter >= totalEpisodeCount
                 ? "finished"
                 : "watching"
@@ -752,13 +744,6 @@ private struct EpisodeProgressGrid: View {
         modelContext.insert(record)
         return record
     }
-}
-
-private struct EpisodeRange: Identifiable, Hashable {
-    let start: Int
-    let end: Int
-
-    var id: Int { start }
 }
 
 private struct EditSeriesView: View {
@@ -914,11 +899,23 @@ struct SeasonDetailView: View {
     @State private var isShowingEdit = false
     @State private var notice: String?
 
+    init(series: SeriesRecord, season: SeasonRecord) {
+        self.series = series
+        self.season = season
+
+        let sourceSeriesID = series.sourceSeriesID
+        let seasonNumber = season.seasonNumber
+        _allEpisodes = Query(
+            filter: #Predicate<EpisodeRecord> { episode in
+                episode.sourceSeriesID == sourceSeriesID
+                    && episode.seasonNumber == seasonNumber
+            },
+            sort: \EpisodeRecord.episodeNumber
+        )
+    }
+
     private var episodes: [EpisodeRecord] {
-        allEpisodes.filter {
-            $0.sourceSeriesID == series.sourceSeriesID
-                && $0.seasonNumber == season.seasonNumber
-        }
+        allEpisodes
     }
 
     var body: some View {

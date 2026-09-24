@@ -140,6 +140,53 @@ final class LibraryModelTests: XCTestCase {
         )
     }
 
+    func testEpisodeGridShowsEveryEpisodeInTheSelectedSeason() {
+        let numbers = EpisodeGridSupport.visibleNumbers(totalEpisodeCount: 168)
+
+        XCTAssertEqual(numbers.count, 168)
+        XCTAssertEqual(numbers.first, 1)
+        XCTAssertEqual(numbers.last, 168)
+        XCTAssertTrue(numbers.contains(100))
+        XCTAssertTrue(numbers.contains(101))
+        XCTAssertTrue(numbers.contains(168))
+    }
+
+    func testEpisodeGridHandlesEmptyOrInvalidEpisodeCount() {
+        XCTAssertTrue(EpisodeGridSupport.visibleNumbers(totalEpisodeCount: 0).isEmpty)
+        XCTAssertTrue(EpisodeGridSupport.visibleNumbers(totalEpisodeCount: -1).isEmpty)
+    }
+
+    func testEpisodeIndexProvidesConstantTimeLookupByNumber() {
+        let episodes = (1...176).map { number in
+            EpisodeRecord(
+                sourceVid: "vid-\(number)",
+                sourceSeriesID: "series-1",
+                seasonNumber: 3,
+                episodeNumber: number
+            )
+        }
+
+        let index = EpisodeGridSupport.index(episodes)
+
+        XCTAssertEqual(index.count, 176)
+        XCTAssertEqual(index[168]?.episodeNumber, 168)
+    }
+
+    func testRatingPresentationPrefersOfficialThenPersonalFallback() {
+        XCTAssertEqual(
+            RatingPresentation.resolve(officialRating: 8.8, personalRating: 4).text,
+            "官方 8.8分"
+        )
+        XCTAssertEqual(
+            RatingPresentation.resolve(officialRating: nil, personalRating: 4).text,
+            "我的 4.0分"
+        )
+        XCTAssertEqual(
+            RatingPresentation.resolve(officialRating: nil, personalRating: nil).text,
+            "暂无评分"
+        )
+    }
+
     func testSeasonKeepsIndependentRatingAndReview() {
         let season = SeasonRecord(
             sourceSeriesID: "series-1",

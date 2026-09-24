@@ -153,7 +153,6 @@ private struct LibraryView: View {
             return item.coverURL == nil
                 || item.intro.isEmpty
                 || item.tagsText.isEmpty
-                || item.officialRating == nil
                 || item.officialHeatText == nil
         }
 
@@ -271,7 +270,10 @@ private struct SeriesCard: View {
                     )
 
                     CompactInfoPill(
-                        text: series.officialRating.map { String(format: "%.1f分", $0) } ?? "评分待读取",
+                        text: RatingPresentation.resolve(
+                            officialRating: series.officialRating,
+                            personalRating: personal?.myRating
+                        ).text,
                         systemImage: "star.fill",
                         tint: .orange
                     )
