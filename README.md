@@ -13,7 +13,7 @@
 - iOS Simulator：在 CI 中执行 UI 测试并保存截图和日志。
 - 真实 iPhone：只用于 Share Extension、红果跳转和系统行为的阶段性验收。
 
-本项目不依赖本地 macOS 虚拟机。本轮 `v1.2.10` 使用 GitHub Actions macOS Runner 构建；CI 完成后会生成对应版本的未签名真机 IPA，历史版本仍保留在 `artifacts` 目录。
+本项目不依赖本地 macOS 虚拟机。本轮 `v1.2.10` 使用 GitHub Actions macOS Runner 构建，已生成对应版本的未签名真机 IPA；历史版本仍保留在 `artifacts` 目录。
 
 ## 生成项目
 
@@ -36,9 +36,11 @@ xcodegen generate --spec project.yml
 
 签名、TestFlight 和真实设备安装暂不自动化，等模拟器构建稳定后再配置。
 
-本轮 `v1.2.10` CI 将验证季数汇总、当前集数输入、逐集列表移除以及既有公开资料和评分回退回归；主 App 与 Share Extension 均为 build 13。
+本轮 `v1.2.10` CI Run `35960738893` 已通过：23 个单元测试、2 个 UI 测试、模拟器构建、真机架构归档和未签名 IPA 均成功；主 App 与 Share Extension 均为 build 13。
 
-v1.2.9 IPA：835843 字节；SHA-256 为 `1EC5E5298E9FC3E2000E21070A7FCF7263235ED2EF9F636118D32FDD4F1ADA77`。该 IPA 面向真机架构但未签名，不能直接安装到 iPhone。
+v1.2.10 IPA：820950 字节；SHA-256 为 `D4FFBDBF800759E7CA4118A2E4B9A6A56E80743C365F079412551DF148471954`。该 IPA 面向真机架构但未签名，不能直接安装到 iPhone。
+
+上一版 v1.2.9 IPA：835843 字节；SHA-256 为 `1EC5E5298E9FC3E2000E21070A7FCF7263235ED2EF9F636118D32FDD4F1ADA77`，仍保留在 `artifacts` 目录。
 
 v1.2.7 IPA：827153 字节；SHA-256 为 `7D954D19D5EB08560DB9DDEBE7F8F01BCFB44EBA27C88E05CAD4906B140FFC21`。该 IPA 面向真机架构但未签名，不能直接安装到 iPhone。
 
