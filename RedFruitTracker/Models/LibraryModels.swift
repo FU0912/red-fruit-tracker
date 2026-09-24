@@ -32,37 +32,15 @@ enum RatingPresentation: Equatable {
     }
 }
 
-enum EpisodeGridSupport {
-    static func visibleNumbers(totalEpisodeCount: Int) -> [Int] {
-        guard totalEpisodeCount > 0 else { return [] }
-        return Array(1...totalEpisodeCount)
+enum EpisodeProgressSupport {
+    static func selectedEpisode(_ value: Int, totalEpisodeCount: Int) -> Int? {
+        guard value > 0, totalEpisodeCount > 0 else { return nil }
+        return min(value, totalEpisodeCount)
     }
 
-    static func index(_ episodes: [EpisodeRecord]) -> [Int: EpisodeRecord] {
-        episodes.reduce(into: [:]) { result, episode in
-            if result[episode.episodeNumber] == nil {
-                result[episode.episodeNumber] = episode
-            }
-        }
-    }
-}
-
-struct EpisodePosition: Equatable {
-    let season: Int
-    let episode: Int
-}
-
-enum EpisodeSelectionReducer {
-    static func nextPosition(
-        selectedSeason: Int,
-        selectedEpisode: Int,
-        currentSeason: Int?,
-        currentEpisode: Int?
-    ) -> EpisodePosition? {
-        if currentSeason == selectedSeason && currentEpisode == selectedEpisode {
-            return nil
-        }
-        return EpisodePosition(season: selectedSeason, episode: selectedEpisode)
+    static func summary(watchedCount: Int, totalEpisodeCount: Int) -> String {
+        guard totalEpisodeCount > 0 else { return "集数待补" }
+        return "已看 \(max(0, watchedCount)) / 共\(totalEpisodeCount)集"
     }
 }
 

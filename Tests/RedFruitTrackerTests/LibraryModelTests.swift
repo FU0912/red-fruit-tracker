@@ -120,56 +120,28 @@ final class LibraryModelTests: XCTestCase {
         }
     }
 
-    func testEpisodeSelectionMovesOrClearsOneCurrentPosition() {
+    func testEpisodeProgressAcceptsOneCurrentEpisodeWithoutBuildingAGrid() {
         XCTAssertEqual(
-            EpisodeSelectionReducer.nextPosition(
-                selectedSeason: 1,
-                selectedEpisode: 8,
-                currentSeason: 1,
-                currentEpisode: 3
-            ),
-            EpisodePosition(season: 1, episode: 8)
+            EpisodeProgressSupport.selectedEpisode(6, totalEpisodeCount: 79),
+            6
         )
-        XCTAssertNil(
-            EpisodeSelectionReducer.nextPosition(
-                selectedSeason: 1,
-                selectedEpisode: 8,
-                currentSeason: 1,
-                currentEpisode: 8
-            )
+        XCTAssertEqual(
+            EpisodeProgressSupport.selectedEpisode(999, totalEpisodeCount: 79),
+            79
         )
+        XCTAssertNil(EpisodeProgressSupport.selectedEpisode(0, totalEpisodeCount: 79))
+        XCTAssertNil(EpisodeProgressSupport.selectedEpisode(6, totalEpisodeCount: 0))
     }
 
-    func testEpisodeGridShowsEveryEpisodeInTheSelectedSeason() {
-        let numbers = EpisodeGridSupport.visibleNumbers(totalEpisodeCount: 168)
-
-        XCTAssertEqual(numbers.count, 168)
-        XCTAssertEqual(numbers.first, 1)
-        XCTAssertEqual(numbers.last, 168)
-        XCTAssertTrue(numbers.contains(100))
-        XCTAssertTrue(numbers.contains(101))
-        XCTAssertTrue(numbers.contains(168))
-    }
-
-    func testEpisodeGridHandlesEmptyOrInvalidEpisodeCount() {
-        XCTAssertTrue(EpisodeGridSupport.visibleNumbers(totalEpisodeCount: 0).isEmpty)
-        XCTAssertTrue(EpisodeGridSupport.visibleNumbers(totalEpisodeCount: -1).isEmpty)
-    }
-
-    func testEpisodeIndexProvidesConstantTimeLookupByNumber() {
-        let episodes = (1...176).map { number in
-            EpisodeRecord(
-                sourceVid: "vid-\(number)",
-                sourceSeriesID: "series-1",
-                seasonNumber: 3,
-                episodeNumber: number
-            )
-        }
-
-        let index = EpisodeGridSupport.index(episodes)
-
-        XCTAssertEqual(index.count, 176)
-        XCTAssertEqual(index[168]?.episodeNumber, 168)
+    func testEpisodeProgressSummaryOnlyShowsTheSeasonTotal() {
+        XCTAssertEqual(
+            EpisodeProgressSupport.summary(watchedCount: 4, totalEpisodeCount: 79),
+            "已看 4 / 共79集"
+        )
+        XCTAssertEqual(
+            EpisodeProgressSupport.summary(watchedCount: 0, totalEpisodeCount: 0),
+            "集数待补"
+        )
     }
 
     func testRatingPresentationPrefersOfficialThenPersonalFallback() {

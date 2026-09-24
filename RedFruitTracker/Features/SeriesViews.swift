@@ -281,9 +281,6 @@ struct SeriesDetailView: View {
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
                 Spacer()
-                Text(totalEpisodeCount > 0 ? "已看 \(totalWatchedCount) / 共\(totalEpisodeCount)集" : "等待集数资料")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.62))
             }
 
             if let selectedSeason {
@@ -311,7 +308,7 @@ struct SeriesDetailView: View {
                 .pickerStyle(.menu)
                 .tint(.white)
 
-                EpisodeProgressGrid(series: series, season: selectedSeason, usesDarkAppearance: true)
+                EpisodeProgressControl(series: series, season: selectedSeason, usesDarkAppearance: true)
             } else {
                 Text("还没有季资料。请先更新公开资料，或从右上角添加一季。")
                     .font(.subheadline)
@@ -364,10 +361,6 @@ struct SeriesDetailView: View {
                 .max() ?? 0
             return total + max(season.episodeCount, actual)
         }
-    }
-
-    private var totalWatchedCount: Int {
-        allEpisodes.filter(\.isWatched).count
     }
 
     private var selectedEpisode: EpisodeRecord? {
@@ -579,14 +572,14 @@ private struct DetailTagPill: View {
     }
 }
 
-private struct EpisodeProgressGrid: View {
+private struct EpisodeProgressControl: View {
     @Environment(\.modelContext) private var modelContext
 
     let series: SeriesRecord
     let season: SeasonRecord
     var usesDarkAppearance = false
 
-    @Query(sort: \EpisodeRecord.episodeNumber)
+    @Query
     private var allEpisodes: [EpisodeRecord]
 
     @Query
@@ -613,74 +606,78 @@ private struct EpisodeProgressGrid: View {
         )
     }
 
-    private var episodeIndex: [Int: EpisodeRecord] {
-        EpisodeGridSupport.index(allEpisodes)
-    }
-
     private var totalEpisodeCount: Int {
-        max(season.episodeCount, episodeIndex.keys.max() ?? 0)
+        max(season.episodeCount, allEpisodes.map(\.episodeNumber).max() ?? 0)
     }
 
     private var watchedCount: Int {
-        episodeIndex.values.filter(\.isWatched).count
+        allEpisodes.filter(\.isWatched).count
     }
 
     private var personalRecord: PersonalRecord? {
         personalRecords.first { $0.sourceSeriesID == series.sourceSeriesID }
     }
 
-    var body: some View {
-        let episodeIndex = self.episodeIndex
-        let totalEpisodeCount = max(season.episodeCount, episodeIndex.keys.max() ?? 0)
-        let visibleNumbers = EpisodeGridSupport.visibleNumbers(totalEpisodeCount: totalEpisodeCount)
-        let watchedCount = episodeIndex.values.filter(\.isWatched).count
+    private var currentEpisodeNumber: Int {
+        guard personalRecord?.currentSeasonNumber == season.seasonNumber else { return 0 }
+        return personalRecord?.currentEpisodeNumber ?? 0
+    }
 
+    private var currentEpisodeTextBinding: Binding<String> {
+        Binding(
+            get: { currentEpisodeNumber == 0 ? "" : String(currentEpisodeNumber) },
+            set: { value in
+                let digits = value.filter { $0.isASCII && $0.isNumber }
+                guard !digits.isEmpty else {
+                    setCurrentEpisode(0)
+                    return
+                }
+                if let episode = Int(digits) {
+                    setCurrentEpisode(episode)
+                }
+            }
+        )
+    }
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text("第\(season.seasonNumber)季 · \(watchedCount)/\(totalEpisodeCount) 集已看")
+                Text("第\(season.seasonNumber)季")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(primaryText)
                 Spacer()
+                Text(EpisodeProgressSupport.summary(
+                    watchedCount: watchedCount,
+                    totalEpisodeCount: totalEpisodeCount
+                ))
+                .font(.subheadline)
+                .foregroundStyle(secondaryText)
             }
 
-            if visibleNumbers.isEmpty {
-                Text("还没有可展示的集数。请先更新公开资料，或手动填写本季集数。")
+            HStack(spacing: 8) {
+                Text("当前看到")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(primaryText)
+
+                TextField("未开始", text: currentEpisodeTextBinding)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.center)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(primaryText)
+                    .frame(width: 64, height: 40)
+                    .background(usesDarkAppearance ? DetailTheme.cell : Color(uiColor: .tertiarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .accessibilityIdentifier("episode-progress-input")
+
+                Text("/ \(totalEpisodeCount) 集")
                     .font(.subheadline)
                     .foregroundStyle(secondaryText)
-            } else {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 48, maximum: 56), spacing: 8)],
-                    spacing: 8
-                ) {
-                    ForEach(visibleNumbers, id: \.self) { number in
-                        let episode = episodeIndex[number]
-                        let isWatched = episode?.isWatched == true
-                        let isCurrent = personalRecord?.currentSeasonNumber == season.seasonNumber
-                            && personalRecord?.currentEpisodeNumber == number
 
-                        Button {
-                            toggleEpisode(number, existing: episode)
-                        } label: {
-                            Text("\(number)")
-                                .font(.body.weight(.semibold))
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                                .foregroundStyle(isCurrent ? Color.white : primaryText)
-                                .background(
-                                    isCurrent ? DetailTheme.accent : cellBackground
-                                )
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(
-                            "第\(number)集\(isWatched ? "，已看" : "，未看")\(isCurrent ? "，当前" : "")"
-                        )
-                    }
-                }
+                Spacer(minLength: 0)
             }
-
-            Text("点击集数设为当前观看位置，再次点击当前集可取消定位。")
-                .font(.caption)
-                .foregroundStyle(secondaryText)
+            .disabled(totalEpisodeCount == 0)
+            .accessibilityLabel("当前观看进度")
+            .accessibilityValue(currentEpisodeNumber == 0 ? "未开始" : "第\(currentEpisodeNumber)集")
         }
     }
 
@@ -692,49 +689,41 @@ private struct EpisodeProgressGrid: View {
         usesDarkAppearance ? .white.opacity(0.62) : .secondary
     }
 
-    private var cellBackground: Color {
-        usesDarkAppearance ? DetailTheme.cell : Color(uiColor: .tertiarySystemGroupedBackground)
-    }
-
-    private func toggleEpisode(_ number: Int, existing: EpisodeRecord?) {
-        let wasWatched = existing?.isWatched == true
-        let episode: EpisodeRecord
-        if let existing {
-            episode = existing
-        } else {
-            episode = EpisodeRecord(
-                sourceVid: "\(series.sourceSeriesID)#s\(season.seasonNumber)#e\(number)",
-                sourceSeriesID: series.sourceSeriesID,
-                seasonNumber: season.seasonNumber,
-                episodeNumber: number
-            )
-            modelContext.insert(episode)
-            season.episodeCount = max(season.episodeCount, number)
+    private func setCurrentEpisode(_ value: Int) {
+        guard let number = EpisodeProgressSupport.selectedEpisode(
+            value,
+            totalEpisodeCount: totalEpisodeCount
+        ) else {
+            if let personalRecord, personalRecord.currentSeasonNumber == season.seasonNumber {
+                personalRecord.currentEpisodeNumber = nil
+                personalRecord.localShelfState = watchedCount >= totalEpisodeCount && totalEpisodeCount > 0
+                    ? "finished"
+                    : watchedCount > 0 ? "watching" : "unstarted"
+                personalRecord.updatedAt = .now
+            }
+            try? modelContext.save()
+            return
         }
 
-        let nextPosition = EpisodeSelectionReducer.nextPosition(
-            selectedSeason: season.seasonNumber,
-            selectedEpisode: number,
-            currentSeason: personalRecord?.currentSeasonNumber,
-            currentEpisode: personalRecord?.currentEpisodeNumber
+        let episode = allEpisodes.first { $0.episodeNumber == number } ?? EpisodeRecord(
+            sourceVid: "\(series.sourceSeriesID)#s\(season.seasonNumber)#e\(number)",
+            sourceSeriesID: series.sourceSeriesID,
+            seasonNumber: season.seasonNumber,
+            episodeNumber: number
         )
-        if let nextPosition {
-            episode.isWatched = true
-            episode.watchedAt = episode.watchedAt ?? .now
-            let personal = personalRecord ?? makePersonalRecord()
-            personal.currentSeasonNumber = nextPosition.season
-            personal.currentEpisodeNumber = nextPosition.episode
-            let watchedAfter = watchedCount + (episode.isWatched && !wasWatched ? 1 : 0)
-            personal.localShelfState = totalEpisodeCount > 0 && watchedAfter >= totalEpisodeCount
-                ? "finished"
-                : "watching"
-            personal.updatedAt = .now
-        } else if let personalRecord {
-            personalRecord.currentSeasonNumber = nil
-            personalRecord.currentEpisodeNumber = nil
-            personalRecord.localShelfState = watchedCount > 0 ? "watching" : "unstarted"
-            personalRecord.updatedAt = .now
+        if !allEpisodes.contains(where: { $0.sourceVid == episode.sourceVid }) {
+            modelContext.insert(episode)
         }
+        let wasWatched = episode.isWatched
+        episode.isWatched = true
+        episode.watchedAt = episode.watchedAt ?? .now
+
+        let personal = personalRecord ?? makePersonalRecord()
+        personal.currentSeasonNumber = season.seasonNumber
+        personal.currentEpisodeNumber = number
+        let watchedAfter = watchedCount + (wasWatched ? 0 : 1)
+        personal.localShelfState = watchedAfter >= totalEpisodeCount ? "finished" : "watching"
+        personal.updatedAt = .now
         season.updatedAt = .now
         try? modelContext.save()
     }
@@ -941,8 +930,8 @@ struct SeasonDetailView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
-                    SectionTitle(title: "逐集进度", symbol: "calendar")
-                    EpisodeProgressGrid(series: series, season: season)
+                    SectionTitle(title: "观看进度", symbol: "bookmark")
+                    EpisodeProgressControl(series: series, season: season)
                     Button {
                         isShowingAddEpisode = true
                     } label: {
@@ -957,36 +946,12 @@ struct SeasonDetailView: View {
                 seasonRatingSection
 
                 if !episodes.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionTitle(title: "已录入的集资料", symbol: "list.number")
-                        ForEach(episodes, id: \.sourceVid) { episode in
-                            HStack(spacing: 12) {
-                                Image(systemName: episode.isWatched ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(episode.isWatched ? Color.accentColor : Color.secondary)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text("第\(episode.episodeNumber)集")
-                                        .font(.subheadline.weight(.semibold))
-                                    if !episode.title.isEmpty {
-                                        Text(episode.title)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
-                                }
-                                Spacer()
-                                if let webURL = episode.webURL, let url = URL(string: webURL) {
-                                    Button {
-                                        openURL(url)
-                                    } label: {
-                                        Image(systemName: "play.circle")
-                                            .font(.title3)
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .accessibilityLabel("打开第\(episode.episodeNumber)集")
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
+                    VStack(alignment: .leading, spacing: 8) {
+                        SectionTitle(title: "已录入集资料", symbol: "list.number")
+                        Text("已录入 \(episodes.count) 集资料，页面不展开逐集列表。需要记录当前位置时，在上方输入当前集数即可。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
