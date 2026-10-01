@@ -375,9 +375,8 @@ final class LibraryModelTests: XCTestCase {
             HTMLMetadata.currentSeriesDetailCompactCountText(for: ["popularity"], in: html),
             "3892.7万"
         )
-        XCTAssertEqual(
-            HTMLMetadata.selectedCoverURL(in: html, baseURL: baseURL, title: "红袖伴我，修清玄第一季"),
-            "https://p6-novel.byteimg.com/novel-pic/current-series-cover.image"
+        XCTAssertNil(
+            HTMLMetadata.selectedCoverURL(in: html, baseURL: baseURL, title: "红袖伴我，修清玄第一季")
         )
         XCTAssertEqual(
             HTMLMetadata.currentSeriesDetailValue(for: ["category_list"], in: html),
@@ -403,6 +402,67 @@ final class LibraryModelTests: XCTestCase {
 
         XCTAssertNil(HTMLMetadata.selectedCoverURL(in: html, baseURL: baseURL, title: "测试作品"))
         XCTAssertTrue(HTMLMetadata.coverCandidates(in: html, baseURL: baseURL).isEmpty)
+    }
+
+    func testManjuSharePageDoesNotUseLandscapeVideoFrameAsCover() {
+        let html = #"""
+        <script>
+        window._ROUTER_DATA = {
+          "loaderData": {
+            "video-animation-share_page": {
+              "pageData": {
+                "series_data": {
+                  "title": "横向视频作品",
+                  "series_cover": "https:\u002F\u002Fexample.com\u002Fseries-cover.jpg",
+                  "video_meta": {"width": 640, "height": 360}
+                }
+              }
+            }
+          }
+        };
+        </script>
+        """#
+        let baseURL = URL(string: "https://kylin.hainanyuyue.com/s/landscape/")!
+
+        XCTAssertNil(
+            HTMLMetadata.selectedCoverURL(
+                in: html,
+                baseURL: baseURL,
+                title: "横向视频作品"
+            )
+        )
+    }
+
+    func testManjuSharePagePrefersDistinctFallbackPosterOverLandscapeVideoFrame() {
+        let html = #"""
+        <meta property="og:image" content="https://example.com/series-cover.jpg">
+        <script>
+        window._ROUTER_DATA = {
+          "loaderData": {
+            "video-animation-share_page": {
+              "pageData": {
+                "series_data": {
+                  "title": "带备用海报的作品",
+                  "series_cover": "https:\u002F\u002Fexample.com\u002Fseries-cover.jpg",
+                  "series_cover_fallback": ["https:\u002F\u002Fexample.com\u002Fcharacter-poster.jpg"],
+                  "video_meta": {"width": 640, "height": 360}
+                }
+              }
+            }
+          }
+        };
+        </script>
+        """#
+        let baseURL = URL(string: "https://kylin.hainanyuyue.com/s/fallback/")!
+
+        XCTAssertEqual(
+            HTMLMetadata.selectedCoverURL(
+                in: html,
+                baseURL: baseURL,
+                title: "带备用海报的作品"
+            ),
+            "https://example.com/character-poster.jpg"
+        )
     }
 
     func testSSRCurrentSeriesMetadataExposesOfficialFields() {

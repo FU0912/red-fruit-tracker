@@ -59,12 +59,17 @@ enum CoverURLSelector {
         for token in [
             "banner", "background", "bg", "share", "logo", "icon", "lock", "empty",
             "loading", "qr", "qrcode", "sprite", "placeholder", "avatar", "emoji", "badge",
-            ".svg", "data:image"
+            "first-frame", "first_frame", "video-frame", "video_frame", "snapshot", "screenshot",
+            "still", "frame", ".svg", "data:image"
         ] {
             if value.contains(token) { result -= 24 }
         }
 
         let context = candidate.context.lowercased()
+        if context.contains("share-video-cover") {
+            result -= 240
+        }
+
         if context.contains("official-current-series-cover") {
             result += 160
         }
@@ -261,13 +266,8 @@ enum HTMLMetadata {
     }
 
     static func selectedCoverURL(in html: String, baseURL: URL, title: String?) -> String? {
-        if isVideoAnimationSharePage(in: html) {
-            return currentSeriesDetailCover(in: html, baseURL: baseURL)?.url
-        }
-
         let candidates = coverCandidates(in: html, baseURL: baseURL)
-        return currentSeriesDetailCover(in: html, baseURL: baseURL)?.url
-            ?? CoverURLSelector.preferred(candidates, title: title)?.url
+        return CoverURLSelector.preferred(candidates, title: title)?.url
     }
 
     static func currentSeriesSocialInfoValue(
@@ -451,10 +451,6 @@ enum HTMLMetadata {
     static func coverCandidates(in html: String, baseURL: URL) -> [CoverImageCandidate] {
         var candidates: [CoverImageCandidate] = []
 
-        if isVideoAnimationSharePage(in: html) {
-            return currentSeriesDetailCover(in: html, baseURL: baseURL).map { [$0] } ?? []
-        }
-
         guard let metaRegex = try? NSRegularExpression(pattern: #"<meta\b[^>]*>"#, options: [.caseInsensitive]) else {
             return candidates
         }
@@ -536,11 +532,34 @@ enum HTMLMetadata {
             }
         }
 
-        if let currentSeriesCover = currentSeriesDetailCover(in: html, baseURL: baseURL) {
-            candidates.append(currentSeriesCover)
+        let currentCovers = currentSeriesDetailCovers(in: html, baseURL: baseURL)
+        let rejectedVideoCoverURLs = Set(
+            currentCovers
+                .filter { $0.context.lowercased().contains("share-video-cover") }
+                .map(\.url)
+        )
+        if !rejectedVideoCoverURLs.isEmpty {
+            candidates = candidates.map { candidate in
+                guard rejectedVideoCoverURLs.contains(candidate.url) else { return candidate }
+                return CoverImageCandidate(
+                    url: candidate.url,
+                    context: candidate.context + " share-video-cover"
+                )
+            }
         }
 
-        return candidates
+        candidates.append(contentsOf: currentCovers.map { candidate in
+            guard rejectedVideoCoverURLs.contains(candidate.url),
+                  !candidate.context.lowercased().contains("share-video-cover") else {
+                return candidate
+            }
+            return CoverImageCandidate(
+                url: candidate.url,
+                context: candidate.context + " share-video-cover"
+            )
+        })
+
+        return candidates.filter { !isVideoFrameCandidate($0) }
     }
 
     // The SSR payload identifies the current work; videoList contains related works.
@@ -550,27 +569,75 @@ enum HTMLMetadata {
     ) -> CoverImageCandidate? {
         guard let seriesDetail = currentSeriesDetail(in: html) else { return nil }
 
-        let coverKeys = ["series_cover", "small_series_cover", "series_cover_uri", "series_cover_info"]
-        let rawCover = coverKeys.lazy.compactMap { key -> String? in
-            if let value = seriesDetail[key] as? String { return value }
-            if let info = seriesDetail[key] as? [String: Any] {
-                return info["url"] as? String ?? info["uri"] as? String
-            }
-            return nil
-        }.first
+        currentSeriesDetailCovers(in: html, baseURL: baseURL).first
+    }
 
-        guard let rawCover else { return nil }
-        var value = unescape(rawCover)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.hasPrefix("//") { value = "https:\(value)" }
-        guard let url = URL(string: value, relativeTo: baseURL)?.absoluteURL,
-              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            return nil
+    private static func currentSeriesDetailCovers(
+        in html: String,
+        baseURL: URL
+    ) -> [CoverImageCandidate] {
+        guard let seriesDetail = currentSeriesDetail(in: html) else { return [] }
+
+        let coverKeys = [
+            "series_cover", "small_series_cover", "series_cover_uri", "series_cover_info",
+            "series_cover_fallback", "cover", "cover_url", "poster", "poster_url"
+        ]
+        let isLandscapeShare = isVideoAnimationSharePage(in: html) && landscapeVideo(in: seriesDetail)
+        var candidates: [CoverImageCandidate] = []
+
+        for key in coverKeys {
+            guard let rawValue = value(for: key, in: seriesDetail) else { continue }
+            for rawCover in imageStrings(from: rawValue) {
+                var value = unescape(rawCover)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if value.hasPrefix("//") { value = "https:\(value)" }
+                guard let url = URL(string: value, relativeTo: baseURL)?.absoluteURL,
+                      let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+                    continue
+                }
+
+                let seriesName = (seriesDetail["series_name"] as? String) ?? (seriesDetail["title"] as? String) ?? ""
+                let videoLikeKey = [
+                    "series_cover", "small_series_cover", "series_cover_uri", "series_cover_info"
+                ].contains(key.lowercased())
+                let videoMarker = isLandscapeShare && videoLikeKey ? " share-video-cover" : ""
+                let context = "official-current-series-cover key=\(key)\(videoMarker) seriesDetail series_name=\(seriesName)"
+                candidates.append(CoverImageCandidate(url: url.absoluteString, context: context))
+            }
         }
 
-        let seriesName = (seriesDetail["series_name"] as? String) ?? (seriesDetail["title"] as? String) ?? ""
-        let context = "official-current-series-cover seriesDetail series_name=\(seriesName)"
-        return CoverImageCandidate(url: url.absoluteString, context: context)
+        return candidates
+    }
+
+    private static func imageStrings(from value: Any) -> [String] {
+        if let string = value as? String {
+            return [string]
+        }
+        if let dictionary = value as? [String: Any] {
+            return ["url", "uri", "src", "image", "cover"]
+                .compactMap { dictionary[$0] as? String }
+        }
+        if let array = value as? [Any] {
+            return array.flatMap { imageStrings(from: $0) }
+        }
+        return []
+    }
+
+    private static func isVideoFrameCandidate(_ candidate: CoverImageCandidate) -> Bool {
+        let value = "\(candidate.url) \(candidate.context)".lowercased()
+        return [
+            "first-frame", "first_frame", "video-frame", "video_frame",
+            "snapshot", "screenshot", "video-still", "video_still"
+        ].contains { value.contains($0) }
+    }
+
+    private static func landscapeVideo(in seriesDetail: [String: Any]) -> Bool {
+        guard let videoMeta = value(for: "video_meta", in: seriesDetail) as? [String: Any],
+              let width = intValue(for: ["width"], in: videoMeta),
+              let height = intValue(for: ["height"], in: videoMeta) else {
+            return false
+        }
+        return width > height
     }
 
     private static func routerData(in html: String) -> [String: Any]? {

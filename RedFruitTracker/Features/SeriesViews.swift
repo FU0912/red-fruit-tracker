@@ -4,7 +4,6 @@ import SwiftUI
 
 struct SeriesDetailView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.openURL) private var openURL
 
     let series: SeriesRecord
 
@@ -20,7 +19,6 @@ struct SeriesDetailView: View {
     @State private var isShowingEdit = false
     @State private var isShowingAddSeason = false
     @State private var isRefreshing = false
-    @State private var selectedSeasonNumber = 0
     @State private var isIntroExpanded = false
     @State private var notice: String?
 
@@ -56,46 +54,18 @@ struct SeriesDetailView: View {
         personalRecords.first { $0.sourceSeriesID == series.sourceSeriesID }
     }
 
-    private var selectedSeason: SeasonRecord? {
-        if selectedSeasonNumber > 0,
-           let selected = seasons.first(where: { $0.seasonNumber == selectedSeasonNumber }) {
-            return selected
-        }
-        if let current = personalRecord?.currentSeasonNumber,
-           let selected = seasons.first(where: { $0.seasonNumber == current }) {
-            return selected
-        }
-        return seasons.first
-    }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 detailHeader
                 introSection
-                episodeSection
                 personalSection
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
-            // Keep the final episode row above the fixed playback action.
-            .padding(.bottom, 112)
         }
         .scrollIndicators(.hidden)
         .background(DetailTheme.background.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            Button(action: openCurrentPosition) {
-                Label(currentOpenTitle, systemImage: "play.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(DetailTheme.accent)
-            .disabled(series.sourceURL == nil && selectedEpisode == nil)
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 8)
-            .background(DetailTheme.background.opacity(0.97))
-        }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(DetailTheme.background, for: .navigationBar)
@@ -142,9 +112,6 @@ struct SeriesDetailView: View {
         }
         .task {
             ensurePersonalRecord()
-            if selectedSeasonNumber == 0 {
-                selectedSeasonNumber = personalRecord?.currentSeasonNumber ?? seasons.first?.seasonNumber ?? 0
-            }
             if shouldAutoRefreshMetadata {
                 refreshMetadata(showNotice: false)
             }
@@ -274,49 +241,6 @@ struct SeriesDetailView: View {
         }
     }
 
-    private var episodeSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("选集")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.white)
-                Spacer()
-            }
-
-            if let selectedSeason {
-                Picker(
-                    "选择季",
-                    selection: Binding(
-                        get: { selectedSeasonNumber == 0 ? selectedSeason.seasonNumber : selectedSeasonNumber },
-                        set: { value in
-                            selectedSeasonNumber = value
-                            if let personalRecord {
-                                personalRecord.currentSeasonNumber = value
-                                personalRecord.currentEpisodeNumber = nil
-                                personalRecord.localShelfState = "watching"
-                                personalRecord.updatedAt = .now
-                                try? modelContext.save()
-                            }
-                        }
-                    )
-                ) {
-                    ForEach(seasons, id: \.seasonNumber) { season in
-                        Text(season.title.isEmpty ? "第\(season.seasonNumber)季" : season.title)
-                            .tag(season.seasonNumber)
-                    }
-                }
-                .pickerStyle(.menu)
-                .tint(.white)
-
-                EpisodeProgressControl(series: series, season: selectedSeason, usesDarkAppearance: true)
-            } else {
-                Text("还没有季资料。请先更新公开资料，或从右上角添加一季。")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.62))
-            }
-        }
-    }
-
     private var personalSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionTitle(title: "我的评分与点评", symbol: "star.bubble")
@@ -354,34 +278,7 @@ struct SeriesDetailView: View {
     }
 
     private var totalEpisodeCount: Int {
-        seasons.reduce(0) { total, season in
-            let actual = allEpisodes
-                .filter { $0.seasonNumber == season.seasonNumber }
-                .map(\.episodeNumber)
-                .max() ?? 0
-            return total + max(season.episodeCount, actual)
-        }
-    }
-
-    private var selectedEpisode: EpisodeRecord? {
-        guard let personalRecord,
-              let seasonNumber = personalRecord.currentSeasonNumber,
-              let episodeNumber = personalRecord.currentEpisodeNumber else {
-            return nil
-        }
-        return allEpisodes.first {
-            $0.seasonNumber == seasonNumber
-                && $0.episodeNumber == episodeNumber
-        }
-    }
-
-    private var currentOpenTitle: String {
-        guard let personalRecord,
-              let season = personalRecord.currentSeasonNumber,
-              let episode = personalRecord.currentEpisodeNumber else {
-            return "打开红果作品"
-        }
-        return "打开第\(season)季第\(episode)集"
+        seasons.reduce(0) { $0 + $1.episodeCount }
     }
 
     private func ensurePersonalRecord() {
@@ -417,32 +314,6 @@ struct SeriesDetailView: View {
             get: { personal.review },
             set: { personal.review = $0 }
         )
-    }
-
-    private func openCurrentPosition() {
-        let sourceString: String?
-        let isPrecise: Bool
-
-        if let episode = selectedEpisode, let webURL = episode.webURL {
-            sourceString = webURL
-            isPrecise = true
-        } else if let currentSeason = personalRecord?.currentSeasonNumber,
-                  let season = seasons.first(where: { $0.seasonNumber == currentSeason }) {
-            sourceString = season.sourceURL ?? series.sourceURL
-            isPrecise = false
-        } else {
-            sourceString = series.sourceURL
-            isPrecise = false
-        }
-
-        guard let sourceString, let url = URL(string: sourceString) else {
-            notice = "这部作品还没有可跳转的红果链接。"
-            return
-        }
-        openURL(url)
-        if !isPrecise, personalRecord?.currentEpisodeNumber != nil {
-            notice = "页面没有提供这一集的专属链接，已打开可用的本季或作品链接。"
-        }
     }
 
     private func refreshMetadata(showNotice: Bool) {

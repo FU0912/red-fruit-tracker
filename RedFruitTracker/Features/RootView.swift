@@ -68,6 +68,8 @@ private struct LibraryView: View {
 
     @State private var searchText = ""
     @State private var hasAutoRefreshedMetadata = false
+    @State private var seriesToDelete: SeriesRecord?
+    @State private var deletionErrorMessage: String?
 
     private var visibleSeries: [SeriesRecord] {
         let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -86,26 +88,35 @@ private struct LibraryView: View {
                 if visibleSeries.isEmpty {
                     LibraryEmptyState(isSearching: !searchText.isEmpty, onAdd: onAdd)
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(visibleSeries) { item in
-                                NavigationLink {
-                                    SeriesDetailView(series: item)
+                    List {
+                        ForEach(visibleSeries) { item in
+                            NavigationLink {
+                                SeriesDetailView(series: item)
+                            } label: {
+                                SeriesCard(
+                                    series: item,
+                                    seasons: seasons.filter { $0.sourceSeriesID == item.sourceSeriesID },
+                                    personal: personalRecords.first { $0.sourceSeriesID == item.sourceSeriesID }
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    seriesToDelete = item
                                 } label: {
-                                    SeriesCard(
-                                        series: item,
-                                        seasons: seasons.filter { $0.sourceSeriesID == item.sourceSeriesID },
-                                        personal: personalRecords.first { $0.sourceSeriesID == item.sourceSeriesID }
-                                    )
+                                    Label("删除", systemImage: "trash")
                                 }
-                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("delete-series-\(item.sourceSeriesID)")
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 24)
                     }
-                    .background(Color(uiColor: .systemGroupedBackground))
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .padding(.top, 6)
+                    .padding(.bottom, 24)
                 }
             }
             .navigationTitle("漫剧记录")
@@ -135,9 +146,54 @@ private struct LibraryView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
             .toolbarColorScheme(.light, for: .navigationBar)
+            .alert("删除这部漫剧？", isPresented: Binding(
+                get: { seriesToDelete != nil },
+                set: { if !$0 { seriesToDelete = nil } }
+            )) {
+                Button("删除", role: .destructive) {
+                    if let seriesToDelete {
+                        delete(seriesToDelete)
+                    }
+                    seriesToDelete = nil
+                }
+                Button("取消", role: .cancel) {
+                    seriesToDelete = nil
+                }
+            } message: {
+                Text("会同时删除这部作品的季、集、评分和公开资料快照。")
+            }
+            .alert("删除失败", isPresented: Binding(
+                get: { deletionErrorMessage != nil },
+                set: { if !$0 { deletionErrorMessage = nil } }
+            )) {
+                Button("好", role: .cancel) {
+                    deletionErrorMessage = nil
+                }
+            } message: {
+                Text(deletionErrorMessage ?? "")
+            }
             .task {
                 await refreshMissingMetadata()
             }
+        }
+    }
+
+    private func delete(_ series: SeriesRecord) {
+        do {
+            let sourceID = series.sourceSeriesID
+            let seasons = try modelContext.fetch(FetchDescriptor<SeasonRecord>())
+            let episodes = try modelContext.fetch(FetchDescriptor<EpisodeRecord>())
+            let personal = try modelContext.fetch(FetchDescriptor<PersonalRecord>())
+            let snapshots = try modelContext.fetch(FetchDescriptor<OfficialSnapshot>())
+
+            seasons.filter { $0.sourceSeriesID == sourceID }.forEach { modelContext.delete($0) }
+            episodes.filter { $0.sourceSeriesID == sourceID }.forEach { modelContext.delete($0) }
+            personal.filter { $0.sourceSeriesID == sourceID }.forEach { modelContext.delete($0) }
+            snapshots.filter { $0.sourceSeriesID == sourceID }.forEach { modelContext.delete($0) }
+            modelContext.delete(series)
+            try modelContext.save()
+        } catch {
+            deletionErrorMessage = error.localizedDescription
         }
     }
 

@@ -45,17 +45,26 @@ final class RedFruitTrackerUITests: XCTestCase {
         libraryAttachment.lifetime = .keepAlways
         add(libraryAttachment)
 
+        let libraryRow = app.cells.firstMatch
+        XCTAssertTrue(libraryRow.exists)
+        libraryRow.swipeLeft()
+        XCTAssertTrue(app.buttons["删除"].waitForExistence(timeout: 2))
+        app.buttons["删除"].tap()
+        XCTAssertTrue(app.alerts["删除这部漫剧？"].waitForExistence(timeout: 2))
+        app.alerts.buttons["取消"].tap()
+
         title.tap()
 
         XCTAssertTrue(app.staticTexts["基本信息"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["选集"].exists)
         XCTAssertTrue(app.staticTexts["全189集"].exists)
-        XCTAssertTrue(app.staticTexts["第1季"].exists)
-        XCTAssertTrue(app.staticTexts["已看 1 / 共189集"].exists)
+        XCTAssertTrue(app.staticTexts["我的评分与点评"].exists)
+        XCTAssertFalse(app.staticTexts["选集"].exists)
+        XCTAssertFalse(app.staticTexts["第1季"].exists)
+        XCTAssertFalse(app.staticTexts["已看 1 / 共189集"].exists)
         XCTAssertTrue(app.staticTexts["官方 8.8分"].exists)
         XCTAssertTrue(app.staticTexts["3930万热度"].exists)
         XCTAssertTrue(app.staticTexts["修仙"].exists)
-        XCTAssertTrue(app.textFields["episode-progress-input"].exists)
+        XCTAssertFalse(app.textFields["episode-progress-input"].exists)
         XCTAssertFalse(app.buttons["第1集，已看，当前"].exists)
         XCTAssertFalse(app.buttons["第1集到第100集"].exists)
         XCTAssertFalse(app.buttons["第101集到第189集"].exists)
