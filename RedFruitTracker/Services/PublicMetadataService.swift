@@ -567,9 +567,9 @@ enum HTMLMetadata {
         in html: String,
         baseURL: URL
     ) -> CoverImageCandidate? {
-        guard let seriesDetail = currentSeriesDetail(in: html) else { return nil }
+        guard currentSeriesDetail(in: html) != nil else { return nil }
 
-        currentSeriesDetailCovers(in: html, baseURL: baseURL).first
+        return currentSeriesDetailCovers(in: html, baseURL: baseURL).first
     }
 
     private static func currentSeriesDetailCovers(
