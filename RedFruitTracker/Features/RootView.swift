@@ -68,6 +68,7 @@ private struct LibraryView: View {
 
     @State private var searchText = ""
     @State private var hasAutoRefreshedMetadata = false
+    @State private var selectedSeries: SeriesRecord?
     @State private var seriesToDelete: SeriesRecord?
     @State private var deletionErrorMessage: String?
 
@@ -90,8 +91,8 @@ private struct LibraryView: View {
                 } else {
                     List {
                         ForEach(visibleSeries) { item in
-                            NavigationLink {
-                                SeriesDetailView(series: item)
+                            Button {
+                                selectedSeries = item
                             } label: {
                                 SeriesCard(
                                     series: item,
@@ -100,6 +101,7 @@ private struct LibraryView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier("series-card-\(item.sourceSeriesID)")
                             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -116,7 +118,7 @@ private struct LibraryView: View {
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
                     .padding(.top, 6)
-                    .padding(.bottom, 24)
+                    .accessibilityIdentifier("library-list")
                 }
             }
             .navigationTitle("漫剧记录")
@@ -126,9 +128,8 @@ private struct LibraryView: View {
                     ShareImportBanner(url: pendingShareURL, onTap: onAdd)
                 }
             }
-            .safeAreaInset(edge: .bottom, spacing: 8) {
-                HStack {
-                    Spacer()
+            .overlay(alignment: .bottomTrailing) {
+                if !visibleSeries.isEmpty {
                     Button(action: onAdd) {
                         Image(systemName: "plus")
                             .font(.title3.weight(.semibold))
@@ -137,15 +138,19 @@ private struct LibraryView: View {
                     .buttonStyle(.borderedProminent)
                     .clipShape(Circle())
                     .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
+                    .accessibilityIdentifier("add-series-button")
                     .accessibilityLabel("添加作品")
+                    .padding(.trailing, 18)
+                    .padding(.bottom, 16)
                 }
-                .padding(.horizontal, 18)
-                .padding(.bottom, 2)
             }
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
             .toolbarColorScheme(.light, for: .navigationBar)
+            .navigationDestination(item: $selectedSeries) { series in
+                SeriesDetailView(series: series)
+            }
             .alert("删除这部漫剧？", isPresented: Binding(
                 get: { seriesToDelete != nil },
                 set: { if !$0 { seriesToDelete = nil } }
