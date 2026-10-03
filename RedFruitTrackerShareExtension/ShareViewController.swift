@@ -4,6 +4,7 @@ import UIKit
 final class ShareViewController: UIViewController {
     private let appGroup = "group.com.f.redfruittracker"
     private let pendingURLsKey = "pendingShareURLs"
+    private var shouldOpenHostApp = false
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -24,6 +25,8 @@ final class ShareViewController: UIViewController {
                     url = itemURL
                 } else if let itemURL = item as? NSURL {
                     url = itemURL as URL
+                } else if let text = item as? String {
+                    url = URLExtractor.firstURL(in: text)
                 } else {
                     url = nil
                 }
@@ -37,7 +40,17 @@ final class ShareViewController: UIViewController {
 
         if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier) {
             provider.loadItem(forTypeIdentifier: UTType.text.identifier, options: nil) { [weak self] item, _ in
-                if let text = item as? String, let url = URLExtractor.firstURL(in: text) {
+                let text: String?
+                if let value = item as? String {
+                    text = value
+                } else if let value = item as? NSString {
+                    text = value as String
+                } else if let value = item as? Data {
+                    text = String(data: value, encoding: .utf8)
+                } else {
+                    text = nil
+                }
+                if let text, let url = URLExtractor.firstURL(in: text) {
                     self?.save(url: url)
                 }
                 self?.finishOnMainThread()
@@ -56,6 +69,7 @@ final class ShareViewController: UIViewController {
             pendingURLs.append(value)
             defaults?.set(pendingURLs, forKey: pendingURLsKey)
         }
+        shouldOpenHostApp = true
     }
 
     private func finishOnMainThread() {
@@ -65,6 +79,17 @@ final class ShareViewController: UIViewController {
     }
 
     private func finish() {
-        extensionContext?.completeRequest(returningItems: nil)
+        guard shouldOpenHostApp,
+              let callbackURL = URL(string: "redfruittracker://share-import") else {
+            extensionContext?.completeRequest(returningItems: nil)
+            return
+        }
+
+        shouldOpenHostApp = false
+        extensionContext?.open(callbackURL) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.extensionContext?.completeRequest(returningItems: nil)
+            }
+        }
     }
 }

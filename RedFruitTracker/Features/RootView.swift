@@ -10,6 +10,7 @@ struct RootView: View {
     @State private var selectedTab = 0
     @State private var isShowingAdd = false
     @State private var pendingShareURL: URL?
+    @State private var presentedShareURL: URL?
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -29,10 +30,11 @@ struct RootView: View {
                 .tag(1)
         }
         .sheet(isPresented: $isShowingAdd) {
-            AddSeriesView(initialURL: pendingShareURL) {
+            AddSeriesView(initialURL: pendingShareURL, autoSaveInitialURL: presentedShareURL != nil) {
                 if let pendingShareURL {
                     ShareInbox.remove(pendingShareURL)
                 }
+                presentedShareURL = nil
                 refreshPendingShare()
             }
         }
@@ -44,10 +46,19 @@ struct RootView: View {
                 refreshPendingShare()
             }
         }
+        .onOpenURL { _ in
+            refreshPendingShare()
+        }
     }
 
     private func refreshPendingShare() {
         pendingShareURL = ShareInbox.firstURL()
+        if let pendingShareURL,
+           presentedShareURL != pendingShareURL,
+           !isShowingAdd {
+            presentedShareURL = pendingShareURL
+            isShowingAdd = true
+        }
     }
 }
 
@@ -88,8 +99,17 @@ private struct LibraryView: View {
             Group {
                 if visibleSeries.isEmpty {
                     LibraryEmptyState(isSearching: !searchText.isEmpty, onAdd: onAdd)
+                        .navigationTitle("漫剧记录")
+                        .searchable(text: $searchText, prompt: "搜索作品、标签或简介")
                 } else {
                     List {
+                        if let pendingShareURL {
+                            ShareImportBanner(url: pendingShareURL, onTap: onAdd)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                        }
+
                         ForEach(visibleSeries) { item in
                             Button {
                                 selectedSeries = item
@@ -119,13 +139,8 @@ private struct LibraryView: View {
                     .scrollContentBackground(.hidden)
                     .padding(.top, 6)
                     .accessibilityIdentifier("library-list")
-                }
-            }
-            .navigationTitle("漫剧记录")
-            .searchable(text: $searchText, prompt: "搜索作品、标签或简介")
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if let pendingShareURL {
-                    ShareImportBanner(url: pendingShareURL, onTap: onAdd)
+                    .navigationTitle("漫剧记录")
+                    .searchable(text: $searchText, prompt: "搜索作品、标签或简介")
                 }
             }
             .overlay(alignment: .bottomTrailing) {
@@ -361,7 +376,7 @@ private struct SeriesCard: View {
 
                 Spacer(minLength: 0)
 
-                Label(progressText, systemImage: "bookmark")
+                Label(seasonSummary, systemImage: "square.stack.3d.up")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -396,13 +411,8 @@ private struct SeriesCard: View {
         seasons.reduce(0) { $0 + $1.episodeCount }
     }
 
-    private var progressText: String {
-        guard let personal,
-              let season = personal.currentSeasonNumber,
-              let episode = personal.currentEpisodeNumber else {
-            return "未开始"
-        }
-        return "看到第\(season)季 · 第\(episode)集"
+    private var seasonSummary: String {
+        seasons.isEmpty ? "季数待补" : "共\(seasons.count)季"
     }
 }
 
@@ -708,6 +718,7 @@ private struct AddSeriesView: View {
     @Environment(\.modelContext) private var modelContext
 
     let initialURL: URL?
+    let autoSaveInitialURL: Bool
     let onSaved: () -> Void
 
     @State private var sourceURLText: String
@@ -729,9 +740,15 @@ private struct AddSeriesView: View {
     @State private var detectedSeasons: [PublicSeasonMetadata] = []
     @State private var coverCandidates: [String] = []
     @State private var lastFetchedURL: String?
+    @State private var hasAutoSavedInitialURL = false
 
-    init(initialURL: URL?, onSaved: @escaping () -> Void) {
+    init(
+        initialURL: URL?,
+        autoSaveInitialURL: Bool = false,
+        onSaved: @escaping () -> Void
+    ) {
         self.initialURL = initialURL
+        self.autoSaveInitialURL = autoSaveInitialURL
         self.onSaved = onSaved
         _sourceURLText = State(initialValue: initialURL?.absoluteString ?? "")
         _detectedTitle = State(initialValue: initialURL.flatMap { TitleNormalizer.fallback(from: $0) } ?? "")
@@ -936,6 +953,7 @@ private struct AddSeriesView: View {
                         .compactMap { $0 }
                         .joined(separator: " ")
                     isFetching = false
+                    autoSaveIfNeeded()
                 }
             } catch {
                 await MainActor.run {
@@ -945,8 +963,17 @@ private struct AddSeriesView: View {
                     includeFirstSeason = true
                     notice = "没有读到完整公开资料，可以保存链接后再补充。"
                     isFetching = false
+                    autoSaveIfNeeded()
                 }
             }
+        }
+    }
+
+    private func autoSaveIfNeeded() {
+        guard autoSaveInitialURL, !hasAutoSavedInitialURL else { return }
+        hasAutoSavedInitialURL = true
+        Task { @MainActor in
+            save()
         }
     }
 

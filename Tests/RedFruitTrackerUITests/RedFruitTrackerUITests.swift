@@ -56,6 +56,8 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertLessThanOrEqual(libraryCover.frame.width, 100)
         XCTAssertGreaterThan(libraryCover.frame.height, libraryCover.frame.width)
         XCTAssertGreaterThanOrEqual(libraryTitle.frame.minX, libraryCover.frame.maxX - 4)
+        XCTAssertTrue(app.staticTexts["共1季"].exists)
+        XCTAssertFalse(app.staticTexts["看到第1季 · 第1集"].exists)
 
         let libraryScreenshot = XCUIScreen.main.screenshot()
         let libraryAttachment = XCTAttachment(screenshot: libraryScreenshot)
