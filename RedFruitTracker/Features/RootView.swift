@@ -384,7 +384,7 @@ private struct SeriesCard: View {
                     .multilineTextAlignment(.leading)
                     .accessibilityIdentifier("series-card-title")
 
-                TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                TagFlowLayout(horizontalSpacing: 4, verticalSpacing: 6) {
                     CompactInfoPill(
                         text: totalEpisodeCount > 0 ? "共\(totalEpisodeCount)集" : "集数待补",
                         systemImage: "list.number"
@@ -395,13 +395,13 @@ private struct SeriesCard: View {
                             officialRating: series.officialRating,
                             personalRating: personal?.myRating
                         ).text,
-                        systemImage: "star.fill",
+                        systemImage: "number.circle.fill",
                         tint: .orange
                     )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     CompactInfoPill(
                         text: officialHeatText,
                         systemImage: "flame.fill",
@@ -471,14 +471,20 @@ private struct CompactInfoPill: View {
     var tint: Color = .secondary
 
     var body: some View {
-        Label(text, systemImage: systemImage)
+        HStack(spacing: 3) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
             .font(.caption2.weight(.semibold))
             .foregroundStyle(tint)
             .lineLimit(1)
-            .padding(.horizontal, 8)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 6)
             .padding(.vertical, 5)
             .background(tint.opacity(0.1))
             .clipShape(Capsule())
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(text)
     }
 }
 
@@ -664,7 +670,7 @@ private struct StatsView: View {
                         StatTile(title: "作品", value: "\(series.count)", symbol: "books.vertical")
                         StatTile(title: "季", value: "\(seasons.count)", symbol: "square.stack.3d.up")
                         StatTile(title: "已看集数", value: "\(watchedEpisodes)", symbol: "checkmark.circle")
-                        StatTile(title: "我的平均分", value: averageRating.map { String(format: "%.1f", $0) } ?? "—", symbol: "star")
+                        StatTile(title: "我的平均分", value: averageRating.map { String(format: "%.1f / 10", $0) } ?? "—", symbol: "number.circle")
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
@@ -907,6 +913,7 @@ private struct AddSeriesView: View {
                         Text("观看中").tag("watching")
                         Text("已看完").tag("finished")
                         Text("暂时搁置").tag("paused")
+                        Text("弃剧").tag("dropped")
                     }
 
                     Toggle("先建立一个季", isOn: $includeFirstSeason)

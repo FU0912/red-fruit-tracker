@@ -77,6 +77,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(heat.exists)
         XCTAssertTrue(seasonCount.exists)
         XCTAssertGreaterThanOrEqual(seasonCount.frame.minX, heat.frame.maxX - 4)
+        XCTAssertLessThanOrEqual(seasonCount.frame.minX - heat.frame.maxX, 10)
         XCTAssertLessThanOrEqual(abs(seasonCount.frame.midY - heat.frame.midY), 12)
 
         let libraryScreenshot = XCUIScreen.main.screenshot()
@@ -97,6 +98,10 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["基本信息"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["全189集"].exists)
         XCTAssertTrue(app.staticTexts["我的评分与点评"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["open-red-fruit-button"].exists)
+        let personalRating = app.descendants(matching: .any)["personal-rating-score"].firstMatch
+        XCTAssertTrue(personalRating.exists)
+        XCTAssertTrue(personalRating.label.contains("/ 10"))
         XCTAssertFalse(app.staticTexts["选集"].exists)
         XCTAssertFalse(app.staticTexts["第1季"].exists)
         XCTAssertFalse(app.staticTexts["已看 1 / 共189集"].exists)

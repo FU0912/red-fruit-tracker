@@ -24,11 +24,38 @@ struct RedFruitTrackerApp: App {
         do {
             let container = try ModelContainer(for: schema, configurations: [configuration])
             modelContainer = container
+            if !arguments.contains("--ui-testing") {
+                Self.migrateLegacyRatings(in: container.mainContext)
+            }
             if arguments.contains("--ui-testing-fixture") {
                 Self.insertUITestFixture(into: container.mainContext)
             }
         } catch {
             fatalError("Unable to create the local model container: \(error)")
+        }
+    }
+
+    private static func migrateLegacyRatings(in context: ModelContext) {
+        let key = "redFruitTracker.ratingScaleMigratedToTen.v1"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+
+        do {
+            let personalRecords = try context.fetch(FetchDescriptor<PersonalRecord>())
+            let seasons = try context.fetch(FetchDescriptor<SeasonRecord>())
+            for record in personalRecords {
+                if let rating = record.myRating {
+                    record.myRating = RatingScale.fromLegacyFiveStar(rating)
+                }
+            }
+            for season in seasons {
+                if let rating = season.myRating {
+                    season.myRating = RatingScale.fromLegacyFiveStar(rating)
+                }
+            }
+            try context.save()
+            UserDefaults.standard.set(true, forKey: key)
+        } catch {
+            // Retry on the next launch if the store is temporarily unavailable.
         }
     }
 
@@ -70,7 +97,7 @@ struct RedFruitTrackerApp: App {
         personal.currentSeasonNumber = 1
         personal.currentEpisodeNumber = 1
         personal.localShelfState = "watching"
-        personal.myRating = 4
+        personal.myRating = 8
         personal.review = "节奏明快，设定很有趣。"
         context.insert(personal)
 

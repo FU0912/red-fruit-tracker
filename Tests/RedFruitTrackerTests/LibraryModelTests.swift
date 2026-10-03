@@ -151,12 +151,28 @@ final class LibraryModelTests: XCTestCase {
         )
         XCTAssertEqual(
             RatingPresentation.resolve(officialRating: nil, personalRating: 4).text,
-            "我的 4.0分"
+            "我的 4.0 / 10"
         )
         XCTAssertEqual(
             RatingPresentation.resolve(officialRating: nil, personalRating: nil).text,
             "暂无评分"
         )
+    }
+
+    func testRatingScaleUsesTenPointHalfStepAndMigratesLegacyStars() {
+        XCTAssertEqual(RatingScale.normalized(8.24), 8.0)
+        XCTAssertEqual(RatingScale.normalized(8.26), 8.5)
+        XCTAssertEqual(RatingScale.normalized(11), 10)
+        XCTAssertEqual(RatingScale.fromLegacyFiveStar(4), 8)
+        XCTAssertEqual(RatingScale.fromLegacyFiveStar(5), 10)
+        XCTAssertEqual(RatingScale.fromLegacyFiveStar(8), 8)
+    }
+
+    func testDroppedShelfStateIsAStableRawValue() {
+        let personal = PersonalRecord(sourceSeriesID: "series-1")
+        personal.localShelfState = "dropped"
+
+        XCTAssertEqual(personal.localShelfState, "dropped")
     }
 
     func testSeasonKeepsIndependentRatingAndReview() {

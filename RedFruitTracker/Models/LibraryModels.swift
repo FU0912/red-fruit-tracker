@@ -1,6 +1,20 @@
 import Foundation
 import SwiftData
 
+enum RatingScale {
+    static let maximum = 10.0
+
+    static func normalized(_ value: Double) -> Double {
+        let stepped = (value * 2).rounded() / 2
+        return min(max(stepped, 0), maximum)
+    }
+
+    static func fromLegacyFiveStar(_ value: Double) -> Double {
+        guard value >= 0, value <= 5 else { return normalized(value) }
+        return normalized(value * 2)
+    }
+}
+
 enum RatingPresentation: Equatable {
     case official(Double)
     case personal(Double)
@@ -21,7 +35,7 @@ enum RatingPresentation: Equatable {
         case .official(let rating):
             return "官方 \(Self.formatted(rating))"
         case .personal(let rating):
-            return "我的 \(Self.formatted(rating))"
+            return "我的 \(Self.formattedTenPoint(rating))"
         case .unavailable:
             return "暂无评分"
         }
@@ -29,6 +43,10 @@ enum RatingPresentation: Equatable {
 
     private static func formatted(_ rating: Double) -> String {
         String(format: "%.1f分", rating)
+    }
+
+    private static func formattedTenPoint(_ rating: Double) -> String {
+        String(format: "%.1f / 10", rating)
     }
 }
 

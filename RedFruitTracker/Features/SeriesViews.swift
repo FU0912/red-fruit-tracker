@@ -4,6 +4,7 @@ import SwiftUI
 
 struct SeriesDetailView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openURL) private var openURL
 
     let series: SeriesRecord
 
@@ -79,7 +80,7 @@ struct SeriesDetailView: View {
                     Button("更新公开资料", systemImage: "arrow.clockwise") {
                         refreshMetadata(showNotice: true)
                     }
-                        .disabled(isRefreshing || series.sourceURL == nil)
+                    .disabled(isRefreshing || redFruitURL == nil)
                     Button("编辑作品", systemImage: "pencil") {
                         isShowingEdit = true
                     }
@@ -120,15 +121,11 @@ struct SeriesDetailView: View {
     }
 
     private var shouldAutoRefreshMetadata: Bool {
-        guard series.sourceURL != nil,
+        guard redFruitURL != nil,
               !ProcessInfo.processInfo.arguments.contains("--ui-testing") else {
             return false
         }
-        return series.coverURL == nil
-            || series.intro.isEmpty
-            || series.tagsText.isEmpty
-            || series.officialHeatText == nil
-            || seasons.isEmpty
+        return true
     }
 
     private var detailHeader: some View {
@@ -157,6 +154,29 @@ struct SeriesDetailView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 184, alignment: .topLeading)
 
+            if let url = redFruitURL {
+                Button {
+                    openURL(url)
+                } label: {
+                    Label("打开红果漫剧", systemImage: "play.rectangle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(DetailTheme.accent)
+                .accessibilityIdentifier("open-red-fruit-button")
+            }
+
+            if isRefreshing {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("正在后台更新公开资料")
+                }
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.62))
+                .accessibilityIdentifier("metadata-refreshing")
+            }
+
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 6)
@@ -170,7 +190,7 @@ struct SeriesDetailView: View {
                         officialRating: series.officialRating,
                         personalRating: personalRecord?.myRating
                     ).text,
-                    systemImage: "star.fill"
+                    systemImage: "number.circle.fill"
                 )
                 .accessibilityIdentifier("official-rating")
 
@@ -244,7 +264,7 @@ struct SeriesDetailView: View {
 
     private var personalSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "我的评分与点评", symbol: "star.bubble")
+            SectionTitle(title: "我的评分与点评", symbol: "number.circle")
                 .foregroundStyle(.white)
 
             if let personalRecord {
@@ -253,11 +273,12 @@ struct SeriesDetailView: View {
                     Text("观看中").tag("watching")
                     Text("已看完").tag("finished")
                     Text("暂时搁置").tag("paused")
+                    Text("弃剧").tag("dropped")
                 }
                 .pickerStyle(.menu)
                 .tint(.white)
 
-                RatingStars(rating: ratingBinding(for: personalRecord), usesDarkAppearance: true)
+                RatingScorePicker(rating: ratingBinding(for: personalRecord), usesDarkAppearance: true)
                 ReviewEditor(
                     text: reviewBinding(for: personalRecord),
                     placeholder: "写下整部漫剧的感受",
@@ -280,6 +301,16 @@ struct SeriesDetailView: View {
 
     private var totalEpisodeCount: Int {
         seasons.reduce(0) { $0 + $1.episodeCount }
+    }
+
+    private var redFruitURL: URL? {
+        if let source = series.sourceURL, let url = URL(string: source) {
+            return url
+        }
+        return seasons
+            .compactMap(\.sourceURL)
+            .compactMap(URL.init(string:))
+            .first
     }
 
     private func ensurePersonalRecord() {
@@ -318,8 +349,8 @@ struct SeriesDetailView: View {
     }
 
     private func refreshMetadata(showNotice: Bool) {
-        guard let sourceURL = series.sourceURL,
-              let url = URL(string: sourceURL) else {
+        guard !isRefreshing else { return }
+        guard let url = redFruitURL else {
             if showNotice {
                 notice = "这部作品没有网页链接，无法更新公开资料。"
             }
@@ -408,9 +439,9 @@ struct SeriesDetailView: View {
 }
 
 private enum DetailTheme {
-    static let background = Color(red: 0.09, green: 0.08, blue: 0.31)
+    static let background = Color(red: 0.28, green: 0.28, blue: 0.28)
     static let cell = Color.white.opacity(0.10)
-    static let accent = Color(red: 0.31, green: 0.30, blue: 0.92)
+    static let accent = Color(red: 0.30, green: 0.58, blue: 0.96)
 }
 
 private struct DetailPill: View {
@@ -418,12 +449,15 @@ private struct DetailPill: View {
     let systemImage: String
 
     var body: some View {
-        Label(text, systemImage: systemImage)
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.white.opacity(0.86))
             .lineLimit(1)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
             .background(Color.white.opacity(0.10))
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
@@ -568,9 +602,11 @@ private struct EpisodeProgressControl: View {
         ) else {
             if let personalRecord, personalRecord.currentSeasonNumber == season.seasonNumber {
                 personalRecord.currentEpisodeNumber = nil
-                personalRecord.localShelfState = watchedCount >= totalEpisodeCount && totalEpisodeCount > 0
-                    ? "finished"
-                    : watchedCount > 0 ? "watching" : "unstarted"
+                if personalRecord.localShelfState != "dropped" {
+                    personalRecord.localShelfState = watchedCount >= totalEpisodeCount && totalEpisodeCount > 0
+                        ? "finished"
+                        : watchedCount > 0 ? "watching" : "unstarted"
+                }
                 personalRecord.updatedAt = .now
             }
             try? modelContext.save()
@@ -594,7 +630,9 @@ private struct EpisodeProgressControl: View {
         personal.currentSeasonNumber = season.seasonNumber
         personal.currentEpisodeNumber = number
         let watchedAfter = watchedCount + (wasWatched ? 0 : 1)
-        personal.localShelfState = watchedAfter >= totalEpisodeCount ? "finished" : "watching"
+        if personal.localShelfState != "dropped" {
+            personal.localShelfState = watchedAfter >= totalEpisodeCount ? "finished" : "watching"
+        }
         personal.updatedAt = .now
         season.updatedAt = .now
         try? modelContext.save()
@@ -863,8 +901,8 @@ struct SeasonDetailView: View {
 
     private var seasonRatingSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "本季评分与点评", symbol: "star.bubble")
-            RatingStars(rating: Binding(
+            SectionTitle(title: "本季评分与点评", symbol: "number.circle")
+            RatingScorePicker(rating: Binding(
                 get: { season.myRating },
                 set: {
                     season.myRating = $0
@@ -1078,30 +1116,53 @@ private struct ReviewEditor: View {
     }
 }
 
-private struct RatingStars: View {
+private struct RatingScorePicker: View {
     @Binding var rating: Double?
     var usesDarkAppearance = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(1...5, id: \.self) { value in
-                Button {
-                    rating = Double(value)
-                } label: {
-                    Image(systemName: (rating ?? 0) >= Double(value) ? "star.fill" : "star")
-                        .font(.title2)
-                        .foregroundStyle((rating ?? 0) >= Double(value) ? .yellow : (usesDarkAppearance ? Color.white.opacity(0.62) : .secondary))
-                }
-                .buttonStyle(.plain)
-                .frame(minWidth: 44, minHeight: 44)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Label("我的评分", systemImage: "number.circle")
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 12)
+                Text(scoreText)
+                    .font(.headline.monospacedDigit())
             }
-            if rating != nil {
-                Button("清除") {
-                    rating = nil
+
+            HStack(spacing: 10) {
+                Slider(value: scoreBinding, in: 0...10, step: 0.5) {
+                    Text("评分")
                 }
-                .font(.caption)
-                .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.62) : .secondary)
+                .frame(minHeight: 44)
+
+                if rating != nil {
+                    Button("清除") {
+                        rating = nil
+                    }
+                    .font(.caption.weight(.semibold))
+                    .frame(minWidth: 44, minHeight: 44)
+                }
             }
         }
+        .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
+        .tint(usesDarkAppearance ? DetailTheme.accent : Color.accentColor)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("personal-rating-score")
+        .accessibilityValue(scoreText)
+    }
+
+    private var scoreText: String {
+        guard let rating else { return "未评分 / 10" }
+        return String(format: "%.1f / 10", rating)
+    }
+
+    private var scoreBinding: Binding<Double> {
+        Binding(
+            get: { rating ?? 0 },
+            set: { value in
+                rating = RatingScale.normalized(value)
+            }
+        )
     }
 }
