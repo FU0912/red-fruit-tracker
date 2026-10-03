@@ -453,6 +453,7 @@ private struct DetailPill: View {
             Image(systemName: systemImage)
             Text(text)
         }
+            .accessibilityElement(children: .combine)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.white.opacity(0.86))
             .lineLimit(1)
@@ -1128,6 +1129,7 @@ private struct RatingScorePicker: View {
                 Spacer(minLength: 12)
                 Text(scoreText)
                     .font(.headline.monospacedDigit())
+                    .accessibilityIdentifier("personal-rating-score")
             }
 
             HStack(spacing: 10) {
@@ -1148,7 +1150,6 @@ private struct RatingScorePicker: View {
         .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
         .tint(usesDarkAppearance ? DetailTheme.accent : Color.accentColor)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("personal-rating-score")
         .accessibilityValue(scoreText)
     }
 
