@@ -74,6 +74,25 @@ struct RedFruitTrackerApp: App {
         personal.review = "节奏明快，设定很有趣。"
         context.insert(personal)
 
+        for index in 2...5 {
+            let extraID = "ui-fixture-series-\(index)"
+            let date = Date(timeIntervalSinceNow: TimeInterval(-index * 60))
+            context.insert(SeriesRecord(
+                sourceSeriesID: extraID,
+                title: "UI 测试作品 \(index)",
+                tagsText: "测试,漫剧",
+                officialHeatText: "\(index * 100)万",
+                createdAt: date,
+                updatedAt: date
+            ))
+            context.insert(SeasonRecord(
+                sourceSeriesID: extraID,
+                seasonNumber: 1,
+                title: "第1季",
+                episodeCount: index * 10
+            ))
+        }
+
         try? context.save()
     }
 

@@ -98,11 +98,17 @@ private struct LibraryView: View {
         NavigationStack {
             Group {
                 if visibleSeries.isEmpty {
-                    LibraryEmptyState(isSearching: !searchText.isEmpty, onAdd: onAdd)
-                        .navigationTitle("漫剧记录")
-                        .searchable(text: $searchText, prompt: "搜索作品、标签或简介")
+                    VStack(spacing: 0) {
+                        LibraryHeader(searchText: $searchText)
+                        LibraryEmptyState(isSearching: !searchText.isEmpty, onAdd: onAdd)
+                    }
                 } else {
                     List {
+                        LibraryHeader(searchText: $searchText)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+
                         if let pendingShareURL {
                             ShareImportBanner(url: pendingShareURL, onTap: onAdd)
                                 .listRowInsets(EdgeInsets())
@@ -139,10 +145,9 @@ private struct LibraryView: View {
                     .scrollContentBackground(.hidden)
                     .padding(.top, 6)
                     .accessibilityIdentifier("library-list")
-                    .navigationTitle("漫剧记录")
-                    .searchable(text: $searchText, prompt: "搜索作品、标签或简介")
                 }
             }
+            .toolbar(.hidden, for: .navigationBar)
             .overlay(alignment: .bottomTrailing) {
                 if !visibleSeries.isEmpty {
                     Button(action: onAdd) {
@@ -160,9 +165,6 @@ private struct LibraryView: View {
                 }
             }
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
-            .toolbarColorScheme(.light, for: .navigationBar)
             .navigationDestination(item: $selectedSeries) { series in
                 SeriesDetailView(series: series)
             }
@@ -253,6 +255,49 @@ private struct LibraryView: View {
             }
         }
         try? modelContext.save()
+    }
+}
+
+private struct LibraryHeader: View {
+    @Binding var searchText: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("漫剧记录")
+                .font(.system(size: 34, weight: .bold))
+                .accessibilityIdentifier("library-header-title")
+
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.secondary)
+
+                TextField("搜索作品、标签或简介", text: $searchText)
+                    .textInputAutocapitalization(.never)
+                    .accessibilityIdentifier("library-search-field")
+
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("清除搜索")
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(Capsule())
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 18)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: .systemGroupedBackground))
+        .accessibilityIdentifier("library-header")
     }
 }
 
@@ -353,12 +398,23 @@ private struct SeriesCard: View {
                         systemImage: "star.fill",
                         tint: .orange
                     )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
+                HStack(spacing: 6) {
                     CompactInfoPill(
                         text: officialHeatText,
                         systemImage: "flame.fill",
                         tint: .pink
                     )
+                    .accessibilityIdentifier("series-card-heat")
+
+                    CompactInfoPill(
+                        text: seasonSummary,
+                        systemImage: "square.stack.3d.up",
+                        tint: .secondary
+                    )
+                    .accessibilityIdentifier("series-card-season-count")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -374,15 +430,8 @@ private struct SeriesCard: View {
                 .frame(maxWidth: .infinity, maxHeight: 52, alignment: .topLeading)
                 .clipped()
 
-                Spacer(minLength: 0)
-
-                Label(seasonSummary, systemImage: "square.stack.3d.up")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 128, alignment: .topLeading)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
             .layoutPriority(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

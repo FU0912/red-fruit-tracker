@@ -6,7 +6,8 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launchArguments = ["--ui-testing", "--ui-testing-empty"]
         app.launch()
 
-        XCTAssertTrue(app.navigationBars["漫剧记录"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["library-search-field"].exists)
         XCTAssertTrue(app.staticTexts["还没有记录"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["添加作品"].firstMatch.exists)
 
@@ -28,6 +29,10 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launchArguments = ["--ui-testing", "--ui-testing-fixture"]
         app.launch()
 
+        XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["library-search-field"].exists)
+        XCTAssertFalse(app.navigationBars["漫剧记录"].exists)
+
         let title = app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 5))
 
@@ -39,6 +44,14 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(floatingAdd.frame.width, 52)
         XCTAssertGreaterThanOrEqual(floatingAdd.frame.height, 52)
         XCTAssertGreaterThan(floatingAdd.frame.minX, app.windows.firstMatch.frame.midX)
+
+        let libraryList = app.descendants(matching: .any)["library-list"].firstMatch
+        XCTAssertTrue(libraryList.exists)
+        libraryList.swipeUp()
+        XCTAssertFalse(app.staticTexts["library-header-title"].isHittable)
+        XCTAssertFalse(app.textFields["library-search-field"].isHittable)
+        libraryList.swipeDown()
+        XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
 
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 5))
@@ -59,15 +72,21 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["共1季"].exists)
         XCTAssertFalse(app.staticTexts["看到第1季 · 第1集"].exists)
 
+        let heat = app.descendants(matching: .any)["series-card-heat"].firstMatch
+        let seasonCount = app.descendants(matching: .any)["series-card-season-count"].firstMatch
+        XCTAssertTrue(heat.exists)
+        XCTAssertTrue(seasonCount.exists)
+        XCTAssertGreaterThanOrEqual(seasonCount.frame.minX, heat.frame.maxX - 4)
+        XCTAssertLessThanOrEqual(abs(seasonCount.frame.midY - heat.frame.midY), 12)
+
         let libraryScreenshot = XCUIScreen.main.screenshot()
         let libraryAttachment = XCTAttachment(screenshot: libraryScreenshot)
         libraryAttachment.name = "series-library-card"
         libraryAttachment.lifetime = .keepAlways
         add(libraryAttachment)
 
-        let libraryRow = app.cells.firstMatch
-        XCTAssertTrue(libraryRow.exists)
-        libraryRow.swipeLeft()
+        XCTAssertTrue(cardButton.exists)
+        cardButton.swipeLeft()
         XCTAssertTrue(app.buttons["删除"].waitForExistence(timeout: 2))
         app.buttons["删除"].tap()
         XCTAssertTrue(app.alerts["删除这部漫剧？"].waitForExistence(timeout: 2))
@@ -116,7 +135,9 @@ final class RedFruitTrackerUITests: XCTestCase {
         add(attachment)
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.navigationBars["漫剧记录"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["library-search-field"].exists)
+        XCTAssertFalse(app.navigationBars["漫剧记录"].exists)
         XCTAssertTrue(app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch.exists)
     }
 }
