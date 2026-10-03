@@ -6,8 +6,8 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launchArguments = ["--ui-testing", "--ui-testing-empty"]
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textFields["library-search-field"].exists)
+        XCTAssertTrue(app.staticTexts["漫剧记录"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["搜索作品、标签或简介"].exists)
         XCTAssertTrue(app.staticTexts["还没有记录"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["添加作品"].firstMatch.exists)
 
@@ -29,8 +29,8 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launchArguments = ["--ui-testing", "--ui-testing-fixture"]
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textFields["library-search-field"].exists)
+        XCTAssertTrue(app.staticTexts["漫剧记录"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["搜索作品、标签或简介"].exists)
         XCTAssertFalse(app.navigationBars["漫剧记录"].exists)
 
         let title = app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch
@@ -48,10 +48,10 @@ final class RedFruitTrackerUITests: XCTestCase {
         let libraryList = app.descendants(matching: .any)["library-list"].firstMatch
         XCTAssertTrue(libraryList.exists)
         libraryList.swipeUp()
-        XCTAssertFalse(app.staticTexts["library-header-title"].isHittable)
-        XCTAssertFalse(app.textFields["library-search-field"].isHittable)
+        XCTAssertFalse(app.staticTexts["漫剧记录"].isHittable)
+        XCTAssertFalse(app.textFields["搜索作品、标签或简介"].isHittable)
         libraryList.swipeDown()
-        XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["漫剧记录"].waitForExistence(timeout: 5))
 
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 5))
@@ -135,8 +135,8 @@ final class RedFruitTrackerUITests: XCTestCase {
         add(attachment)
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textFields["library-search-field"].exists)
+        XCTAssertTrue(app.staticTexts["漫剧记录"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["搜索作品、标签或简介"].exists)
         XCTAssertFalse(app.navigationBars["漫剧记录"].exists)
         XCTAssertTrue(app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch.exists)
     }
