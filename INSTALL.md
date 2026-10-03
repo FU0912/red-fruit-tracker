@@ -2,9 +2,15 @@
 
 ## 最近一次已验证包
 
-当前代码版本为 `v1.2.12` / build `15`；本轮代码已提交，CI 尚未完成。最近一次已通过的版本为 `v1.2.11` / build `14`，Run `37083661180`。
+当前代码版本为 `v1.2.12` / build `15`；本轮 CI 已通过：Run `37111337645`。
 
-`v1.2.12` 的 IPA 尚未生成。CI 完成前请使用下方的 `v1.2.11` 已验证包，不要把当前源码版本误认为已打包版本。
+`artifacts/37111337645/artifacts/RedFruitTracker-unsigned-device-v1.2.12-build15.ipa`
+
+已验证包体 840920 字节，SHA-256：
+
+`926B582FFCBD3234A6E25783D65379804282B230FFA9AA33F47C8CEFD78A7070`
+
+上一版已验证包：`artifacts/37083661180/artifacts/RedFruitTracker-unsigned-device-v1.2.11-build14.ipa`
 
 `artifacts/RedFruitTracker-unsigned-device-v1.2.11-build14.ipa`
 

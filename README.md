@@ -13,7 +13,7 @@
 - iOS Simulator：在 CI 中执行 UI 测试并保存截图和日志。
 - 真实 iPhone：只用于 Share Extension、红果跳转和系统行为的阶段性验收。
 
-本项目不依赖本地 macOS 虚拟机。`v1.2.11` 是最近一次已通过 GitHub Actions macOS Runner 验证并生成未签名真机 IPA 的版本；`v1.2.12` 代码已提交，等待本轮 CI 完成后再登记新 IPA；历史版本仍保留在 `artifacts` 目录。
+本项目不依赖本地 macOS 虚拟机。`v1.2.12` 使用 GitHub Actions macOS Runner 构建，已生成对应版本的未签名真机 IPA；历史版本仍保留在 `artifacts` 目录。
 
 ## 生成项目
 
@@ -36,7 +36,9 @@ xcodegen generate --spec project.yml
 
 签名、TestFlight 和真实设备安装暂不自动化，等模拟器构建稳定后再配置。
 
-本轮 `v1.2.12` 的 CI 尚未完成，不能据此确认模拟器 UI 测试或未签名 IPA。最近一次已通过的 `v1.2.11` CI Run `37083661180` 保留如下：25 个单元测试、2 个 UI 测试、模拟器构建、真机架构归档和未签名 IPA 均成功；主 App 与 Share Extension 均为 build 14。
+本轮 `v1.2.12` CI Run `37111337645` 已通过：25 个单元测试、2 个 UI 测试、模拟器构建、真机架构归档和未签名 IPA 均成功；主 App 与 Share Extension 均为 build 15。
+
+v1.2.12 IPA：840920 字节；SHA-256 为 `926B582FFCBD3234A6E25783D65379804282B230FFA9AA33F47C8CEFD78A7070`。该 IPA 面向真机架构但未签名，需要先签名后安装到 iPhone。
 
 v1.2.11 IPA：826511 字节；SHA-256 为 `C93140EE09BBD71583B67AA4FC28A488450EC90FA249A73F74C113818AEA8734`。该 IPA 面向真机架构但未签名，不能直接安装到 iPhone。
 
