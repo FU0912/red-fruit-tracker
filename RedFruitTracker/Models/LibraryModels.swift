@@ -247,9 +247,9 @@ struct SeasonCountChange: Identifiable, Equatable {
 enum SeasonChangeHistory {
     static func changes(from snapshots: [OfficialSnapshot]) -> [SeasonCountChange] {
         Dictionary(grouping: snapshots, by: \.sourceSeriesID)
-            .flatMap { sourceSeriesID, values in
+            .flatMap { sourceSeriesID, values -> [SeasonCountChange] in
                 let ordered = values.sorted { $0.capturedAt < $1.capturedAt }
-                guard let first = ordered.first else { return [] }
+                guard let first = ordered.first else { return [SeasonCountChange]() }
 
                 var previous = first
                 var changes: [SeasonCountChange] = []
