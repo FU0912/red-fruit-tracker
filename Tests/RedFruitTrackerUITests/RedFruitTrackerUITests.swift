@@ -75,8 +75,10 @@ final class RedFruitTrackerUITests: XCTestCase {
 
         let heat = app.descendants(matching: .any)["series-card-heat"].firstMatch
         let completionStatus = app.descendants(matching: .any)["series-card-completion-status"].firstMatch
+        let shelfState = app.descendants(matching: .any)["series-card-shelf-state"].firstMatch
         XCTAssertTrue(heat.exists)
         XCTAssertTrue(completionStatus.exists)
+        XCTAssertTrue(shelfState.exists)
 
         let libraryScreenshot = XCUIScreen.main.screenshot()
         let libraryAttachment = XCTAttachment(screenshot: libraryScreenshot)
@@ -123,6 +125,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["official-heat"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["official-tags"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["completion-status"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["detail-shelf-state"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["official-trend-section"].exists)
         XCTAssertGreaterThanOrEqual(
             app.descendants(matching: .any)["official-rating"].frame.minX,
@@ -144,5 +147,10 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.textFields["搜索作品、标签或简介"].exists)
         XCTAssertFalse(app.navigationBars["漫剧记录"].exists)
         XCTAssertTrue(app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch.exists)
+
+        app.tabBars.buttons["统计"].tap()
+        XCTAssertTrue(app.navigationBars["统计"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["stats-filter-watching"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["season-change-log-link"].exists)
     }
 }

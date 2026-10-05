@@ -27,7 +27,86 @@ enum SeriesCompletionStatus: String, CaseIterable, Identifiable {
         switch self {
         case .completed: return "已完结"
         case .ongoing: return "未完结"
-        case .unknown: return "完结状态待读取"
+        case .unknown: return "未选择"
+        }
+    }
+}
+
+enum ShelfState: String, CaseIterable, Identifiable {
+    case unstarted
+    case watching
+    case finished
+    case paused
+    case dropped
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .unstarted: return "未开始"
+        case .watching: return "观看中"
+        case .finished: return "已看完"
+        case .paused: return "暂时搁置"
+        case .dropped: return "弃剧"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .unstarted: return "bookmark"
+        case .watching: return "play.circle.fill"
+        case .finished: return "checkmark.circle.fill"
+        case .paused: return "pause.circle.fill"
+        case .dropped: return "minus.circle.fill"
+        }
+    }
+
+    static func resolve(_ rawValue: String?) -> Self {
+        guard let rawValue, let state = Self(rawValue: rawValue) else {
+            return .unstarted
+        }
+        return state
+    }
+}
+
+enum LibraryFilter: String, CaseIterable, Identifiable {
+    case all
+    case completed
+    case ongoing
+    case unknown
+    case unstarted
+    case watching
+    case finished
+    case paused
+    case dropped
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "全部作品"
+        case .completed: return "已完结"
+        case .ongoing: return "未完结"
+        case .unknown: return "未选择"
+        case .unstarted: return "未开始"
+        case .watching: return "观看中"
+        case .finished: return "已看完"
+        case .paused: return "暂时搁置"
+        case .dropped: return "弃剧"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .all: return "books.vertical"
+        case .completed: return "checkmark.seal"
+        case .ongoing: return "clock"
+        case .unknown: return "questionmark.circle"
+        case .unstarted: return "bookmark"
+        case .watching: return "play.circle"
+        case .finished: return "checkmark.circle"
+        case .paused: return "pause.circle"
+        case .dropped: return "minus.circle"
         }
     }
 }
@@ -137,7 +216,7 @@ enum RatingPresentation: Equatable {
         case .official(let rating):
             return "官方 \(Self.formatted(rating))"
         case .personal(let rating):
-            return "我的 \(Self.formattedTenPoint(rating))"
+            return Self.formattedTenPoint(rating)
         case .unavailable:
             return "暂无评分"
         }
@@ -148,7 +227,54 @@ enum RatingPresentation: Equatable {
     }
 
     private static func formattedTenPoint(_ rating: Double) -> String {
-        String(format: "%.1f / 10", rating)
+        String(format: "%.1f", rating)
+    }
+}
+
+struct SeasonCountChange: Identifiable, Equatable {
+    let sourceSeriesID: String
+    let capturedAt: Date
+    let previousSeasonCount: Int?
+    let currentSeasonCount: Int?
+    let previousEpisodeCount: Int?
+    let currentEpisodeCount: Int?
+
+    var id: String {
+        "\(sourceSeriesID)-\(capturedAt.timeIntervalSinceReferenceDate)"
+    }
+}
+
+enum SeasonChangeHistory {
+    static func changes(from snapshots: [OfficialSnapshot]) -> [SeasonCountChange] {
+        Dictionary(grouping: snapshots, by: \.sourceSeriesID)
+            .flatMap { sourceSeriesID, values in
+                let ordered = values.sorted { $0.capturedAt < $1.capturedAt }
+                guard let first = ordered.first else { return [] }
+
+                var previous = first
+                var changes: [SeasonCountChange] = []
+                for current in ordered.dropFirst() {
+                    let seasonChanged = previous.seasonCount != nil
+                        && current.seasonCount != nil
+                        && previous.seasonCount != current.seasonCount
+                    let episodeChanged = previous.episodeCount != nil
+                        && current.episodeCount != nil
+                        && previous.episodeCount != current.episodeCount
+                    if seasonChanged || episodeChanged {
+                        changes.append(SeasonCountChange(
+                            sourceSeriesID: sourceSeriesID,
+                            capturedAt: current.capturedAt,
+                            previousSeasonCount: previous.seasonCount,
+                            currentSeasonCount: current.seasonCount,
+                            previousEpisodeCount: previous.episodeCount,
+                            currentEpisodeCount: current.episodeCount
+                        ))
+                    }
+                    previous = current
+                }
+                return changes
+            }
+            .sorted { $0.capturedAt > $1.capturedAt }
     }
 }
 

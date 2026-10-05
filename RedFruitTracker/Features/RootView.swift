@@ -1,5 +1,6 @@
 import Foundation
 import Charts
+import ImageIO
 import SwiftData
 import SwiftUI
 import UIKit
@@ -291,7 +292,7 @@ private struct LibraryView: View {
     }
 
     private func applyPublicMetadata(_ metadata: PublicSeriesMetadata, to item: SeriesRecord) {
-        if item.coverURL == nil, let coverURL = metadata.coverURL {
+        if item.coverURL?.nilIfBlank == nil, let coverURL = metadata.coverURL?.nilIfBlank {
             item.coverURL = coverURL
         }
         if item.intro.isEmpty, let intro = metadata.intro, !intro.isEmpty {
@@ -304,7 +305,6 @@ private struct LibraryView: View {
         if let ratingCount = metadata.officialRatingCount { item.officialRatingCount = ratingCount }
         if let heatScore = metadata.officialHeatScore { item.officialHeatScore = heatScore }
         if let heat = metadata.officialHeatText, !heat.isEmpty { item.officialHeatText = heat }
-        if let completionStatus = metadata.completionStatus { item.completionStatus = completionStatus }
         item.updatedAt = .now
     }
 
@@ -489,7 +489,7 @@ private struct SeriesCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            CoverView(urlString: series.coverURL)
+            CoverView(urlString: series.coverURL, title: series.title)
                 .frame(width: 92, height: 128)
                 .fixedSize()
                 .accessibilityIdentifier("series-card-cover")
@@ -509,7 +509,7 @@ private struct SeriesCard: View {
                         officialRating: series.officialRating,
                         personalRating: personal?.myRating
                     ).text,
-                    systemImage: "number.circle.fill",
+                    systemImage: "number",
                     tint: .orange
                 )
 
@@ -527,6 +527,13 @@ private struct SeriesCard: View {
                         tint: completionStatusTint
                     )
                     .accessibilityIdentifier("series-card-completion-status")
+
+                    CompactInfoPill(
+                        text: shelfState.title,
+                        systemImage: shelfState.systemImage,
+                        tint: shelfStateTint
+                    )
+                    .accessibilityIdentifier("series-card-shelf-state")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -577,11 +584,33 @@ private struct SeriesCard: View {
     }
 
     private var completionStatusSymbol: String {
-        completionStatus == .completed ? "checkmark.seal.fill" : "clock"
+        switch completionStatus {
+        case .completed: return "checkmark.seal.fill"
+        case .ongoing: return "clock"
+        case .unknown: return "questionmark.circle"
+        }
     }
 
     private var completionStatusTint: Color {
-        completionStatus == .completed ? .green : .secondary
+        switch completionStatus {
+        case .completed: return .green
+        case .ongoing: return .orange
+        case .unknown: return .secondary
+        }
+    }
+
+    private var shelfState: ShelfState {
+        ShelfState.resolve(personal?.localShelfState)
+    }
+
+    private var shelfStateTint: Color {
+        switch shelfState {
+        case .unstarted: return .secondary
+        case .watching: return .blue
+        case .finished: return .green
+        case .paused: return .orange
+        case .dropped: return .red
+        }
     }
 }
 
@@ -708,7 +737,10 @@ private final class CoverImageLoader: ObservableObject {
     private var loadedURL: String?
 
     func load(urlString: String?) {
-        guard let urlString, let url = URL(string: urlString) else {
+        guard let normalizedURLString = urlString?.nilIfBlank,
+              let url = URL(string: normalizedURLString),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
             task?.cancel()
             task = nil
             loadedURL = nil
@@ -717,11 +749,11 @@ private final class CoverImageLoader: ObservableObject {
             return
         }
 
-        if loadedURL == urlString, image != nil { return }
-        loadedURL = urlString
+        if loadedURL == normalizedURLString, image != nil { return }
+        loadedURL = normalizedURLString
         task?.cancel()
 
-        if let cached = Self.cache.object(forKey: urlString as NSString) {
+        if let cached = Self.cache.object(forKey: normalizedURLString as NSString) {
             image = cached
             isLoading = false
             return
@@ -735,28 +767,40 @@ private final class CoverImageLoader: ObservableObject {
             "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
             forHTTPHeaderField: "User-Agent"
         )
-        request.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        request.setValue("image/jpeg,image/png,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
 
         task = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             guard let data,
                   let httpResponse = response as? HTTPURLResponse,
                   200..<400 ~= httpResponse.statusCode,
-                  let image = UIImage(data: data) else {
+                  let image = Self.decodeImage(data) else {
                 DispatchQueue.main.async {
-                    guard let self, self.loadedURL == urlString else { return }
+                    guard let self, self.loadedURL == normalizedURLString else { return }
+                    self.image = nil
                     self.isLoading = false
                 }
                 return
             }
 
-            Self.cache.setObject(image, forKey: urlString as NSString)
+            Self.cache.setObject(image, forKey: normalizedURLString as NSString)
             DispatchQueue.main.async {
-                guard let self, self.loadedURL == urlString else { return }
+                guard let self, self.loadedURL == normalizedURLString else { return }
                 self.image = image
                 self.isLoading = false
             }
         }
         task?.resume()
+    }
+
+    private static func decodeImage(_ data: Data) -> UIImage? {
+        if let image = UIImage(data: data) {
+            return image
+        }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return nil
+        }
+        return UIImage(cgImage: image)
     }
 
     deinit {
@@ -766,13 +810,15 @@ private final class CoverImageLoader: ObservableObject {
 
 struct CoverView: View {
     let urlString: String?
+    let title: String?
 
     let width: CGFloat
     let height: CGFloat
     @StateObject private var loader: CoverImageLoader
 
-    init(urlString: String?, width: CGFloat = 92, height: CGFloat = 128) {
+    init(urlString: String?, title: String? = nil, width: CGFloat = 92, height: CGFloat = 128) {
         self.urlString = urlString
+        self.title = title
         self.width = width
         self.height = height
         _loader = StateObject(wrappedValue: CoverImageLoader())
@@ -809,17 +855,29 @@ struct CoverView: View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(Color(uiColor: .secondarySystemGroupedBackground))
             .overlay {
-                Image(systemName: "book.closed")
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundStyle(.tertiary)
+                VStack(spacing: 8) {
+                    Image(systemName: "book.closed")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    if let title = title?.nilIfBlank {
+                        Text(title)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(4)
+                            .padding(.horizontal, 8)
+                    }
+                }
             }
     }
 }
 
 private struct StatsView: View {
-    @Query private var series: [SeriesRecord]
+    @Query(sort: \SeriesRecord.updatedAt, order: .reverse)
+    private var series: [SeriesRecord]
     @Query private var personalRecords: [PersonalRecord]
-    @Query private var snapshots: [OfficialSnapshot]
+    @Query(sort: \OfficialSnapshot.capturedAt, order: .reverse)
+    private var snapshots: [OfficialSnapshot]
 
     private var completedCount: Int {
         series.filter { $0.completionStatus == SeriesCompletionStatus.completed.rawValue }.count
@@ -830,28 +888,7 @@ private struct StatsView: View {
     }
 
     private var unknownStatusCount: Int {
-        series.count - completedCount - ongoingCount
-    }
-
-    private var shelfStateCounts: [String: Int] {
-        Dictionary(grouping: personalRecords, by: \.localShelfState)
-            .mapValues(\.count)
-    }
-
-    private var missingCoverCount: Int {
-        series.filter { $0.coverURL == nil || $0.coverURL?.isEmpty == true }.count
-    }
-
-    private var changedCount: Int {
-        let grouped = Dictionary(grouping: snapshots, by: \.sourceSeriesID)
-        return grouped.values.filter { values in
-            let ordered = values.sorted { $0.capturedAt < $1.capturedAt }
-            guard let first = ordered.first else { return false }
-            return ordered.dropFirst().contains { snapshot in
-                (snapshot.seasonCount != nil && snapshot.seasonCount != first.seasonCount)
-                    || (snapshot.episodeCount != nil && snapshot.episodeCount != first.episodeCount)
-            }
-        }.count
+        series.filter { $0.completionStatus == nil || $0.completionStatus == SeriesCompletionStatus.unknown.rawValue }.count
     }
 
     private var lastUpdateText: String {
@@ -867,14 +904,51 @@ private struct StatsView: View {
                         .font(.title2.weight(.bold))
 
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        StatTile(title: "作品", value: "\(series.count)", symbol: "books.vertical")
-                        StatTile(title: "已完结", value: "\(completedCount)", symbol: "checkmark.seal")
-                        StatTile(title: "未完结", value: "\(ongoingCount)", symbol: "clock")
-                        StatTile(title: "观看中", value: "\(shelfStateCounts["watching", default: 0])", symbol: "play.circle")
-                        StatTile(title: "弃剧", value: "\(shelfStateCounts["dropped", default: 0])", symbol: "minus.circle")
-                        StatTile(title: "缺少封面", value: "\(missingCoverCount)", symbol: "photo")
-                        StatTile(title: "季集数有变化", value: "\(changedCount)", symbol: "arrow.triangle.2.circlepath")
+                        ForEach(LibraryFilter.allCases) { filter in
+                            NavigationLink {
+                                FilteredSeriesView(filter: filter)
+                            } label: {
+                                StatTile(
+                                    title: filter.title,
+                                    value: "\(count(for: filter))",
+                                    symbol: filter.systemImage
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("stats-filter-\(filter.rawValue)")
+                        }
                     }
+
+                    NavigationLink {
+                        SeasonChangeLogView(series: series, snapshots: snapshots)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.tint)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("季集数变化记录")
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                Text("查看哪部作品发生变化、旧值、新值和时间")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            Text("\(SeasonChangeHistory.changes(from: snapshots).count)")
+                                .font(.headline.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("season-change-log-link")
 
                     VStack(alignment: .leading, spacing: 10) {
                         Label("公开资料更新", systemImage: "arrow.clockwise")
@@ -889,7 +963,7 @@ private struct StatsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                     if unknownStatusCount > 0 {
-                        Text("还有 \(unknownStatusCount) 部作品尚未读取到完结状态。")
+                        Text("还有 \(unknownStatusCount) 部作品待手动选择完结状态。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -898,6 +972,25 @@ private struct StatsView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("统计")
+        }
+    }
+
+    private func count(for filter: LibraryFilter) -> Int {
+        switch filter {
+        case .all:
+            return series.count
+        case .completed:
+            return completedCount
+        case .ongoing:
+            return ongoingCount
+        case .unknown:
+            return unknownStatusCount
+        case .unstarted, .watching, .finished, .paused, .dropped:
+            return series.filter { item in
+                ShelfState.resolve(
+                    personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.localShelfState
+                ).rawValue == filter.rawValue
+            }.count
         }
     }
 }
@@ -924,6 +1017,115 @@ private struct StatTile: View {
     }
 }
 
+private struct FilteredSeriesView: View {
+    let filter: LibraryFilter
+
+    @Query(sort: \SeriesRecord.updatedAt, order: .reverse)
+    private var series: [SeriesRecord]
+    @Query(sort: \SeasonRecord.seasonNumber)
+    private var seasons: [SeasonRecord]
+    @Query private var personalRecords: [PersonalRecord]
+
+    private var filteredSeries: [SeriesRecord] {
+        series.filter { item in
+            switch filter {
+            case .all:
+                return true
+            case .completed:
+                return item.completionStatus == SeriesCompletionStatus.completed.rawValue
+            case .ongoing:
+                return item.completionStatus == SeriesCompletionStatus.ongoing.rawValue
+            case .unknown:
+                return item.completionStatus == nil
+                    || item.completionStatus == SeriesCompletionStatus.unknown.rawValue
+            case .unstarted, .watching, .finished, .paused, .dropped:
+                return ShelfState.resolve(
+                    personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.localShelfState
+                ).rawValue == filter.rawValue
+            }
+        }
+    }
+
+    var body: some View {
+        Group {
+            if filteredSeries.isEmpty {
+                ContentUnavailableView(
+                    filter.title,
+                    systemImage: filter.systemImage,
+                    description: Text("暂时没有符合条件的作品")
+                )
+            } else {
+                List(filteredSeries) { item in
+                    NavigationLink {
+                        SeriesDetailView(series: item)
+                    } label: {
+                        SeriesCard(
+                            series: item,
+                            seasons: seasons.filter { $0.sourceSeriesID == item.sourceSeriesID },
+                            personal: personalRecords.first { $0.sourceSeriesID == item.sourceSeriesID }
+                        )
+                    }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+            }
+        }
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        .navigationTitle(filter.title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct SeasonChangeLogView: View {
+    let series: [SeriesRecord]
+    let snapshots: [OfficialSnapshot]
+
+    private var changes: [SeasonCountChange] {
+        SeasonChangeHistory.changes(from: snapshots)
+    }
+
+    private var titles: [String: String] {
+        Dictionary(uniqueKeysWithValues: series.map { ($0.sourceSeriesID, $0.title) })
+    }
+
+    var body: some View {
+        Group {
+            if changes.isEmpty {
+                ContentUnavailableView(
+                    "暂无变化记录",
+                    systemImage: "arrow.triangle.2.circlepath",
+                    description: Text("公开资料更新后，季数或集数发生变化时会记录在这里")
+                )
+            } else {
+                List(changes) { change in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(titles[change.sourceSeriesID] ?? "未命名作品")
+                            .font(.headline)
+                        Text("季数：\(countText(change.previousSeasonCount)) → \(countText(change.currentSeasonCount))")
+                            .font(.subheadline)
+                        Text("集数：\(countText(change.previousEpisodeCount)) → \(countText(change.currentEpisodeCount))")
+                            .font(.subheadline)
+                        Text(change.capturedAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 6)
+                }
+                .listStyle(.insetGrouped)
+            }
+        }
+        .navigationTitle("季集数变化")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func countText(_ value: Int?) -> String {
+        value.map(String.init) ?? "未记录"
+    }
+}
+
 private struct AddSeriesView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -941,7 +1143,7 @@ private struct AddSeriesView: View {
     @State private var officialRatingCount: Int?
     @State private var officialHeatText = ""
     @State private var officialHeatScore: Double?
-    @State private var completionStatus: String?
+    @State private var completionStatus = SeriesCompletionStatus.unknown.rawValue
     @State private var shelfState = "unstarted"
     @State private var includeFirstSeason = true
     @State private var firstSeasonNumber = 1
@@ -1065,6 +1267,12 @@ private struct AddSeriesView: View {
                 }
 
                 Section("我的记录") {
+                    Picker("完结状态", selection: $completionStatus) {
+                        ForEach(SeriesCompletionStatus.allCases) { status in
+                            Text(status.title).tag(status.rawValue)
+                        }
+                    }
+
                     Picker("书架状态", selection: $shelfState) {
                         Text("未开始").tag("unstarted")
                         Text("观看中").tag("watching")
@@ -1154,7 +1362,6 @@ private struct AddSeriesView: View {
                     officialRatingCount = metadata.officialRatingCount
                     if officialHeatText.isEmpty { officialHeatText = metadata.officialHeatText ?? "" }
                     officialHeatScore = metadata.officialHeatScore
-                    completionStatus = metadata.completionStatus
                     detectedSeasons = metadata.seasons
                     includeFirstSeason = metadata.seasons.isEmpty
                     let coverNotice = metadata.coverURL == nil && !metadata.coverCandidates.isEmpty
@@ -1215,7 +1422,7 @@ private struct AddSeriesView: View {
             }
 
             target.title = cleanTitle
-            if target.coverURL == nil { target.coverURL = coverURLText.nilIfBlank }
+            if target.coverURL?.nilIfBlank == nil { target.coverURL = coverURLText.nilIfBlank }
             if target.intro.isEmpty {
                 target.intro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
             }
@@ -1226,7 +1433,9 @@ private struct AddSeriesView: View {
             if let officialRatingCount { target.officialRatingCount = officialRatingCount }
             if let officialHeatScore { target.officialHeatScore = officialHeatScore }
             if let heat = officialHeatText.nilIfBlank { target.officialHeatText = heat }
-            if let completionStatus { target.completionStatus = completionStatus }
+            if record == nil || completionStatus != SeriesCompletionStatus.unknown.rawValue {
+                target.completionStatus = completionStatus
+            }
             target.updatedAt = .now
 
             let personalRecords = try modelContext.fetch(FetchDescriptor<PersonalRecord>())
@@ -1300,7 +1509,7 @@ private struct AddSeriesView: View {
             if Double(officialRatingText) != nil
                 || officialHeatText.nilIfBlank != nil
                 || !importedSeasons.isEmpty
-                || completionStatus != nil {
+                || completionStatus != SeriesCompletionStatus.unknown.rawValue {
                 let snapshot = OfficialSnapshot(sourceSeriesID: sourceID)
                 snapshot.officialRating = target.officialRating
                 snapshot.officialRatingCount = target.officialRatingCount

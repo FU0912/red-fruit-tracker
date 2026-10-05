@@ -151,7 +151,7 @@ final class LibraryModelTests: XCTestCase {
         )
         XCTAssertEqual(
             RatingPresentation.resolve(officialRating: nil, personalRating: 4).text,
-            "我的 4.0 / 10"
+            "4.0"
         )
         XCTAssertEqual(
             RatingPresentation.resolve(officialRating: nil, personalRating: nil).text,
@@ -173,6 +173,46 @@ final class LibraryModelTests: XCTestCase {
         personal.localShelfState = "dropped"
 
         XCTAssertEqual(personal.localShelfState, "dropped")
+        XCTAssertEqual(ShelfState.resolve(personal.localShelfState), .dropped)
+        XCTAssertEqual(ShelfState.resolve(nil), .unstarted)
+        XCTAssertEqual(ShelfState.watching.title, "观看中")
+    }
+
+    func testCompletionStatusIsManualAndDefaultsToUnselected() {
+        let record = SeriesRecord(sourceSeriesID: "series-1", title: "测试作品")
+
+        XCTAssertEqual(
+            SeriesCompletionStatus(rawValue: record.completionStatus ?? "") ?? .unknown,
+            .unknown
+        )
+
+        record.completionStatus = SeriesCompletionStatus.completed.rawValue
+        XCTAssertEqual(record.completionStatus, "completed")
+        XCTAssertEqual(SeriesCompletionStatus.completed.title, "已完结")
+    }
+
+    func testSeasonChangeHistoryKeepsPreviousAndCurrentCounts() {
+        let firstDate = Date(timeIntervalSince1970: 100)
+        let secondDate = Date(timeIntervalSince1970: 200)
+        let unchanged = OfficialSnapshot(sourceSeriesID: "unchanged", capturedAt: firstDate)
+        unchanged.seasonCount = 1
+        unchanged.episodeCount = 12
+
+        let first = OfficialSnapshot(sourceSeriesID: "series-1", capturedAt: firstDate)
+        first.seasonCount = 2
+        first.episodeCount = 125
+        let second = OfficialSnapshot(sourceSeriesID: "series-1", capturedAt: secondDate)
+        second.seasonCount = 3
+        second.episodeCount = 128
+
+        let changes = SeasonChangeHistory.changes(from: [second, unchanged, first])
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes.first?.sourceSeriesID, "series-1")
+        XCTAssertEqual(changes.first?.previousSeasonCount, 2)
+        XCTAssertEqual(changes.first?.currentSeasonCount, 3)
+        XCTAssertEqual(changes.first?.previousEpisodeCount, 125)
+        XCTAssertEqual(changes.first?.currentEpisodeCount, 128)
+        XCTAssertEqual(changes.first?.capturedAt, secondDate)
     }
 
     func testSeasonKeepsIndependentRatingAndReview() {

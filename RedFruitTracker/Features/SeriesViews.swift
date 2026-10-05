@@ -143,7 +143,7 @@ struct SeriesDetailView: View {
     private var detailHeader: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 16) {
-                CoverView(urlString: series.coverURL, width: 132, height: 184)
+                    CoverView(urlString: series.coverURL, title: series.title, width: 132, height: 184)
                     .fixedSize()
                     .accessibilityIdentifier("series-detail-cover")
 
@@ -198,7 +198,7 @@ struct SeriesDetailView: View {
                         officialRating: series.officialRating,
                         personalRating: personalRecord?.myRating
                     ).text,
-                    systemImage: "number.circle.fill"
+                    systemImage: "number"
                 )
                 .accessibilityIdentifier("official-rating")
 
@@ -210,9 +210,15 @@ struct SeriesDetailView: View {
 
                 DetailPill(
                     text: completionStatusText,
-                    systemImage: completionStatus == .completed ? "checkmark.seal.fill" : "clock"
+                    systemImage: completionStatusSymbol
                 )
                 .accessibilityIdentifier("completion-status")
+
+                DetailPill(
+                    text: shelfState.title,
+                    systemImage: shelfState.systemImage
+                )
+                .accessibilityIdentifier("detail-shelf-state")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -244,6 +250,18 @@ struct SeriesDetailView: View {
 
     private var completionStatusText: String {
         completionStatus.title
+    }
+
+    private var completionStatusSymbol: String {
+        switch completionStatus {
+        case .completed: return "checkmark.seal.fill"
+        case .ongoing: return "clock"
+        case .unknown: return "questionmark.circle"
+        }
+    }
+
+    private var shelfState: ShelfState {
+        ShelfState.resolve(personalRecord?.localShelfState)
     }
 
     private var introSection: some View {
@@ -290,6 +308,14 @@ struct SeriesDetailView: View {
                 .foregroundStyle(.white)
 
             if let personalRecord {
+                Picker("完结状态", selection: completionStatusBinding) {
+                    ForEach(SeriesCompletionStatus.allCases) { status in
+                        Text(status.title).tag(status.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+                .tint(.white)
+
                 Picker("书架状态", selection: shelfStateBinding(for: personalRecord)) {
                     Text("未开始").tag("unstarted")
                     Text("观看中").tag("watching")
@@ -349,6 +375,17 @@ struct SeriesDetailView: View {
         )
     }
 
+    private var completionStatusBinding: Binding<String> {
+        Binding(
+            get: { series.completionStatus ?? SeriesCompletionStatus.unknown.rawValue },
+            set: { value in
+                series.completionStatus = value
+                series.updatedAt = .now
+                try? modelContext.save()
+            }
+        )
+    }
+
     private func ratingBinding(for personal: PersonalRecord) -> Binding<Double?> {
         Binding(
             get: { personal.myRating },
@@ -385,14 +422,15 @@ struct SeriesDetailView: View {
                             series.title = TitleNormalizer.seriesTitle(title) ?? title
                         }
                     }
-                    if series.coverURL == nil, let coverURL = metadata.coverURL { series.coverURL = coverURL }
+                    if series.coverURL?.nilIfBlank == nil, let coverURL = metadata.coverURL?.nilIfBlank {
+                        series.coverURL = coverURL
+                    }
                     if series.intro.isEmpty, let intro = metadata.intro { series.intro = intro }
                     if series.tagsText.isEmpty, let tagsText = metadata.tagsText { series.tagsText = tagsText }
                     if let rating = metadata.officialRating { series.officialRating = rating }
                     if let ratingCount = metadata.officialRatingCount { series.officialRatingCount = ratingCount }
                     if let heatScore = metadata.officialHeatScore { series.officialHeatScore = heatScore }
                     if let heat = metadata.officialHeatText { series.officialHeatText = heat }
-                    if let completionStatus = metadata.completionStatus { series.completionStatus = completionStatus }
                     mergePublicSeasons(metadata.seasons)
                     series.updatedAt = .now
 
@@ -467,6 +505,8 @@ private enum DetailTheme {
     static let background = Color(red: 0.28, green: 0.28, blue: 0.28)
     static let cell = Color.white.opacity(0.10)
     static let accent = Color(red: 0.30, green: 0.58, blue: 0.96)
+    static let trendSurface = Color(uiColor: .secondarySystemBackground)
+    static let trendPlot = Color(uiColor: .systemBackground).opacity(0.48)
 }
 
 private struct OfficialTrendSection: View {
@@ -494,7 +534,7 @@ private struct OfficialTrendSection: View {
             HStack(alignment: .firstTextBaseline) {
                 Label("官方数据趋势", systemImage: "chart.xyaxis.line")
                     .font(.title3.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(uiColor: .label))
                 Spacer()
                 Picker("统计周期", selection: $interval) {
                     ForEach(TrendInterval.allCases) { value in
@@ -502,14 +542,14 @@ private struct OfficialTrendSection: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .tint(DetailTheme.accent)
+                .tint(Color.accentColor)
                 .accessibilityLabel("官方趋势统计周期")
             }
 
             if heatCandles.isEmpty && ratingCandles.isEmpty {
-                Text("刷新公开资料后，这里会按日、周、月、季度或年度保存官方热度和评分变化。")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.60))
+                    Text("刷新公开资料后，这里会按日、周、月、季度或年度保存官方热度和评分变化。")
+                        .font(.subheadline)
+                    .foregroundStyle(Color(uiColor: .secondaryLabel))
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 if !heatCandles.isEmpty {
@@ -522,10 +562,14 @@ private struct OfficialTrendSection: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Color.white.opacity(0.06))
+        .background(DetailTheme.trendSurface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color(uiColor: .separator), lineWidth: 0.5)
+        }
         .accessibilityIdentifier("official-trend-section")
-    }
+}
 }
 
 private struct OfficialCandleChart: View {
@@ -536,15 +580,21 @@ private struct OfficialCandleChart: View {
     private var yDomain: ClosedRange<Double> {
         let low = candles.map(\.low).min() ?? 0
         let high = candles.map(\.high).max() ?? 1
-        let padding = max((high - low) * 0.12, isRating ? 0.5 : 1)
-        return max(0, low - padding)...(high + padding)
+        let minimumRange = isRating ? 1.0 : max(high * 0.08, 1)
+        let padding = max((high - low) * 0.14, minimumRange * 0.5)
+        let upperBound = isRating ? min(10, high + padding) : high + padding
+        return max(0, low - padding)...max(upperBound, high + 0.01)
+    }
+
+    private var candleWidth: CGFloat {
+        candles.count > 18 ? 7 : 12
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.86))
+                .foregroundStyle(Color(uiColor: .label))
 
             Chart(candles) { candle in
                 RuleMark(
@@ -552,24 +602,37 @@ private struct OfficialCandleChart: View {
                     yStart: .value("最低", candle.low),
                     yEnd: .value("最高", candle.high)
                 )
-                .foregroundStyle(.white.opacity(0.66))
+                .foregroundStyle(Color(uiColor: .secondaryLabel))
 
                 BarMark(
                     x: .value("周期", candle.bucket),
                     yStart: .value("开盘", min(candle.open, candle.close)),
                     yEnd: .value("收盘", max(candle.open, candle.close)),
-                    width: .fixed(12)
+                    width: .fixed(candleWidth)
                 )
                 .foregroundStyle(candle.close >= candle.open ? Color.green : Color.red)
             }
+            .chartPlotStyle { plot in
+                plot
+                    .background(DetailTheme.trendPlot)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
             .chartYScale(domain: yDomain)
             .chartXAxis {
-                AxisMarks()
+                AxisMarks { value in
+                    AxisGridLine().foregroundStyle(Color(uiColor: .separator).opacity(0.7))
+                    AxisTick().foregroundStyle(Color(uiColor: .secondaryLabel))
+                    AxisValueLabel()
+                }
             }
             .chartYAxis {
-                AxisMarks(position: .leading)
+                AxisMarks(position: .leading) { value in
+                    AxisGridLine().foregroundStyle(Color(uiColor: .separator).opacity(0.7))
+                    AxisTick().foregroundStyle(Color(uiColor: .secondaryLabel))
+                    AxisValueLabel()
+                }
             }
-            .frame(height: 150)
+            .frame(height: 180)
         }
     }
 }
@@ -787,6 +850,7 @@ private struct EditSeriesView: View {
     @State private var coverURL: String
     @State private var tagsText: String
     @State private var intro: String
+    @State private var completionStatus: String
 
     init(series: SeriesRecord) {
         self.series = series
@@ -795,6 +859,7 @@ private struct EditSeriesView: View {
         _coverURL = State(initialValue: series.coverURL ?? "")
         _tagsText = State(initialValue: series.tagsText)
         _intro = State(initialValue: series.intro)
+        _completionStatus = State(initialValue: series.completionStatus ?? SeriesCompletionStatus.unknown.rawValue)
     }
 
     var body: some View {
@@ -812,6 +877,12 @@ private struct EditSeriesView: View {
                         .lineLimit(1...3)
                     TextField("简介", text: $intro, axis: .vertical)
                         .lineLimit(4...10)
+
+                    Picker("完结状态", selection: $completionStatus) {
+                        ForEach(SeriesCompletionStatus.allCases) { status in
+                            Text(status.title).tag(status.rawValue)
+                        }
+                    }
                 }
             }
             .navigationTitle("编辑作品")
@@ -827,6 +898,7 @@ private struct EditSeriesView: View {
                         series.coverURL = coverURL.nilIfBlank
                         series.tagsText = tagsText.trimmingCharacters(in: .whitespacesAndNewlines)
                         series.intro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
+                        series.completionStatus = completionStatus
                         series.updatedAt = .now
                         try? modelContext.save()
                         dismiss()
@@ -1270,7 +1342,7 @@ private struct RatingScorePicker: View {
             }
         } label: {
             HStack(spacing: 10) {
-                Label("我的评分", systemImage: "number.circle")
+                Label("评分", systemImage: "number")
                     .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 12)
                 Text(scoreText)
@@ -1287,13 +1359,13 @@ private struct RatingScorePicker: View {
         }
         .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
         .tint(usesDarkAppearance ? DetailTheme.accent : Color.accentColor)
-        .accessibilityLabel("我的评分")
+        .accessibilityLabel("评分")
         .accessibilityValue(scoreText)
     }
 
     private var scoreText: String {
-        guard let rating else { return "未评分 / 10" }
-        return String(format: "%.1f / 10", rating)
+        guard let rating else { return "未评分" }
+        return String(format: "%.1f", rating)
     }
 
 }

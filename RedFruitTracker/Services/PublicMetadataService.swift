@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 struct PublicSeriesMetadata {
     var title: String?
@@ -190,9 +191,10 @@ actor PublicMetadataService {
         let title = TitleNormalizer.normalize(rawTitle) ?? TitleNormalizer.fallback(from: url)
         let coverCandidates = HTMLMetadata.coverCandidates(in: html, baseURL: url)
         let rankedCoverCandidates = CoverURLSelector.ranked(coverCandidates, title: title)
+        let coverURL = await PortraitCoverProbe.preferredURL(from: rankedCoverCandidates)
         let metadata = PublicSeriesMetadata(
             title: title,
-            coverURL: HTMLMetadata.selectedCoverURL(in: html, baseURL: url, title: title),
+            coverURL: coverURL,
             coverCandidates: rankedCoverCandidates.prefix(8).map(\.url),
             intro: HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: html)
                 ?? HTMLMetadata.currentSeriesDetailValue(for: ["series_intro", "intro", "description", "abstract", "desc"], in: html),
@@ -227,6 +229,41 @@ actor PublicMetadataService {
             throw PublicMetadataError.noMetadata
         }
         return metadata
+    }
+}
+
+private enum PortraitCoverProbe {
+    static func preferredURL(from candidates: [CoverImageCandidate]) async -> String? {
+        for candidate in candidates.prefix(4) {
+            guard let url = URL(string: candidate.url) else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 4
+            request.setValue(
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+                forHTTPHeaderField: "User-Agent"
+            )
+            request.setValue("image/jpeg,image/png,image/webp,image/*;q=0.8", forHTTPHeaderField: "Accept")
+
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  let httpResponse = response as? HTTPURLResponse,
+                  200..<400 ~= httpResponse.statusCode,
+                  let dimensions = dimensions(of: data),
+                  dimensions.height > dimensions.width * 1.05 else {
+                continue
+            }
+            return candidate.url
+        }
+        return nil
+    }
+
+    private static func dimensions(of data: Data) -> (width: CGFloat, height: CGFloat)? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else {
+            return nil
+        }
+        return (width.doubleValue, height.doubleValue)
     }
 }
 
