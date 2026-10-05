@@ -99,7 +99,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["open-red-fruit-button"].exists)
         let personalRating = app.descendants(matching: .any)["personal-rating-score"].firstMatch
         XCTAssertTrue(personalRating.exists)
-        XCTAssertTrue(personalRating.label.contains("/ 10"))
+        XCTAssertFalse(app.sliders.firstMatch.exists)
         XCTAssertFalse(app.staticTexts["选集"].exists)
         XCTAssertFalse(app.staticTexts["第1季"].exists)
         XCTAssertFalse(app.staticTexts["已看 1 / 共189集"].exists)
