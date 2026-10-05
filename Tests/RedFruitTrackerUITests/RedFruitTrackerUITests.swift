@@ -69,16 +69,14 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertLessThanOrEqual(libraryCover.frame.width, 100)
         XCTAssertGreaterThan(libraryCover.frame.height, libraryCover.frame.width)
         XCTAssertGreaterThanOrEqual(libraryTitle.frame.minX, libraryCover.frame.maxX - 4)
-        XCTAssertTrue(app.staticTexts["共1季"].exists)
+        XCTAssertFalse(app.staticTexts["共1季"].exists)
+        XCTAssertFalse(app.staticTexts["共189集"].exists)
         XCTAssertFalse(app.staticTexts["看到第1季 · 第1集"].exists)
 
         let heat = app.descendants(matching: .any)["series-card-heat"].firstMatch
-        let seasonCount = app.descendants(matching: .any)["series-card-season-count"].firstMatch
+        let completionStatus = app.descendants(matching: .any)["series-card-completion-status"].firstMatch
         XCTAssertTrue(heat.exists)
-        XCTAssertTrue(seasonCount.exists)
-        XCTAssertGreaterThanOrEqual(seasonCount.frame.minX, heat.frame.maxX - 4)
-        XCTAssertLessThanOrEqual(seasonCount.frame.minX - heat.frame.maxX, 10)
-        XCTAssertLessThanOrEqual(abs(seasonCount.frame.midY - heat.frame.midY), 12)
+        XCTAssertTrue(completionStatus.exists)
 
         let libraryScreenshot = XCUIScreen.main.screenshot()
         let libraryAttachment = XCTAttachment(screenshot: libraryScreenshot)
@@ -96,7 +94,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         cardButton.tap()
 
         XCTAssertTrue(app.staticTexts["基本信息"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["全189集"].exists)
+        XCTAssertFalse(app.staticTexts["全189集"].exists)
         XCTAssertTrue(app.staticTexts["我的评分与点评"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["open-red-fruit-button"].exists)
         let personalRating = app.descendants(matching: .any)["personal-rating-score"].firstMatch
@@ -124,6 +122,8 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["official-rating"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["official-heat"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["official-tags"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["completion-status"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["official-trend-section"].exists)
         XCTAssertGreaterThanOrEqual(
             app.descendants(matching: .any)["official-rating"].frame.minX,
             detailCover.frame.maxX - 4

@@ -68,7 +68,8 @@ struct RedFruitTrackerApp: App {
             intro: "苏沐穿进修仙世界，一世扮演恶毒反派，拼尽全力推动剧情，只求被女主一剑斩杀完成任务重返现实。可濒死之际，他却意外发现所有命运都已经改变。",
             tagsText: "修仙,爽剧,穿越,系统,异界",
             officialRating: 8.8,
-            officialHeatText: "3930万"
+            officialHeatText: "3930万",
+            completionStatus: SeriesCompletionStatus.ongoing.rawValue
         )
         context.insert(series)
 

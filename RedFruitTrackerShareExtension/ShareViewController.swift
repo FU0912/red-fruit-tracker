@@ -5,6 +5,7 @@ final class ShareViewController: UIViewController {
     private let appGroup = "group.com.f.redfruittracker"
     private let pendingURLsKey = "pendingShareURLs"
     private var shouldOpenHostApp = false
+    private var sharedURLForCallback: URL?
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -69,6 +70,7 @@ final class ShareViewController: UIViewController {
             pendingURLs.append(value)
             defaults?.set(pendingURLs, forKey: pendingURLsKey)
         }
+        sharedURLForCallback = url
         shouldOpenHostApp = true
     }
 
@@ -80,7 +82,8 @@ final class ShareViewController: UIViewController {
 
     private func finish() {
         guard shouldOpenHostApp,
-              let callbackURL = URL(string: "redfruittracker://share-import") else {
+              let sharedURLForCallback,
+              let callbackURL = ShareRoute.callbackURL(for: sharedURLForCallback) else {
             extensionContext?.completeRequest(returningItems: nil)
             return
         }

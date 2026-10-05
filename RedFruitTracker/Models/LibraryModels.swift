@@ -3,6 +3,7 @@ import SwiftData
 
 enum RatingScale {
     static let maximum = 10.0
+    static let options = stride(from: 0.0, through: maximum, by: 0.5).map { $0 }
 
     static func normalized(_ value: Double) -> Double {
         let stepped = (value * 2).rounded() / 2
@@ -12,6 +13,107 @@ enum RatingScale {
     static func fromLegacyFiveStar(_ value: Double) -> Double {
         guard value >= 0, value <= 5 else { return normalized(value) }
         return normalized(value * 2)
+    }
+}
+
+enum SeriesCompletionStatus: String, CaseIterable, Identifiable {
+    case completed
+    case ongoing
+    case unknown
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .completed: return "已完结"
+        case .ongoing: return "未完结"
+        case .unknown: return "完结状态待读取"
+        }
+    }
+}
+
+enum TrendInterval: String, CaseIterable, Identifiable {
+    case day
+    case week
+    case month
+    case quarter
+    case year
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .day: return "按日"
+        case .week: return "按周"
+        case .month: return "按月"
+        case .quarter: return "按季度"
+        case .year: return "按年"
+        }
+    }
+
+    func bucketStart(for date: Date, calendar: Calendar) -> Date {
+        switch self {
+        case .day:
+            return calendar.dateInterval(of: .day, for: date)?.start ?? date
+        case .week:
+            return calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date
+        case .month:
+            return calendar.dateInterval(of: .month, for: date)?.start ?? date
+        case .quarter:
+            let components = calendar.dateComponents([.year, .month], from: date)
+            let month = components.month ?? 1
+            let quarterMonth = ((month - 1) / 3) * 3 + 1
+            return calendar.date(from: DateComponents(
+                year: components.year,
+                month: quarterMonth,
+                day: 1
+            )) ?? date
+        case .year:
+            return calendar.dateInterval(of: .year, for: date)?.start ?? date
+        }
+    }
+}
+
+struct TrendCandle: Identifiable, Equatable {
+    let bucket: Date
+    let open: Double
+    let close: Double
+    let high: Double
+    let low: Double
+
+    var id: Date { bucket }
+}
+
+enum TrendAggregation {
+    static func candles(
+        from snapshots: [OfficialSnapshot],
+        interval: TrendInterval,
+        value: (OfficialSnapshot) -> Double?,
+        calendar: Calendar = .current
+    ) -> [TrendCandle] {
+        let values = snapshots.compactMap { snapshot -> (Date, Double)? in
+            guard let number = value(snapshot) else { return nil }
+            return (snapshot.capturedAt, number)
+        }
+        let groups = Dictionary(grouping: values) { item in
+            interval.bucketStart(for: item.0, calendar: calendar)
+        }
+
+        return groups.keys.sorted().compactMap { bucket in
+            guard let points = groups[bucket]?.sorted(by: { $0.0 < $1.0 }),
+                  let first = points.first,
+                  let last = points.last else {
+                return nil
+            }
+            let numbers = points.map(\.1)
+            return TrendCandle(
+                bucket: bucket,
+                open: first.1,
+                close: last.1,
+                high: numbers.max() ?? first.1,
+                low: numbers.min() ?? first.1
+            )
+        }
     }
 }
 
@@ -74,6 +176,7 @@ final class SeriesRecord {
     var officialRatingCount: Int?
     var officialHeatScore: Double?
     var officialHeatText: String?
+    var completionStatus: String?
     var createdAt: Date
     var updatedAt: Date
 
@@ -88,6 +191,7 @@ final class SeriesRecord {
         officialRatingCount: Int? = nil,
         officialHeatScore: Double? = nil,
         officialHeatText: String? = nil,
+        completionStatus: String? = nil,
         createdAt: Date = .now,
         updatedAt: Date = .now
     ) {
@@ -101,6 +205,7 @@ final class SeriesRecord {
         self.officialRatingCount = officialRatingCount
         self.officialHeatScore = officialHeatScore
         self.officialHeatText = officialHeatText
+        self.completionStatus = completionStatus
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -200,6 +305,7 @@ final class OfficialSnapshot {
     var likeCount: Int?
     var favoriteCount: Int?
     var reviewCount: Int?
+    var seasonCount: Int?
     var episodeCount: Int?
 
     init(sourceSeriesID: String, capturedAt: Date = .now) {

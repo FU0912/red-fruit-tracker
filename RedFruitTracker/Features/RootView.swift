@@ -46,7 +46,10 @@ struct RootView: View {
                 refreshPendingShare()
             }
         }
-        .onOpenURL { _ in
+        .onOpenURL { callbackURL in
+            if let sharedURL = ShareRoute.sharedURL(from: callbackURL) {
+                ShareInbox.enqueue(sharedURL)
+            }
             refreshPendingShare()
         }
     }
@@ -79,6 +82,8 @@ private struct LibraryView: View {
 
     @State private var searchText = ""
     @State private var hasAutoRefreshedMetadata = false
+    @State private var isRefreshingAll = false
+    @State private var refreshNotice: String?
     @State private var selectedSeries: SeriesRecord?
     @State private var seriesToDelete: SeriesRecord?
     @State private var deletionErrorMessage: String?
@@ -99,12 +104,20 @@ private struct LibraryView: View {
             Group {
                 if visibleSeries.isEmpty {
                     VStack(spacing: 0) {
-                        LibraryHeader(searchText: $searchText)
+                        LibraryHeader(
+                            searchText: $searchText,
+                            isRefreshing: isRefreshingAll,
+                            onRefreshAll: refreshAllMetadata
+                        )
                         LibraryEmptyState(isSearching: !searchText.isEmpty, onAdd: onAdd)
                     }
                 } else {
                     List {
-                        LibraryHeader(searchText: $searchText)
+                        LibraryHeader(
+                            searchText: $searchText,
+                            isRefreshing: isRefreshingAll,
+                            onRefreshAll: refreshAllMetadata
+                        )
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -194,8 +207,16 @@ private struct LibraryView: View {
             } message: {
                 Text(deletionErrorMessage ?? "")
             }
+            .alert("公开资料更新", isPresented: Binding(
+                get: { refreshNotice != nil },
+                set: { if !$0 { refreshNotice = nil } }
+            )) {
+                Button("好", role: .cancel) { refreshNotice = nil }
+            } message: {
+                Text(refreshNotice ?? "")
+            }
             .task {
-                await refreshMissingMetadata()
+                await refreshMetadataIfDue()
             }
         }
     }
@@ -219,53 +240,152 @@ private struct LibraryView: View {
         }
     }
 
-    private func refreshMissingMetadata() async {
+    private func refreshMetadataIfDue() async {
         guard !hasAutoRefreshedMetadata,
-              !ProcessInfo.processInfo.arguments.contains("--ui-testing") else {
+              !ProcessInfo.processInfo.arguments.contains("--ui-testing"),
+              MetadataRefreshSchedule.shouldRun() else {
             return
         }
         hasAutoRefreshedMetadata = true
+        await refreshAllMetadata(showNotice: false)
+    }
 
-        let candidates = series.filter { item in
-            guard item.sourceURL != nil else { return false }
-            return item.coverURL == nil
-                || item.intro.isEmpty
-                || item.tagsText.isEmpty
-                || item.officialHeatText == nil
+    private func refreshAllMetadata() {
+        Task { @MainActor in
+            await refreshAllMetadata(showNotice: true)
         }
+    }
 
-        for item in candidates {
+    @MainActor
+    private func refreshAllMetadata(showNotice: Bool) async {
+        guard !isRefreshingAll else { return }
+        isRefreshingAll = true
+
+        let candidates = series.compactMap { item -> (SeriesRecord, URL)? in
             guard let sourceURL = item.sourceURL,
-                  let url = URL(string: sourceURL) else { continue }
+                  let url = URL(string: sourceURL) else { return nil }
+            return (item, url)
+        }
+        var updatedCount = 0
+
+        for (item, url) in candidates {
             do {
                 let metadata = try await PublicMetadataService.shared.fetch(from: url)
-                if let title = metadata.title, !title.isEmpty {
-                    item.title = TitleNormalizer.seriesTitle(title) ?? title
-                }
-                if let coverURL = metadata.coverURL { item.coverURL = coverURL }
-                if let intro = metadata.intro, !intro.isEmpty { item.intro = intro }
-                if let tagsText = metadata.tagsText, !tagsText.isEmpty { item.tagsText = tagsText }
-                if let rating = metadata.officialRating { item.officialRating = rating }
-                if let ratingCount = metadata.officialRatingCount { item.officialRatingCount = ratingCount }
-                if let heatScore = metadata.officialHeatScore { item.officialHeatScore = heatScore }
-                if let heat = metadata.officialHeatText, !heat.isEmpty { item.officialHeatText = heat }
-                item.updatedAt = .now
+                applyPublicMetadata(metadata, to: item)
+                mergePublicSeasons(metadata.seasons, for: item)
+                insertSnapshot(for: item, metadata: metadata)
+                updatedCount += 1
             } catch {
                 continue
             }
         }
+
         try? modelContext.save()
+        MetadataRefreshSchedule.markRun()
+        isRefreshingAll = false
+        if showNotice {
+            refreshNotice = updatedCount == 0
+                ? "没有读取到可更新的公开资料。"
+                : String(format: "已更新 %d 部作品的公开资料，个人评分、点评和观看记录已保留。", updatedCount)
+        }
+    }
+
+    private func applyPublicMetadata(_ metadata: PublicSeriesMetadata, to item: SeriesRecord) {
+        if item.coverURL == nil, let coverURL = metadata.coverURL {
+            item.coverURL = coverURL
+        }
+        if item.intro.isEmpty, let intro = metadata.intro, !intro.isEmpty {
+            item.intro = intro
+        }
+        if item.tagsText.isEmpty, let tagsText = metadata.tagsText, !tagsText.isEmpty {
+            item.tagsText = tagsText
+        }
+        if let rating = metadata.officialRating { item.officialRating = rating }
+        if let ratingCount = metadata.officialRatingCount { item.officialRatingCount = ratingCount }
+        if let heatScore = metadata.officialHeatScore { item.officialHeatScore = heatScore }
+        if let heat = metadata.officialHeatText, !heat.isEmpty { item.officialHeatText = heat }
+        if let completionStatus = metadata.completionStatus { item.completionStatus = completionStatus }
+        item.updatedAt = .now
+    }
+
+    private func mergePublicSeasons(_ metadataSeasons: [PublicSeasonMetadata], for item: SeriesRecord) {
+        guard !metadataSeasons.isEmpty else { return }
+        guard let existingSeasons = try? modelContext.fetch(FetchDescriptor<SeasonRecord>()),
+              let existingEpisodes = try? modelContext.fetch(FetchDescriptor<EpisodeRecord>()) else {
+            return
+        }
+
+        for metadataSeason in metadataSeasons {
+            let existing = existingSeasons.first {
+                $0.sourceSeriesID == item.sourceSeriesID && $0.seasonNumber == metadataSeason.seasonNumber
+            }
+            let season = existing ?? SeasonRecord(
+                sourceSeriesID: item.sourceSeriesID,
+                seasonNumber: metadataSeason.seasonNumber
+            )
+            if existing == nil { modelContext.insert(season) }
+            if season.title.isEmpty { season.title = metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季" }
+            season.episodeCount = max(season.episodeCount, metadataSeason.episodeCount)
+            season.sourceURL = metadataSeason.sourceURL ?? season.sourceURL ?? item.sourceURL
+            season.updatedAt = .now
+
+            for metadataEpisode in metadataSeason.episodes {
+                let existingEpisode = existingEpisodes.first {
+                    $0.sourceSeriesID == item.sourceSeriesID
+                        && $0.seasonNumber == metadataSeason.seasonNumber
+                        && $0.episodeNumber == metadataEpisode.episodeNumber
+                }
+                let episode = existingEpisode ?? EpisodeRecord(
+                    sourceVid: "\(item.sourceSeriesID)#s\(metadataSeason.seasonNumber)#e\(metadataEpisode.episodeNumber)",
+                    sourceSeriesID: item.sourceSeriesID,
+                    seasonNumber: metadataSeason.seasonNumber,
+                    episodeNumber: metadataEpisode.episodeNumber
+                )
+                if existingEpisode == nil { modelContext.insert(episode) }
+                if let title = metadataEpisode.title, !title.isEmpty { episode.title = title }
+                if let webURL = metadataEpisode.webURL { episode.webURL = webURL }
+            }
+        }
+    }
+
+    private func insertSnapshot(for item: SeriesRecord, metadata: PublicSeriesMetadata) {
+        let snapshot = OfficialSnapshot(sourceSeriesID: item.sourceSeriesID)
+        snapshot.officialRating = metadata.officialRating ?? item.officialRating
+        snapshot.officialRatingCount = metadata.officialRatingCount ?? item.officialRatingCount
+        snapshot.officialHeatScore = metadata.officialHeatScore ?? item.officialHeatScore
+        snapshot.officialHeatText = metadata.officialHeatText ?? item.officialHeatText
+        if !metadata.seasons.isEmpty {
+            snapshot.seasonCount = metadata.seasons.count
+            snapshot.episodeCount = metadata.seasons.map(\.episodeCount).reduce(0, +)
+        }
+        modelContext.insert(snapshot)
     }
 }
 
 private struct LibraryHeader: View {
     @Binding var searchText: String
+    let isRefreshing: Bool
+    let onRefreshAll: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("漫剧记录")
-                .font(.system(size: 34, weight: .bold))
-                .accessibilityIdentifier("library-header-title")
+            HStack(alignment: .firstTextBaseline) {
+                Text("漫剧记录")
+                    .font(.system(size: 34, weight: .bold))
+                    .accessibilityIdentifier("library-header-title")
+                Spacer()
+                Button(action: onRefreshAll) {
+                    if isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .frame(width: 44, height: 44)
+                .accessibilityLabel("更新全部公开资料")
+                .disabled(isRefreshing)
+            }
 
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
@@ -384,22 +504,14 @@ private struct SeriesCard: View {
                     .multilineTextAlignment(.leading)
                     .accessibilityIdentifier("series-card-title")
 
-                TagFlowLayout(horizontalSpacing: 4, verticalSpacing: 6) {
-                    CompactInfoPill(
-                        text: totalEpisodeCount > 0 ? "共\(totalEpisodeCount)集" : "集数待补",
-                        systemImage: "list.number"
-                    )
-
-                    CompactInfoPill(
-                        text: RatingPresentation.resolve(
-                            officialRating: series.officialRating,
-                            personalRating: personal?.myRating
-                        ).text,
-                        systemImage: "number.circle.fill",
-                        tint: .orange
-                    )
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                CompactInfoPill(
+                    text: RatingPresentation.resolve(
+                        officialRating: series.officialRating,
+                        personalRating: personal?.myRating
+                    ).text,
+                    systemImage: "number.circle.fill",
+                    tint: .orange
+                )
 
                 HStack(spacing: 4) {
                     CompactInfoPill(
@@ -410,11 +522,11 @@ private struct SeriesCard: View {
                     .accessibilityIdentifier("series-card-heat")
 
                     CompactInfoPill(
-                        text: seasonSummary,
-                        systemImage: "square.stack.3d.up",
-                        tint: .secondary
+                        text: completionStatusText,
+                        systemImage: completionStatusSymbol,
+                        tint: completionStatusTint
                     )
-                    .accessibilityIdentifier("series-card-season-count")
+                    .accessibilityIdentifier("series-card-completion-status")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -456,12 +568,20 @@ private struct SeriesCard: View {
         return heat.hasSuffix("热度") ? heat : "\(heat)热度"
     }
 
-    private var totalEpisodeCount: Int {
-        seasons.reduce(0) { $0 + $1.episodeCount }
+    private var completionStatus: SeriesCompletionStatus {
+        SeriesCompletionStatus(rawValue: series.completionStatus ?? "") ?? .unknown
     }
 
-    private var seasonSummary: String {
-        seasons.isEmpty ? "季数待补" : "共\(seasons.count)季"
+    private var completionStatusText: String {
+        completionStatus.title
+    }
+
+    private var completionStatusSymbol: String {
+        completionStatus == .completed ? "checkmark.seal.fill" : "clock"
+    }
+
+    private var completionStatusTint: Color {
+        completionStatus == .completed ? .green : .secondary
     }
 }
 
@@ -579,43 +699,98 @@ func tagValues(_ value: String) -> [String] {
         .filter { !$0.isEmpty }
 }
 
+private final class CoverImageLoader: ObservableObject {
+    private static let cache = NSCache<NSString, UIImage>()
+
+    @Published private(set) var image: UIImage?
+    @Published private(set) var isLoading = false
+    private var task: URLSessionDataTask?
+    private var loadedURL: String?
+
+    func load(urlString: String?) {
+        guard let urlString, let url = URL(string: urlString) else {
+            task?.cancel()
+            task = nil
+            loadedURL = nil
+            image = nil
+            isLoading = false
+            return
+        }
+
+        if loadedURL == urlString, image != nil { return }
+        loadedURL = urlString
+        task?.cancel()
+
+        if let cached = Self.cache.object(forKey: urlString as NSString) {
+            image = cached
+            isLoading = false
+            return
+        }
+
+        image = nil
+        isLoading = true
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+            forHTTPHeaderField: "User-Agent"
+        )
+        request.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+
+        task = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            guard let data,
+                  let httpResponse = response as? HTTPURLResponse,
+                  200..<400 ~= httpResponse.statusCode,
+                  let image = UIImage(data: data) else {
+                DispatchQueue.main.async {
+                    guard let self, self.loadedURL == urlString else { return }
+                    self.isLoading = false
+                }
+                return
+            }
+
+            Self.cache.setObject(image, forKey: urlString as NSString)
+            DispatchQueue.main.async {
+                guard let self, self.loadedURL == urlString else { return }
+                self.image = image
+                self.isLoading = false
+            }
+        }
+        task?.resume()
+    }
+
+    deinit {
+        task?.cancel()
+    }
+}
+
 struct CoverView: View {
     let urlString: String?
 
     let width: CGFloat
     let height: CGFloat
+    @StateObject private var loader: CoverImageLoader
 
     init(urlString: String?, width: CGFloat = 92, height: CGFloat = 128) {
         self.urlString = urlString
         self.width = width
         self.height = height
+        _loader = StateObject(wrappedValue: CoverImageLoader())
     }
 
     var body: some View {
         ZStack {
             fallback
 
-            if let urlString, let url = URL(string: urlString) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: width, height: height)
-                            .clipped()
-                    case .failure:
-                        EmptyView()
-                    case .empty:
-                        ProgressView()
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
-                .frame(width: width, height: height)
-                .clipped()
-            } else {
-                EmptyView()
+            if let image = loader.image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: width, height: height)
+                    .clipped()
+            } else if loader.isLoading {
+                ProgressView()
+                    .tint(.secondary)
             }
         }
         .frame(width: width, height: height)
@@ -626,6 +801,8 @@ struct CoverView: View {
                 .strokeBorder(.quaternary, lineWidth: 0.5)
         }
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .onAppear { loader.load(urlString: urlString) }
+        .onChange(of: urlString) { _, newValue in loader.load(urlString: newValue) }
     }
 
     private var fallback: some View {
@@ -642,21 +819,44 @@ struct CoverView: View {
 private struct StatsView: View {
     @Query private var series: [SeriesRecord]
     @Query private var personalRecords: [PersonalRecord]
-    @Query private var seasons: [SeasonRecord]
-    @Query private var episodes: [EpisodeRecord]
     @Query private var snapshots: [OfficialSnapshot]
 
-    private var watchedEpisodes: Int {
-        episodes.filter(\.isWatched).count
+    private var completedCount: Int {
+        series.filter { $0.completionStatus == SeriesCompletionStatus.completed.rawValue }.count
     }
 
-    private var ratedRecords: [PersonalRecord] {
-        personalRecords.filter { $0.myRating != nil }
+    private var ongoingCount: Int {
+        series.filter { $0.completionStatus == SeriesCompletionStatus.ongoing.rawValue }.count
     }
 
-    private var averageRating: Double? {
-        guard !ratedRecords.isEmpty else { return nil }
-        return ratedRecords.compactMap(\.myRating).reduce(0, +) / Double(ratedRecords.count)
+    private var unknownStatusCount: Int {
+        series.count - completedCount - ongoingCount
+    }
+
+    private var shelfStateCounts: [String: Int] {
+        Dictionary(grouping: personalRecords, by: \.localShelfState)
+            .mapValues(\.count)
+    }
+
+    private var missingCoverCount: Int {
+        series.filter { $0.coverURL == nil || $0.coverURL?.isEmpty == true }.count
+    }
+
+    private var changedCount: Int {
+        let grouped = Dictionary(grouping: snapshots, by: \.sourceSeriesID)
+        return grouped.values.filter { values in
+            let ordered = values.sorted { $0.capturedAt < $1.capturedAt }
+            guard let first = ordered.first else { return false }
+            return ordered.dropFirst().contains { snapshot in
+                (snapshot.seasonCount != nil && snapshot.seasonCount != first.seasonCount)
+                    || (snapshot.episodeCount != nil && snapshot.episodeCount != first.episodeCount)
+            }
+        }.count
+    }
+
+    private var lastUpdateText: String {
+        guard let date = snapshots.map(\.capturedAt).max() else { return "暂无更新" }
+        return date.formatted(date: .abbreviated, time: .shortened)
     }
 
     var body: some View {
@@ -668,15 +868,18 @@ private struct StatsView: View {
 
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                         StatTile(title: "作品", value: "\(series.count)", symbol: "books.vertical")
-                        StatTile(title: "季", value: "\(seasons.count)", symbol: "square.stack.3d.up")
-                        StatTile(title: "已看集数", value: "\(watchedEpisodes)", symbol: "checkmark.circle")
-                        StatTile(title: "我的平均分", value: averageRating.map { String(format: "%.1f / 10", $0) } ?? "—", symbol: "number.circle")
+                        StatTile(title: "已完结", value: "\(completedCount)", symbol: "checkmark.seal")
+                        StatTile(title: "未完结", value: "\(ongoingCount)", symbol: "clock")
+                        StatTile(title: "观看中", value: "\(shelfStateCounts["watching", default: 0])", symbol: "play.circle")
+                        StatTile(title: "弃剧", value: "\(shelfStateCounts["dropped", default: 0])", symbol: "minus.circle")
+                        StatTile(title: "缺少封面", value: "\(missingCoverCount)", symbol: "photo")
+                        StatTile(title: "季集数有变化", value: "\(changedCount)", symbol: "arrow.triangle.2.circlepath")
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Label("数据快照", systemImage: "chart.xyaxis.line")
+                        Label("公开资料更新", systemImage: "arrow.clockwise")
                             .font(.headline)
-                        Text("已保存 \(snapshots.count) 条官方数据快照。后续刷新后可在这里形成热度、评分和观看数据趋势图。")
+                        Text("最近一次公开资料更新：\(lastUpdateText)")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -685,8 +888,10 @@ private struct StatsView: View {
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                    if !snapshots.isEmpty {
-                        SnapshotTrendChart(snapshots: snapshots)
+                    if unknownStatusCount > 0 {
+                        Text("还有 \(unknownStatusCount) 部作品尚未读取到完结状态。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .padding(16)
@@ -694,55 +899,6 @@ private struct StatsView: View {
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("统计")
         }
-    }
-}
-
-private struct SnapshotTrendChart: View {
-    let snapshots: [OfficialSnapshot]
-
-    private var ratingPoints: [(date: Date, value: Double)] {
-        snapshots.compactMap { snapshot in
-            guard let value = snapshot.officialRating else { return nil }
-            return (snapshot.capturedAt, value)
-        }
-        .sorted { $0.date < $1.date }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("官方评分趋势", systemImage: "chart.line.uptrend.xyaxis")
-                .font(.headline)
-
-            if ratingPoints.count >= 2 {
-                Chart {
-                    ForEach(Array(ratingPoints.enumerated()), id: \.offset) { _, point in
-                        LineMark(
-                            x: .value("时间", point.date),
-                            y: .value("评分", point.value)
-                        )
-                        .foregroundStyle(.tint)
-                        PointMark(
-                            x: .value("时间", point.date),
-                            y: .value("评分", point.value)
-                        )
-                        .foregroundStyle(.tint)
-                    }
-                }
-                .chartYScale(domain: 0...10)
-                .chartYAxis {
-                    AxisMarks(values: [0, 2, 4, 6, 8, 10])
-                }
-                .frame(height: 190)
-            } else {
-                Text("至少刷新或录入两次官方评分后显示趋势。")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -785,6 +941,7 @@ private struct AddSeriesView: View {
     @State private var officialRatingCount: Int?
     @State private var officialHeatText = ""
     @State private var officialHeatScore: Double?
+    @State private var completionStatus: String?
     @State private var shelfState = "unstarted"
     @State private var includeFirstSeason = true
     @State private var firstSeasonNumber = 1
@@ -997,6 +1154,7 @@ private struct AddSeriesView: View {
                     officialRatingCount = metadata.officialRatingCount
                     if officialHeatText.isEmpty { officialHeatText = metadata.officialHeatText ?? "" }
                     officialHeatScore = metadata.officialHeatScore
+                    completionStatus = metadata.completionStatus
                     detectedSeasons = metadata.seasons
                     includeFirstSeason = metadata.seasons.isEmpty
                     let coverNotice = metadata.coverURL == nil && !metadata.coverCandidates.isEmpty
@@ -1068,6 +1226,7 @@ private struct AddSeriesView: View {
             if let officialRatingCount { target.officialRatingCount = officialRatingCount }
             if let officialHeatScore { target.officialHeatScore = officialHeatScore }
             if let heat = officialHeatText.nilIfBlank { target.officialHeatText = heat }
+            if let completionStatus { target.completionStatus = completionStatus }
             target.updatedAt = .now
 
             let personalRecords = try modelContext.fetch(FetchDescriptor<PersonalRecord>())
@@ -1138,12 +1297,19 @@ private struct AddSeriesView: View {
                 }
             }
 
-            if Double(officialRatingText) != nil || officialHeatText.nilIfBlank != nil {
+            if Double(officialRatingText) != nil
+                || officialHeatText.nilIfBlank != nil
+                || !importedSeasons.isEmpty
+                || completionStatus != nil {
                 let snapshot = OfficialSnapshot(sourceSeriesID: sourceID)
                 snapshot.officialRating = target.officialRating
                 snapshot.officialRatingCount = target.officialRatingCount
                 snapshot.officialHeatScore = target.officialHeatScore
                 snapshot.officialHeatText = target.officialHeatText
+                if !importedSeasons.isEmpty {
+                    snapshot.seasonCount = importedSeasons.count
+                    snapshot.episodeCount = importedSeasons.map(\.episodeCount).reduce(0, +)
+                }
                 modelContext.insert(snapshot)
             }
 

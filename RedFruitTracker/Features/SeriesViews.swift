@@ -1,4 +1,5 @@
 import Foundation
+import Charts
 import SwiftData
 import SwiftUI
 
@@ -16,6 +17,9 @@ struct SeriesDetailView: View {
 
     @Query
     private var personalRecords: [PersonalRecord]
+
+    @Query
+    private var snapshots: [OfficialSnapshot]
 
     @State private var isShowingEdit = false
     @State private var isShowingAddSeason = false
@@ -44,6 +48,12 @@ struct SeriesDetailView: View {
                 personal.sourceSeriesID == sourceSeriesID
             }
         )
+        _snapshots = Query(
+            filter: #Predicate<OfficialSnapshot> { snapshot in
+                snapshot.sourceSeriesID == sourceSeriesID
+            },
+            sort: \OfficialSnapshot.capturedAt
+        )
     }
 
     private var seasons: [SeasonRecord] {
@@ -60,6 +70,7 @@ struct SeriesDetailView: View {
             VStack(alignment: .leading, spacing: 22) {
                 detailHeader
                 introSection
+                OfficialTrendSection(snapshots: snapshots)
                 personalSection
             }
             .padding(.horizontal, 16)
@@ -122,7 +133,8 @@ struct SeriesDetailView: View {
 
     private var shouldAutoRefreshMetadata: Bool {
         guard redFruitURL != nil,
-              !ProcessInfo.processInfo.arguments.contains("--ui-testing") else {
+              !ProcessInfo.processInfo.arguments.contains("--ui-testing"),
+              MetadataRefreshSchedule.shouldRun() else {
             return false
         }
         return true
@@ -142,10 +154,6 @@ struct SeriesDetailView: View {
                         .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("series-detail-title")
-
-                    Text(totalEpisodeCount > 0 ? "全\(totalEpisodeCount)集" : "集数待补")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.68))
 
                     officialMetadataSection
                 }
@@ -199,6 +207,12 @@ struct SeriesDetailView: View {
                     systemImage: "flame.fill"
                 )
                 .accessibilityIdentifier("official-heat")
+
+                DetailPill(
+                    text: completionStatusText,
+                    systemImage: completionStatus == .completed ? "checkmark.seal.fill" : "clock"
+                )
+                .accessibilityIdentifier("completion-status")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -222,6 +236,14 @@ struct SeriesDetailView: View {
             return "暂无热度"
         }
         return heat.hasSuffix("热度") ? heat : "\(heat)热度"
+    }
+
+    private var completionStatus: SeriesCompletionStatus {
+        SeriesCompletionStatus(rawValue: series.completionStatus ?? "") ?? .unknown
+    }
+
+    private var completionStatusText: String {
+        completionStatus.title
     }
 
     private var introSection: some View {
@@ -299,10 +321,6 @@ struct SeriesDetailView: View {
         tagValues(series.tagsText)
     }
 
-    private var totalEpisodeCount: Int {
-        seasons.reduce(0) { $0 + $1.episodeCount }
-    }
-
     private var redFruitURL: URL? {
         if let source = series.sourceURL, let url = URL(string: source) {
             return url
@@ -363,15 +381,18 @@ struct SeriesDetailView: View {
                 let metadata = try await PublicMetadataService.shared.fetch(from: url)
                 await MainActor.run {
                     if let title = metadata.title, !title.isEmpty {
-                        series.title = TitleNormalizer.seriesTitle(title) ?? title
+                        if series.title.isEmpty {
+                            series.title = TitleNormalizer.seriesTitle(title) ?? title
+                        }
                     }
-                    if let coverURL = metadata.coverURL { series.coverURL = coverURL }
-                    if let intro = metadata.intro { series.intro = intro }
-                    if let tagsText = metadata.tagsText { series.tagsText = tagsText }
+                    if series.coverURL == nil, let coverURL = metadata.coverURL { series.coverURL = coverURL }
+                    if series.intro.isEmpty, let intro = metadata.intro { series.intro = intro }
+                    if series.tagsText.isEmpty, let tagsText = metadata.tagsText { series.tagsText = tagsText }
                     if let rating = metadata.officialRating { series.officialRating = rating }
                     if let ratingCount = metadata.officialRatingCount { series.officialRatingCount = ratingCount }
                     if let heatScore = metadata.officialHeatScore { series.officialHeatScore = heatScore }
                     if let heat = metadata.officialHeatText { series.officialHeatText = heat }
+                    if let completionStatus = metadata.completionStatus { series.completionStatus = completionStatus }
                     mergePublicSeasons(metadata.seasons)
                     series.updatedAt = .now
 
@@ -380,9 +401,13 @@ struct SeriesDetailView: View {
                     snapshot.officialRatingCount = metadata.officialRatingCount ?? series.officialRatingCount
                     snapshot.officialHeatScore = metadata.officialHeatScore ?? series.officialHeatScore
                     snapshot.officialHeatText = metadata.officialHeatText ?? series.officialHeatText
-                    snapshot.episodeCount = metadata.seasons.map(\.episodeCount).reduce(0, +)
+                    if !metadata.seasons.isEmpty {
+                        snapshot.seasonCount = metadata.seasons.count
+                        snapshot.episodeCount = metadata.seasons.map(\.episodeCount).reduce(0, +)
+                    }
                     modelContext.insert(snapshot)
                     try? modelContext.save()
+                    MetadataRefreshSchedule.markRun()
                     isRefreshing = false
                     if showNotice {
                         notice = metadata.seasons.isEmpty
@@ -442,6 +467,111 @@ private enum DetailTheme {
     static let background = Color(red: 0.28, green: 0.28, blue: 0.28)
     static let cell = Color.white.opacity(0.10)
     static let accent = Color(red: 0.30, green: 0.58, blue: 0.96)
+}
+
+private struct OfficialTrendSection: View {
+    let snapshots: [OfficialSnapshot]
+    @State private var interval: TrendInterval = .week
+
+    private var heatCandles: [TrendCandle] {
+        TrendAggregation.candles(
+            from: snapshots,
+            interval: interval,
+            value: { $0.officialHeatScore }
+        )
+    }
+
+    private var ratingCandles: [TrendCandle] {
+        TrendAggregation.candles(
+            from: snapshots,
+            interval: interval,
+            value: { $0.officialRating }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Label("官方数据趋势", systemImage: "chart.xyaxis.line")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                Spacer()
+                Picker("统计周期", selection: $interval) {
+                    ForEach(TrendInterval.allCases) { value in
+                        Text(value.title).tag(value)
+                    }
+                }
+                .pickerStyle(.menu)
+                .tint(DetailTheme.accent)
+                .accessibilityLabel("官方趋势统计周期")
+            }
+
+            if heatCandles.isEmpty && ratingCandles.isEmpty {
+                Text("刷新公开资料后，这里会按日、周、月、季度或年度保存官方热度和评分变化。")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.60))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                if !heatCandles.isEmpty {
+                    OfficialCandleChart(title: "官方热度", candles: heatCandles, isRating: false)
+                }
+                if !ratingCandles.isEmpty {
+                    OfficialCandleChart(title: "官方评分", candles: ratingCandles, isRating: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color.white.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityIdentifier("official-trend-section")
+    }
+}
+
+private struct OfficialCandleChart: View {
+    let title: String
+    let candles: [TrendCandle]
+    let isRating: Bool
+
+    private var yDomain: ClosedRange<Double> {
+        let low = candles.map(\.low).min() ?? 0
+        let high = candles.map(\.high).max() ?? 1
+        let padding = max((high - low) * 0.12, isRating ? 0.5 : 1)
+        return max(0, low - padding)...(high + padding)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.86))
+
+            Chart(candles) { candle in
+                RuleMark(
+                    x: .value("周期", candle.bucket),
+                    yStart: .value("最低", candle.low),
+                    yEnd: .value("最高", candle.high)
+                )
+                .foregroundStyle(.white.opacity(0.66))
+
+                BarMark(
+                    x: .value("周期", candle.bucket),
+                    yStart: .value("开盘", min(candle.open, candle.close)),
+                    yEnd: .value("收盘", max(candle.open, candle.close)),
+                    width: .fixed(12)
+                )
+                .foregroundStyle(candle.close >= candle.open ? Color.green : Color.red)
+            }
+            .chartYScale(domain: yDomain)
+            .chartXAxis {
+                AxisMarks()
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading)
+            }
+            .frame(height: 150)
+        }
+    }
 }
 
 private struct DetailPill: View {
@@ -1122,34 +1252,42 @@ private struct RatingScorePicker: View {
     var usesDarkAppearance = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
+        Menu {
+            Button("未评分") {
+                rating = nil
+            }
+
+            ForEach(RatingScale.options, id: \.self) { value in
+                Button {
+                    rating = value
+                } label: {
+                    if rating == value {
+                        Label(String(format: "%.1f 分", value), systemImage: "checkmark")
+                    } else {
+                        Text(String(format: "%.1f 分", value))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 10) {
                 Label("我的评分", systemImage: "number.circle")
                     .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 12)
                 Text(scoreText)
                     .font(.headline.monospacedDigit())
                     .accessibilityIdentifier("personal-rating-score")
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.66) : Color.secondary)
             }
-
-            HStack(spacing: 10) {
-                Slider(value: scoreBinding, in: 0...10, step: 0.5) {
-                    Text("评分")
-                }
-                .frame(minHeight: 44)
-
-                if rating != nil {
-                    Button("清除") {
-                        rating = nil
-                    }
-                    .font(.caption.weight(.semibold))
-                    .frame(minWidth: 44, minHeight: 44)
-                }
-            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(.horizontal, 12)
+            .background(usesDarkAppearance ? Color.white.opacity(0.08) : Color(uiColor: .tertiarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
         .tint(usesDarkAppearance ? DetailTheme.accent : Color.accentColor)
-        .accessibilityElement(children: .contain)
+        .accessibilityLabel("我的评分")
         .accessibilityValue(scoreText)
     }
 
@@ -1158,12 +1296,4 @@ private struct RatingScorePicker: View {
         return String(format: "%.1f / 10", rating)
     }
 
-    private var scoreBinding: Binding<Double> {
-        Binding(
-            get: { rating ?? 0 },
-            set: { value in
-                rating = RatingScale.normalized(value)
-            }
-        )
-    }
 }

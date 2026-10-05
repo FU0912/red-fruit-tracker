@@ -10,6 +10,7 @@ struct PublicSeriesMetadata {
     var officialRatingCount: Int?
     var officialHeatScore: Double?
     var officialHeatText: String?
+    var completionStatus: String?
     var seasons: [PublicSeasonMetadata]
 }
 
@@ -214,6 +215,7 @@ actor PublicMetadataService {
                 )
                 ?? HTMLMetadata.currentSeriesDetailValue(for: ["heat", "heat_score", "hot_value", "play_count", "total_play_count", "view_count"], in: html)
                 ?? HTMLMetadata.currentSeriesDetailCompactCountText(for: ["popularity"], in: html),
+            completionStatus: HTMLMetadata.completionStatus(in: html),
             seasons: HTMLMetadata.seasons(in: html, baseURL: url)
         )
 
@@ -344,6 +346,49 @@ enum HTMLMetadata {
             return nil
         }
         return socialInfo
+    }
+
+    static func completionStatus(in html: String) -> String? {
+        let keys = [
+            "is_finished", "is_finish", "is_end", "is_complete", "completed",
+            "finish_status", "serial_status", "status"
+        ]
+
+        if let detail = currentSeriesDetail(in: html) {
+            for key in keys {
+                if let rawValue = value(for: key, in: detail),
+                   let status = normalizedCompletionStatus(rawValue) {
+                    return status
+                }
+            }
+        }
+
+        if let text = value(for: ["completion_status", "serial_status", "status"], in: html) {
+            return normalizedCompletionStatus(text)
+        }
+        return nil
+    }
+
+    private static func normalizedCompletionStatus(_ rawValue: Any) -> String? {
+        if let value = rawValue as? Bool {
+            return value ? SeriesCompletionStatus.completed.rawValue : SeriesCompletionStatus.ongoing.rawValue
+        }
+        if let number = rawValue as? NSNumber, !(rawValue is Bool) {
+            return number.intValue == 0
+                ? SeriesCompletionStatus.ongoing.rawValue
+                : SeriesCompletionStatus.completed.rawValue
+        }
+
+        guard let text = scalarText(rawValue)?.lowercased() else { return nil }
+        if text.contains("完结") || text.contains("已完") || text.contains("finished")
+            || text.contains("complete") || text == "end" || text == "ended" {
+            return SeriesCompletionStatus.completed.rawValue
+        }
+        if text.contains("未完") || text.contains("连载") || text.contains("更新")
+            || text.contains("ongoing") || text.contains("serial") || text.contains("uncomplete") {
+            return SeriesCompletionStatus.ongoing.rawValue
+        }
+        return nil
     }
 
     private static func firstScalarText(for keys: [String], in dictionary: [String: Any]) -> String? {
@@ -579,8 +624,9 @@ enum HTMLMetadata {
         guard let seriesDetail = currentSeriesDetail(in: html) else { return [] }
 
         let coverKeys = [
+            "series_cover_fallback", "vertical_cover", "portrait_cover", "poster", "poster_url",
             "series_cover", "small_series_cover", "series_cover_uri", "series_cover_info",
-            "series_cover_fallback", "cover", "cover_url", "poster", "poster_url"
+            "cover", "cover_url"
         ]
         let isLandscapeShare = isVideoAnimationSharePage(in: html) && landscapeVideo(in: seriesDetail)
         var candidates: [CoverImageCandidate] = []

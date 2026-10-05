@@ -536,6 +536,44 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(CoverURLSelector.ranked(candidates).map(\.url), ["https://example.com/cover.jpg"])
     }
 
+    func testShareRouteCarriesAndRecoversTheSharedURL() {
+        let sharedURL = URL(string: "https://example.com/series/123?from=share")!
+        let callback = try XCTUnwrap(ShareRoute.callbackURL(for: sharedURL))
+
+        XCTAssertEqual(ShareRoute.sharedURL(from: callback), sharedURL)
+    }
+
+    func testCompletionStatusRecognizesBooleanAndChineseText() {
+        let completed = #"<script>_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"is_finished":true}}}};</script>"#
+        let ongoing = #"<script>_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"status":"连载中"}}}};</script>"#
+
+        XCTAssertEqual(HTMLMetadata.completionStatus(in: completed), SeriesCompletionStatus.completed.rawValue)
+        XCTAssertEqual(HTMLMetadata.completionStatus(in: ongoing), SeriesCompletionStatus.ongoing.rawValue)
+    }
+
+    func testTrendAggregationBuildsOpenHighLowCloseByInterval() throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let firstDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 2, hour: 9)))
+        let secondDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 2, hour: 18)))
+        let first = OfficialSnapshot(sourceSeriesID: "series", capturedAt: firstDate)
+        first.officialHeatScore = 30
+        let second = OfficialSnapshot(sourceSeriesID: "series", capturedAt: secondDate)
+        second.officialHeatScore = 42
+
+        let candles = TrendAggregation.candles(
+            from: [second, first],
+            interval: .day,
+            value: { $0.officialHeatScore },
+            calendar: calendar
+        )
+
+        XCTAssertEqual(candles.count, 1)
+        XCTAssertEqual(candles.first?.open, 30)
+        XCTAssertEqual(candles.first?.close, 42)
+        XCTAssertEqual(candles.first?.high, 42)
+        XCTAssertEqual(candles.first?.low, 30)
+    }
+
     private func manjuShareFixture(
         title: String,
         episodeCount: Int,
