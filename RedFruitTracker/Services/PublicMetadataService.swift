@@ -263,7 +263,7 @@ private enum PortraitCoverProbe {
               let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else {
             return nil
         }
-        return (width: width.doubleValue, height: height.doubleValue)
+        return (width: CGFloat(width.doubleValue), height: CGFloat(height.doubleValue))
     }
 }
 
