@@ -13,7 +13,7 @@
 - iOS Simulator：在 CI 中执行 UI 测试并保存截图和日志。
 - 真实 iPhone：只用于 Share Extension、红果跳转和系统行为的阶段性验收。
 
-本项目不依赖本地 macOS 虚拟机。`v1.2.15` 使用 GitHub Actions macOS Runner 构建，待本轮 CI 通过后生成对应版本的未签名真机 IPA；历史版本仍保留在 `artifacts` 目录。
+本项目不依赖本地 macOS 虚拟机。`v1.2.15` 使用 GitHub Actions macOS Runner 构建，已生成对应版本的未签名真机 IPA；历史版本仍保留在 `artifacts` 目录。
 
 ## 生成项目
 
@@ -36,7 +36,9 @@ xcodegen generate --spec project.yml
 
 签名、TestFlight 和真实设备安装暂不自动化，等模拟器构建稳定后再配置。
 
-本轮 `v1.2.15` CI 结果待更新；主 App 与 Share Extension 统一为 build 18。
+本轮 `v1.2.15` CI 已通过：Run `37327307931`，32 个单元测试和 2 个 UI 测试全部通过，模拟器构建、真机架构归档和未签名 IPA 均成功；主 App 与 Share Extension 统一为 build 18。
+
+v1.2.15 IPA：1,031,636 字节；SHA-256 为 `813D8197A33766981EC1C5E67BA0C63C98D7620C7B85F6512E1EA2C5BD59AFCB`。包内已确认包含主 App、Share Extension 和 App Icon；没有 `_CodeSignature` 或 `embedded.mobileprovision`，仍需在用户侧签名后安装到 iPhone。
 
 v1.2.14 IPA：954668 字节；SHA-256 为 `9BF9460677F7173334FAF9DCEFD11C817F570231DF174CA17AE797F7AA79C0BF`。该 IPA 面向真机架构但未签名，需要先签名后安装到 iPhone。包内已确认包含主 App、Share Extension 和 App Icon。
 

@@ -2,15 +2,17 @@
 
 ## 最近一次已验证包
 
-当前代码版本为 `v1.2.15` / build `18`；本轮 CI 结果待更新。
+当前代码版本为 `v1.2.15` / build `18`；本轮 CI Run `37327307931` 已通过。
 
 `artifacts/RedFruitTracker-unsigned-device-v1.2.15-build18.ipa`
 
-本轮 CI 通过后补充包体大小和 SHA-256：
+包体大小：`1,031,636` 字节。
 
-待更新
+SHA-256：
 
-CI 下载原始路径：本轮 CI 通过后补充。
+`813D8197A33766981EC1C5E67BA0C63C98D7620C7B85F6512E1EA2C5BD59AFCB`
+
+CI 下载原始路径：`artifacts/37327307931-download-new/artifacts/RedFruitTracker-unsigned-device-v1.2.15-build18.ipa`
 
 上一版已验证包：`artifacts/37083661180/artifacts/RedFruitTracker-unsigned-device-v1.2.11-build14.ipa`
 
