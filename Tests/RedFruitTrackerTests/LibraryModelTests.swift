@@ -536,7 +536,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(CoverURLSelector.ranked(candidates).map(\.url), ["https://example.com/cover.jpg"])
     }
 
-    func testShareRouteCarriesAndRecoversTheSharedURL() {
+    func testShareRouteCarriesAndRecoversTheSharedURL() throws {
         let sharedURL = URL(string: "https://example.com/series/123?from=share")!
         let callback = try XCTUnwrap(ShareRoute.callbackURL(for: sharedURL))
 
