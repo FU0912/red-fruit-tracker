@@ -178,6 +178,18 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(ShelfState.watching.title, "观看中")
     }
 
+    func testFollowUpdatesIsIndependentFromShelfState() {
+        let personal = PersonalRecord(sourceSeriesID: "series-1")
+        personal.localShelfState = "finished"
+        personal.followsUpdates = true
+        personal.followedAt = Date(timeIntervalSince1970: 123)
+
+        XCTAssertEqual(ShelfState.resolve(personal.localShelfState), .finished)
+        XCTAssertTrue(personal.followsUpdates)
+        XCTAssertEqual(personal.followedAt, Date(timeIntervalSince1970: 123))
+        XCTAssertEqual(LibraryFilter.followed.title, "追更/预约")
+    }
+
     func testCompletionStatusIsManualAndDefaultsToUnselected() {
         let record = SeriesRecord(sourceSeriesID: "series-1", title: "测试作品")
 
@@ -559,6 +571,13 @@ final class LibraryModelTests: XCTestCase {
         ]
 
         XCTAssertNil(CoverURLSelector.preferred(candidates, title: "测试漫剧"))
+    }
+
+    func testCoverReplacementOnlyTargetsLikelyVideoFrames() {
+        XCTAssertTrue(CoverURLSelector.shouldReplaceExisting(nil))
+        XCTAssertTrue(CoverURLSelector.shouldReplaceExisting("https://example.com/video-first-frame.jpg"))
+        XCTAssertTrue(CoverURLSelector.shouldReplaceExisting("https://example.com/share-cover.jpg"))
+        XCTAssertFalse(CoverURLSelector.shouldReplaceExisting("https://example.com/character-poster.jpg"))
     }
 
     func testCoverSelectorDeduplicatesURLs() {

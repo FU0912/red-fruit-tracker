@@ -1,16 +1,18 @@
 # 安装与当前验证方式
 
-## 最近一次已验证包
+## 当前开发版本
 
-当前代码版本为 `v1.2.15` / build `18`；本轮 CI Run `37327307931` 已通过。
+当前代码版本为 `v1.2.16` / build `19`；本轮改动等待 GitHub Actions 构建验证，暂不把历史包冒充本版本安装包。
+
+目标产物：`artifacts/RedFruitTracker-unsigned-device-v1.2.16-build19.ipa`
+
+## 最近一次已验证包
 
 `artifacts/RedFruitTracker-unsigned-device-v1.2.15-build18.ipa`
 
 包体大小：`1,031,636` 字节。
 
-SHA-256：
-
-`813D8197A33766981EC1C5E67BA0C63C98D7620C7B85F6512E1EA2C5BD59AFCB`
+SHA-256：`813D8197A33766981EC1C5E67BA0C63C98D7620C7B85F6512E1EA2C5BD59AFCB`
 
 CI 下载原始路径：`artifacts/37327307931-download-new/artifacts/RedFruitTracker-unsigned-device-v1.2.15-build18.ipa`
 
@@ -58,5 +60,5 @@ GitHub Actions 当前生成的是 `RedFruitTracker-simulator.app.zip`。它是 i
 ## 验证顺序
 
 1. 先看 Simulator 构建包和 UI 测试截图，验证页面能启动。
-2. 当前使用 `v1.2.15` / build `18` 的 `RedFruitTracker-unsigned-device-v1.2.15-build18.ipa`；历史版本 IPA 继续保留在 `artifacts` 目录。
+2. 当前使用 `v1.2.16` / build `19` 的 `RedFruitTracker-unsigned-device-v1.2.16-build19.ipa`；历史版本 IPA 继续保留在 `artifacts` 目录。
 3. 在真实 iPhone 上验证作品添加、季集记录、进度、评分点评、分享扩展、红果跳转和本地数据保存。

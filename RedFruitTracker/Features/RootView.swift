@@ -292,7 +292,7 @@ private struct LibraryView: View {
     }
 
     private func applyPublicMetadata(_ metadata: PublicSeriesMetadata, to item: SeriesRecord) {
-        if item.coverURL?.nilIfBlank == nil, let coverURL = metadata.coverURL?.nilIfBlank {
+        if CoverURLSelector.shouldReplaceExisting(item.coverURL), let coverURL = metadata.coverURL?.nilIfBlank {
             item.coverURL = coverURL
         }
         if item.intro.isEmpty, let intro = metadata.intro, !intro.isEmpty {
@@ -513,13 +513,22 @@ private struct SeriesCard: View {
                     tint: .orange
                 )
 
-                HStack(spacing: 4) {
+                TagFlowLayout(horizontalSpacing: 4, verticalSpacing: 4) {
                     CompactInfoPill(
                         text: officialHeatText,
                         systemImage: "flame.fill",
                         tint: .pink
                     )
                     .accessibilityIdentifier("series-card-heat")
+
+                    if !seasons.isEmpty {
+                        CompactInfoPill(
+                            text: "\(seasons.count)季",
+                            systemImage: "square.stack.3d.up",
+                            tint: .teal
+                        )
+                        .accessibilityIdentifier("series-card-season-count")
+                    }
 
                     CompactInfoPill(
                         text: completionStatusText,
@@ -534,6 +543,15 @@ private struct SeriesCard: View {
                         tint: shelfStateTint
                     )
                     .accessibilityIdentifier("series-card-shelf-state")
+
+                    if personal?.followsUpdates == true {
+                        CompactInfoPill(
+                            text: "追更",
+                            systemImage: "bell.badge.fill",
+                            tint: .indigo
+                        )
+                        .accessibilityIdentifier("series-card-follow-updates")
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -985,6 +1003,10 @@ private struct StatsView: View {
             return ongoingCount
         case .unknown:
             return unknownStatusCount
+        case .followed:
+            return series.filter { item in
+                personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.followsUpdates == true
+            }.count
         case .unstarted, .watching, .finished, .paused, .dropped:
             return series.filter { item in
                 ShelfState.resolve(
@@ -1038,6 +1060,8 @@ private struct FilteredSeriesView: View {
             case .unknown:
                 return item.completionStatus == nil
                     || item.completionStatus == SeriesCompletionStatus.unknown.rawValue
+            case .followed:
+                return personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.followsUpdates == true
             case .unstarted, .watching, .finished, .paused, .dropped:
                 return ShelfState.resolve(
                     personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.localShelfState
@@ -1145,6 +1169,7 @@ private struct AddSeriesView: View {
     @State private var officialHeatScore: Double?
     @State private var completionStatus = SeriesCompletionStatus.unknown.rawValue
     @State private var shelfState = "unstarted"
+    @State private var followsUpdates = false
     @State private var includeFirstSeason = true
     @State private var firstSeasonNumber = 1
     @State private var firstSeasonEpisodeCount = 0
@@ -1280,6 +1305,8 @@ private struct AddSeriesView: View {
                         Text("暂时搁置").tag("paused")
                         Text("弃剧").tag("dropped")
                     }
+
+                    Toggle("追更 / 预约", isOn: $followsUpdates)
 
                     Toggle("先建立一个季", isOn: $includeFirstSeason)
                     if includeFirstSeason {
@@ -1422,7 +1449,9 @@ private struct AddSeriesView: View {
             }
 
             target.title = cleanTitle
-            if target.coverURL?.nilIfBlank == nil { target.coverURL = coverURLText.nilIfBlank }
+            if CoverURLSelector.shouldReplaceExisting(target.coverURL), let coverURL = coverURLText.nilIfBlank {
+                target.coverURL = coverURL
+            }
             if target.intro.isEmpty {
                 target.intro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
             }
@@ -1440,11 +1469,17 @@ private struct AddSeriesView: View {
 
             let personalRecords = try modelContext.fetch(FetchDescriptor<PersonalRecord>())
             if let personal = personalRecords.first(where: { $0.sourceSeriesID == sourceID }) {
-                if record == nil { personal.localShelfState = shelfState }
+                if record == nil {
+                    personal.localShelfState = shelfState
+                    personal.followsUpdates = followsUpdates
+                    personal.followedAt = followsUpdates ? .now : nil
+                }
                 personal.updatedAt = .now
             } else {
                 let personal = PersonalRecord(sourceSeriesID: sourceID)
                 personal.localShelfState = shelfState
+                personal.followsUpdates = followsUpdates
+                personal.followedAt = followsUpdates ? .now : nil
                 modelContext.insert(personal)
             }
 

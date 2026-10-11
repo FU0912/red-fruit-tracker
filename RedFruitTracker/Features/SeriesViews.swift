@@ -95,7 +95,7 @@ struct SeriesDetailView: View {
                     Button("编辑作品", systemImage: "pencil") {
                         isShowingEdit = true
                     }
-                    Button("添加一季", systemImage: "plus") {
+                    Button("添加 / 查找其他季", systemImage: "plus") {
                         isShowingAddSeason = true
                     }
                 } label: {
@@ -219,6 +219,11 @@ struct SeriesDetailView: View {
                     systemImage: shelfState.systemImage
                 )
                 .accessibilityIdentifier("detail-shelf-state")
+
+                if personalRecord?.followsUpdates == true {
+                    DetailPill(text: "追更 / 预约", systemImage: "bell.badge.fill")
+                        .accessibilityIdentifier("detail-follow-updates")
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -326,6 +331,9 @@ struct SeriesDetailView: View {
                 .pickerStyle(.menu)
                 .tint(.white)
 
+                Toggle("追更 / 预约", isOn: followUpdatesBinding(for: personalRecord))
+                    .tint(DetailTheme.accent)
+
                 RatingScorePicker(rating: ratingBinding(for: personalRecord), usesDarkAppearance: true)
                 ReviewEditor(
                     text: reviewBinding(for: personalRecord),
@@ -369,6 +377,18 @@ struct SeriesDetailView: View {
             get: { personal.localShelfState },
             set: { value in
                 personal.localShelfState = value
+                personal.updatedAt = .now
+                try? modelContext.save()
+            }
+        )
+    }
+
+    private func followUpdatesBinding(for personal: PersonalRecord) -> Binding<Bool> {
+        Binding(
+            get: { personal.followsUpdates },
+            set: { value in
+                personal.followsUpdates = value
+                personal.followedAt = value ? (personal.followedAt ?? .now) : nil
                 personal.updatedAt = .now
                 try? modelContext.save()
             }
@@ -422,7 +442,7 @@ struct SeriesDetailView: View {
                             series.title = TitleNormalizer.seriesTitle(title) ?? title
                         }
                     }
-                    if series.coverURL?.nilIfBlank == nil, let coverURL = metadata.coverURL?.nilIfBlank {
+                    if CoverURLSelector.shouldReplaceExisting(series.coverURL), let coverURL = metadata.coverURL?.nilIfBlank {
                         series.coverURL = coverURL
                     }
                     if series.intro.isEmpty, let intro = metadata.intro { series.intro = intro }
@@ -505,8 +525,8 @@ private enum DetailTheme {
     static let background = Color(red: 0.28, green: 0.28, blue: 0.28)
     static let cell = Color.white.opacity(0.10)
     static let accent = Color(red: 0.30, green: 0.58, blue: 0.96)
-    static let trendSurface = Color(uiColor: .secondarySystemBackground)
-    static let trendPlot = Color(uiColor: .systemBackground).opacity(0.48)
+    static let trendSurface = Color(uiColor: .systemBackground)
+    static let trendPlot = Color(uiColor: .secondarySystemBackground)
 }
 
 private struct OfficialTrendSection: View {
@@ -578,16 +598,35 @@ private struct OfficialCandleChart: View {
     let isRating: Bool
 
     private var yDomain: ClosedRange<Double> {
+        if isRating {
+            return 0...10
+        }
         let low = candles.map(\.low).min() ?? 0
         let high = candles.map(\.high).max() ?? 1
-        let minimumRange = isRating ? 1.0 : max(high * 0.08, 1)
+        let minimumRange = max(high * 0.08, 1)
         let padding = max((high - low) * 0.14, minimumRange * 0.5)
-        let upperBound = isRating ? min(10, high + padding) : high + padding
+        let upperBound = high + padding
         return max(0, low - padding)...max(upperBound, high + 0.01)
     }
 
     private var candleWidth: CGFloat {
         candles.count > 18 ? 7 : 12
+    }
+
+    private var minimumBodyHeight: Double {
+        max((yDomain.upperBound - yDomain.lowerBound) * 0.012, isRating ? 0.08 : 0.5)
+    }
+
+    private func bodyLower(for candle: TrendCandle) -> Double {
+        let lower = min(candle.open, candle.close)
+        let upper = max(candle.open, candle.close)
+        return max(yDomain.lowerBound, lower == upper ? lower - minimumBodyHeight / 2 : lower)
+    }
+
+    private func bodyUpper(for candle: TrendCandle) -> Double {
+        let lower = min(candle.open, candle.close)
+        let upper = max(candle.open, candle.close)
+        return min(yDomain.upperBound, upper == lower ? upper + minimumBodyHeight / 2 : upper)
     }
 
     var body: some View {
@@ -603,11 +642,12 @@ private struct OfficialCandleChart: View {
                     yEnd: .value("最高", candle.high)
                 )
                 .foregroundStyle(Color(uiColor: .secondaryLabel))
+                .lineStyle(StrokeStyle(lineWidth: 1.2))
 
                 BarMark(
                     x: .value("周期", candle.bucket),
-                    yStart: .value("开盘", min(candle.open, candle.close)),
-                    yEnd: .value("收盘", max(candle.open, candle.close)),
+                    yStart: .value("开盘", bodyLower(for: candle)),
+                    yEnd: .value("收盘", bodyUpper(for: candle)),
                     width: .fixed(candleWidth)
                 )
                 .foregroundStyle(candle.close >= candle.open ? Color.green : Color.red)
@@ -618,15 +658,16 @@ private struct OfficialCandleChart: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .chartYScale(domain: yDomain)
+            .chartLegend(.hidden)
             .chartXAxis {
-                AxisMarks { value in
+                AxisMarks(values: .automatic(desiredCount: 4)) { value in
                     AxisGridLine().foregroundStyle(Color(uiColor: .separator).opacity(0.7))
                     AxisTick().foregroundStyle(Color(uiColor: .secondaryLabel))
                     AxisValueLabel()
                 }
             }
             .chartYAxis {
-                AxisMarks(position: .leading) { value in
+                AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { value in
                     AxisGridLine().foregroundStyle(Color(uiColor: .separator).opacity(0.7))
                     AxisTick().foregroundStyle(Color(uiColor: .secondaryLabel))
                     AxisValueLabel()
@@ -921,6 +962,9 @@ private struct AddSeasonView: View {
     @State private var title = ""
     @State private var episodeCount = 0
     @State private var sourceURL = ""
+    @State private var detectedSeasons: [PublicSeasonMetadata] = []
+    @State private var isFetching = false
+    @State private var notice: String?
     @State private var errorMessage: String?
 
     init(seriesID: String, suggestedNumber: Int) {
@@ -939,8 +983,25 @@ private struct AddSeasonView: View {
                 TextField("本季观看链接（可选）", text: $sourceURL, axis: .vertical)
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
+
+                Button {
+                    fetchMetadata()
+                } label: {
+                    HStack {
+                        Label("读取链接中的其他季", systemImage: "arrow.down.circle")
+                        Spacer()
+                        if isFetching { ProgressView().controlSize(.small) }
+                    }
+                }
+                .disabled(isFetching || URLExtractor.firstURL(in: sourceURL) == nil)
+
+                if !detectedSeasons.isEmpty {
+                    Text("已识别 \(detectedSeasons.count) 季，保存后会合并到当前作品。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .navigationTitle("添加一季")
+            .navigationTitle("添加 / 查找其他季")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -951,33 +1012,88 @@ private struct AddSeasonView: View {
                         .fontWeight(.semibold)
                 }
             }
-            .alert("无法保存", isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
+            .alert("操作提示", isPresented: Binding(
+                get: { errorMessage != nil || notice != nil },
+                set: { if !$0 { errorMessage = nil; notice = nil } }
             )) {
-                Button("好", role: .cancel) { errorMessage = nil }
+                Button("好", role: .cancel) { errorMessage = nil; notice = nil }
             } message: {
-                Text(errorMessage ?? "")
+                Text(errorMessage ?? notice ?? "")
+            }
+        }
+    }
+
+    private func fetchMetadata() {
+        guard let url = URLExtractor.firstURL(in: sourceURL) else { return }
+        isFetching = true
+        errorMessage = nil
+        Task {
+            do {
+                let metadata = try await PublicMetadataService.shared.fetch(from: url)
+                await MainActor.run {
+                    detectedSeasons = metadata.seasons
+                    if let first = metadata.seasons.first {
+                        seasonNumber = first.seasonNumber
+                        title = first.title ?? "第\(first.seasonNumber)季"
+                        episodeCount = first.episodeCount
+                    }
+                    isFetching = false
+                    if metadata.seasons.isEmpty {
+                        notice = "链接中没有可识别的季资料，可以手动填写后保存。"
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isFetching = false
+                    errorMessage = "没有读取到这条链接的公开季资料。"
+                }
             }
         }
     }
 
     private func save() {
-        let key = "\(seriesID)#\(seasonNumber)"
         do {
-            let existing = try modelContext.fetch(FetchDescriptor<SeasonRecord>())
-            guard !existing.contains(where: { $0.sourceSeasonKey == key }) else {
-                errorMessage = "这个季已经存在。"
-                return
-            }
+            let existingSeasons = try modelContext.fetch(FetchDescriptor<SeasonRecord>())
+            let existingEpisodes = try modelContext.fetch(FetchDescriptor<EpisodeRecord>())
+            let cleanURL = URLExtractor.firstURL(in: sourceURL)?.absoluteString
+            let seasonsToSave = detectedSeasons.isEmpty
+                ? [PublicSeasonMetadata(
+                    seasonNumber: seasonNumber,
+                    title: title.nilIfBlank,
+                    episodeCount: episodeCount,
+                    sourceURL: cleanURL,
+                    episodes: []
+                )]
+                : detectedSeasons
 
-            modelContext.insert(SeasonRecord(
-                sourceSeriesID: seriesID,
-                seasonNumber: seasonNumber,
-                title: title.nilIfBlank ?? "第\(seasonNumber)季",
-                episodeCount: episodeCount,
-                sourceURL: URLExtractor.firstURL(in: sourceURL)?.absoluteString
-            ))
+            for metadataSeason in seasonsToSave {
+                let season = existingSeasons.first {
+                    $0.sourceSeriesID == seriesID && $0.seasonNumber == metadataSeason.seasonNumber
+                } ?? SeasonRecord(sourceSeriesID: seriesID, seasonNumber: metadataSeason.seasonNumber)
+                if !existingSeasons.contains(where: { $0 === season }) { modelContext.insert(season) }
+                season.title = metadataSeason.seasonNumber == seasonNumber
+                    ? (title.nilIfBlank ?? metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季")
+                    : (metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季")
+                season.episodeCount = max(season.episodeCount, metadataSeason.episodeCount)
+                season.sourceURL = metadataSeason.sourceURL ?? cleanURL ?? season.sourceURL
+                season.updatedAt = .now
+
+                for metadataEpisode in metadataSeason.episodes {
+                    let episode = existingEpisodes.first {
+                        $0.sourceSeriesID == seriesID
+                            && $0.seasonNumber == metadataSeason.seasonNumber
+                            && $0.episodeNumber == metadataEpisode.episodeNumber
+                    } ?? EpisodeRecord(
+                        sourceVid: "\(seriesID)#s\(metadataSeason.seasonNumber)#e\(metadataEpisode.episodeNumber)",
+                        sourceSeriesID: seriesID,
+                        seasonNumber: metadataSeason.seasonNumber,
+                        episodeNumber: metadataEpisode.episodeNumber
+                    )
+                    if !existingEpisodes.contains(where: { $0 === episode }) { modelContext.insert(episode) }
+                    if let episodeTitle = metadataEpisode.title, !episodeTitle.isEmpty { episode.title = episodeTitle }
+                    if let webURL = metadataEpisode.webURL { episode.webURL = webURL }
+                }
+            }
             try modelContext.save()
             dismiss()
         } catch {

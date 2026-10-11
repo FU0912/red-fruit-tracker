@@ -21,6 +21,15 @@ struct CoverImageCandidate: Hashable {
 }
 
 enum CoverURLSelector {
+    static func shouldReplaceExisting(_ url: String?) -> Bool {
+        guard let url = url?.lowercased(), !url.isEmpty else { return true }
+        return [
+            "first-frame", "first_frame", "video-frame", "video_frame",
+            "snapshot", "screenshot", "video-still", "video_still", "still",
+            "share-cover", "share_cover", "thumbnail", "thumb"
+        ].contains { url.contains($0) }
+    }
+
     static func ranked(
         _ candidates: [CoverImageCandidate],
         title: String? = nil
@@ -234,7 +243,19 @@ actor PublicMetadataService {
 
 private enum PortraitCoverProbe {
     static func preferredURL(from candidates: [CoverImageCandidate]) async -> String? {
-        for candidate in candidates.prefix(4) {
+        // The share page can expose a landscape video thumbnail and a real
+        // series poster under the same `series_cover` field. Do not infer the
+        // poster orientation from video_meta; inspect the downloaded image.
+        var ordered: [CoverImageCandidate] = []
+        var seen = Set<String>()
+        for candidate in candidates where candidate.context.lowercased().contains("official-current-series-cover") {
+            if seen.insert(candidate.url).inserted { ordered.append(candidate) }
+        }
+        for candidate in candidates where seen.insert(candidate.url).inserted {
+            ordered.append(candidate)
+        }
+
+        for candidate in ordered.prefix(8) {
             guard let url = URL(string: candidate.url) else { continue }
             var request = URLRequest(url: url)
             request.timeoutInterval = 4
@@ -247,8 +268,8 @@ private enum PortraitCoverProbe {
             guard let (data, response) = try? await URLSession.shared.data(for: request),
                   let httpResponse = response as? HTTPURLResponse,
                   200..<400 ~= httpResponse.statusCode,
-                  let dimensions = dimensions(of: data),
-                  dimensions.height > dimensions.width * 1.05 else {
+                   let dimensions = dimensions(of: data),
+                   dimensions.height > dimensions.width * 1.05 else {
                 continue
             }
             return candidate.url

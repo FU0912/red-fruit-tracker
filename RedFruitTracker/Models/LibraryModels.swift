@@ -74,6 +74,7 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     case completed
     case ongoing
     case unknown
+    case followed
     case unstarted
     case watching
     case finished
@@ -88,6 +89,7 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
         case .completed: return "已完结"
         case .ongoing: return "未完结"
         case .unknown: return "未选择"
+        case .followed: return "追更/预约"
         case .unstarted: return "未开始"
         case .watching: return "观看中"
         case .finished: return "已看完"
@@ -102,6 +104,7 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
         case .completed: return "checkmark.seal"
         case .ongoing: return "clock"
         case .unknown: return "questionmark.circle"
+        case .followed: return "bell.badge"
         case .unstarted: return "bookmark"
         case .watching: return "play.circle"
         case .finished: return "checkmark.circle"
@@ -410,12 +413,18 @@ final class PersonalRecord {
     var myRating: Double?
     var review: String
     var localShelfState: String
+    /// User intent is separate from the viewing state. A work can be paused or
+    /// finished while still being followed for a future season or update.
+    var followsUpdates: Bool = false
+    var followedAt: Date?
     var updatedAt: Date
 
     init(sourceSeriesID: String) {
         self.sourceSeriesID = sourceSeriesID
         self.review = ""
         self.localShelfState = "unstarted"
+        self.followsUpdates = false
+        self.followedAt = nil
         self.updatedAt = .now
     }
 }
