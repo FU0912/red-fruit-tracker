@@ -2,7 +2,7 @@
 
 ## 当前验证版本
 
-当前代码版本为 `v1.2.18` / build `21`。GitHub Actions Run `38132924380` 已完成 XcodeGen、模拟器编译、38 个单元测试、2 个 UI 测试、真机架构归档和未签名 IPA 打包。
+当前代码版本为 `v1.2.19` / build `22`。本轮修改已提交，等待 GitHub Actions 完成 XcodeGen、模拟器编译、单元测试、UI 测试、真机架构归档和未签名 IPA 打包。
 
 已验证产物：`artifacts/RedFruitTracker-unsigned-device-v1.2.18-build21.ipa`
 

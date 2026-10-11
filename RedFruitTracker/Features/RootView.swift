@@ -111,7 +111,7 @@ struct RootView: View {
 private struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
 
-    @Query(sort: \SeriesRecord.updatedAt, order: .reverse)
+    @Query(sort: \SeriesRecord.createdAt, order: .reverse)
     private var series: [SeriesRecord]
 
     @Query(sort: \SeasonRecord.seasonNumber)
@@ -126,6 +126,9 @@ private struct LibraryView: View {
     @State private var searchText = ""
     @State private var hasAutoRefreshedMetadata = false
     @State private var isRefreshingAll = false
+    @State private var refreshProgress = BatchRefreshProgress(total: 0)
+    @State private var refreshTask: Task<Void, Never>?
+    @State private var isStoppingRefresh = false
     @State private var refreshNotice: String?
     @State private var selectedSeries: SeriesRecord?
     @State private var seriesToDelete: SeriesRecord?
@@ -150,6 +153,9 @@ private struct LibraryView: View {
                         LibraryHeader(
                             searchText: $searchText,
                             isRefreshing: isRefreshingAll,
+                            progress: refreshProgress,
+                            isStopping: isStoppingRefresh,
+                            onCancel: cancelRefresh,
                             onRefreshAll: refreshAllMetadata
                         )
                         LibraryEmptyState(isSearching: !searchText.isEmpty, onAdd: onAdd)
@@ -159,6 +165,9 @@ private struct LibraryView: View {
                         LibraryHeader(
                             searchText: $searchText,
                             isRefreshing: isRefreshingAll,
+                            progress: refreshProgress,
+                            isStopping: isStoppingRefresh,
+                            onCancel: cancelRefresh,
                             onRefreshAll: refreshAllMetadata
                         )
                             .listRowInsets(EdgeInsets())
@@ -290,46 +299,65 @@ private struct LibraryView: View {
             return
         }
         hasAutoRefreshedMetadata = true
-        await refreshAllMetadata(showNotice: false)
+        startRefresh(showNotice: false)
     }
 
     private func refreshAllMetadata() {
-        Task { @MainActor in
-            await refreshAllMetadata(showNotice: true)
+        startRefresh(showNotice: true)
+    }
+
+    private func startRefresh(showNotice: Bool) {
+        guard !isRefreshingAll, refreshTask == nil else { return }
+        refreshTask = Task { @MainActor in
+            await refreshAllMetadata(showNotice: showNotice)
+            refreshTask = nil
         }
+    }
+
+    private func cancelRefresh() {
+        isStoppingRefresh = true
+        refreshTask?.cancel()
     }
 
     @MainActor
     private func refreshAllMetadata(showNotice: Bool) async {
         guard !isRefreshingAll else { return }
         isRefreshingAll = true
+        isStoppingRefresh = false
+        defer { isRefreshingAll = false; isStoppingRefresh = false }
 
         let candidates = series.compactMap { item -> (SeriesRecord, URL)? in
             guard let sourceURL = item.sourceURL,
-                  let url = URL(string: sourceURL) else { return nil }
+                  let url = URL(string: sourceURL),
+                  ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
             return (item, url)
         }
-        var updatedCount = 0
+        refreshProgress = BatchRefreshProgress(total: candidates.count)
+        let skipped = series.count - candidates.count
 
         for (item, url) in candidates {
+            if Task.isCancelled { break }
             do {
                 let metadata = try await PublicMetadataService.shared.fetch(from: url)
+                try Task.checkCancellation()
                 await applyPublicMetadata(metadata, to: item)
+                try Task.checkCancellation()
                 mergePublicSeasons(metadata.seasons, for: item)
                 insertSnapshot(for: item, metadata: metadata)
-                updatedCount += 1
+                try modelContext.save()
+                refreshProgress.record(success: true)
             } catch {
-                continue
+                if Task.isCancelled { break }
+                refreshProgress.record(success: false)
             }
         }
 
-        try? modelContext.save()
-        MetadataRefreshSchedule.markRun()
-        isRefreshingAll = false
+        if !Task.isCancelled, refreshProgress.succeeded > 0 { MetadataRefreshSchedule.markRun() }
         if showNotice {
-            refreshNotice = updatedCount == 0
-                ? "没有读取到可更新的公开资料。"
-                : String(format: "已更新 %d 部作品的公开资料，个人评分、点评和观看记录已保留。", updatedCount)
+            let status = Task.isCancelled ? "已停止更新" : "更新完成"
+            refreshNotice = "\(status)：已处理 \(refreshProgress.completed)/\(refreshProgress.total) 部，成功 \(refreshProgress.succeeded) 部，失败 \(refreshProgress.failed) 部。"
+                + (skipped > 0 ? "另有 \(skipped) 部没有网页链接，已跳过。" : "")
+                + "个人评分、点评、观看状态和书架顺序均保留。"
         }
     }
 
@@ -418,6 +446,9 @@ private struct LibraryView: View {
 private struct LibraryHeader: View {
     @Binding var searchText: String
     let isRefreshing: Bool
+    let progress: BatchRefreshProgress
+    let isStopping: Bool
+    let onCancel: () -> Void
     let onRefreshAll: () -> Void
 
     var body: some View {
@@ -438,6 +469,26 @@ private struct LibraryHeader: View {
                 .frame(width: 44, height: 44)
                 .accessibilityLabel("更新全部公开资料")
                 .disabled(isRefreshing)
+            }
+
+            if isRefreshing {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("已处理 \(progress.completed)/\(progress.total) 部")
+                            .monospacedDigit()
+                        Spacer()
+                        Button(isStopping ? "正在停止…" : "停止", action: onCancel)
+                            .disabled(isStopping)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
+                        .accessibilityLabel("公开资料更新进度")
+                    Text("成功 \(progress.succeeded) · 失败 \(progress.failed)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .font(.subheadline)
+                .accessibilityIdentifier("library-refresh-progress")
             }
 
             HStack(spacing: 10) {
@@ -804,10 +855,11 @@ private final class CoverImageLoader: ObservableObject {
 
     @Published private(set) var image: UIImage?
     @Published private(set) var isLoading = false
+    @Published private(set) var hasFailed = false
     private var task: URLSessionDataTask?
     private var loadedURL: String?
 
-    func load(urlString: String?) {
+    func load(urlString: String?, force: Bool = false) {
         guard let normalizedURLString = urlString?.nilIfBlank,
               let url = URL(string: normalizedURLString),
               let scheme = url.scheme?.lowercased(),
@@ -817,12 +869,14 @@ private final class CoverImageLoader: ObservableObject {
             loadedURL = nil
             image = nil
             isLoading = false
+            hasFailed = false
             return
         }
 
-        if loadedURL == normalizedURLString, image != nil { return }
+        if !force, loadedURL == normalizedURLString, image != nil { return }
         loadedURL = normalizedURLString
         task?.cancel()
+        hasFailed = false
 
         if let cached = Self.cache.object(forKey: normalizedURLString as NSString) {
             image = cached
@@ -839,6 +893,8 @@ private final class CoverImageLoader: ObservableObject {
             forHTTPHeaderField: "User-Agent"
         )
         request.setValue("image/jpeg,image/png,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        request.setValue("https://hongguoduanju.com/", forHTTPHeaderField: "Referer")
+        request.setValue("zh-CN,zh;q=0.9,en;q=0.7", forHTTPHeaderField: "Accept-Language")
 
         task = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             guard let data,
@@ -849,6 +905,7 @@ private final class CoverImageLoader: ObservableObject {
                     guard let self, self.loadedURL == normalizedURLString else { return }
                     self.image = nil
                     self.isLoading = false
+                    self.hasFailed = true
                 }
                 return
             }
@@ -861,6 +918,10 @@ private final class CoverImageLoader: ObservableObject {
             }
         }
         task?.resume()
+    }
+
+    func retry() {
+        load(urlString: loadedURL, force: true)
     }
 
     private static func decodeImage(_ data: Data) -> UIImage? {
@@ -908,6 +969,16 @@ struct CoverView: View {
             } else if loader.isLoading {
                 ProgressView()
                     .tint(.secondary)
+            } else if loader.hasFailed {
+                Button(action: loader.retry) {
+                    Label("重试封面", systemImage: "arrow.clockwise")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("cover-load-retry")
             }
         }
         .frame(width: width, height: height)
@@ -927,7 +998,7 @@ struct CoverView: View {
             .fill(Color(uiColor: .secondarySystemGroupedBackground))
             .overlay {
                 VStack(spacing: 8) {
-                    Image(systemName: "book.closed")
+                    Image(systemName: loader.hasFailed ? "photo.badge.exclamationmark" : "book.closed")
                         .font(.system(size: 24, weight: .medium))
                         .foregroundStyle(.secondary)
                     if let title = title?.nilIfBlank {
@@ -938,13 +1009,18 @@ struct CoverView: View {
                             .lineLimit(4)
                             .padding(.horizontal, 8)
                     }
+                    if urlString?.nilIfBlank == nil {
+                        Text("暂无官方海报")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
     }
 }
 
 private struct StatsView: View {
-    @Query(sort: \SeriesRecord.updatedAt, order: .reverse)
+    @Query(sort: \SeriesRecord.createdAt, order: .reverse)
     private var series: [SeriesRecord]
     @Query private var personalRecords: [PersonalRecord]
     @Query(sort: \OfficialSnapshot.capturedAt, order: .reverse)
@@ -1095,7 +1171,7 @@ private struct StatTile: View {
 private struct FilteredSeriesView: View {
     let filter: LibraryFilter
 
-    @Query(sort: \SeriesRecord.updatedAt, order: .reverse)
+    @Query(sort: \SeriesRecord.createdAt, order: .reverse)
     private var series: [SeriesRecord]
     @Query(sort: \SeasonRecord.seasonNumber)
     private var seasons: [SeasonRecord]

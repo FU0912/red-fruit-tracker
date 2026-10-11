@@ -2,6 +2,17 @@ import XCTest
 @testable import RedFruitTracker
 
 final class LibraryModelTests: XCTestCase {
+    func testBatchRefreshProgressTracksSuccessAndFailureWithoutExceedingTotal() {
+        var progress = BatchRefreshProgress(total: 2)
+        progress.record(success: true)
+        progress.record(success: false)
+        progress.record(success: true)
+
+        XCTAssertEqual(progress.completed, 2)
+        XCTAssertEqual(progress.succeeded, 1)
+        XCTAssertEqual(progress.failed, 1)
+    }
+
     func testSeriesKeepsExternalIdentifierAndMetadata() {
         let record = SeriesRecord(
             sourceSeriesID: "7680187265020070937",

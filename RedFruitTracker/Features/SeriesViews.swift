@@ -6,6 +6,7 @@ import SwiftUI
 struct SeriesDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     let series: SeriesRecord
 
@@ -26,6 +27,8 @@ struct SeriesDetailView: View {
     @State private var isRefreshing = false
     @State private var isIntroExpanded = false
     @State private var notice: String?
+    @State private var personalSaveTask: Task<Void, Never>?
+    @State private var personalSaveError: String?
 
     init(series: SeriesRecord) {
         self.series = series
@@ -75,6 +78,7 @@ struct SeriesDetailView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
+            .padding(.bottom, 24)
         }
         .scrollIndicators(.hidden)
         .background(DetailTheme.background.ignoresSafeArea())
@@ -128,6 +132,10 @@ struct SeriesDetailView: View {
             if shouldAutoRefreshMetadata {
                 refreshMetadata(showNotice: false)
             }
+        }
+        .onDisappear { flushPersonalChanges() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { flushPersonalChanges() }
         }
     }
 
@@ -313,26 +321,42 @@ struct SeriesDetailView: View {
                 .foregroundStyle(.white)
 
             if let personalRecord {
-                Picker("完结状态", selection: completionStatusBinding) {
-                    ForEach(SeriesCompletionStatus.allCases) { status in
-                        Text(status.title).tag(status.rawValue)
+                VStack(spacing: 0) {
+                    LabeledContent("完结状态") {
+                        Picker("完结状态", selection: completionStatusBinding) {
+                            ForEach(SeriesCompletionStatus.allCases) { status in
+                                Text(status.title).tag(status.rawValue)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .accessibilityIdentifier("completion-status-picker")
                     }
+                    .frame(minHeight: 48)
+                    Divider().overlay(.white.opacity(0.12))
+                    LabeledContent("观看状态") {
+                        Picker("观看状态", selection: shelfStateBinding(for: personalRecord)) {
+                            ForEach(ShelfState.allCases) { state in
+                                Text(state.title).tag(state.rawValue)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .accessibilityIdentifier("shelf-state-picker")
+                    }
+                    .frame(minHeight: 48)
+                    Divider().overlay(.white.opacity(0.12))
+                    Toggle("追更 / 预约", isOn: followUpdatesBinding(for: personalRecord))
+                        .tint(DetailTheme.accent)
+                        .frame(minHeight: 52)
+                        .accessibilityIdentifier("follow-updates-toggle")
                 }
-                .pickerStyle(.menu)
+                .font(.body)
+                .foregroundStyle(.white)
                 .tint(.white)
-
-                Picker("书架状态", selection: shelfStateBinding(for: personalRecord)) {
-                    Text("未开始").tag("unstarted")
-                    Text("观看中").tag("watching")
-                    Text("已看完").tag("finished")
-                    Text("暂时搁置").tag("paused")
-                    Text("弃剧").tag("dropped")
-                }
-                .pickerStyle(.menu)
-                .tint(.white)
-
-                Toggle("追更 / 预约", isOn: followUpdatesBinding(for: personalRecord))
-                    .tint(DetailTheme.accent)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+                .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12))
 
                 RatingScorePicker(rating: ratingBinding(for: personalRecord), usesDarkAppearance: true)
                 ReviewEditor(
@@ -341,12 +365,19 @@ struct SeriesDetailView: View {
                     usesDarkAppearance: true
                 )
 
-                Button("保存总记录") {
-                    personalRecord.updatedAt = .now
-                    try? modelContext.save()
-                    notice = "整部作品的评分和点评已保存。"
+                if let personalSaveError {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(personalSaveError)
+                        Button("重试保存") { flushPersonalChanges() }
+                            .frame(minHeight: 44)
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.white)
+                } else {
+                    Text("修改自动保存")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.6))
                 }
-                .buttonStyle(.bordered)
             }
         }
     }
@@ -369,7 +400,7 @@ struct SeriesDetailView: View {
         guard personalRecord == nil else { return }
         let record = PersonalRecord(sourceSeriesID: series.sourceSeriesID)
         modelContext.insert(record)
-        try? modelContext.save()
+        savePersonalChanges()
     }
 
     private func shelfStateBinding(for personal: PersonalRecord) -> Binding<String> {
@@ -378,7 +409,7 @@ struct SeriesDetailView: View {
             set: { value in
                 personal.localShelfState = value
                 personal.updatedAt = .now
-                try? modelContext.save()
+                savePersonalChanges()
             }
         )
     }
@@ -390,7 +421,7 @@ struct SeriesDetailView: View {
                 personal.followsUpdates = value
                 personal.followedAt = value ? (personal.followedAt ?? .now) : nil
                 personal.updatedAt = .now
-                try? modelContext.save()
+                savePersonalChanges()
             }
         )
     }
@@ -401,7 +432,7 @@ struct SeriesDetailView: View {
             set: { value in
                 series.completionStatus = value
                 series.updatedAt = .now
-                try? modelContext.save()
+                savePersonalChanges()
             }
         )
     }
@@ -412,6 +443,7 @@ struct SeriesDetailView: View {
             set: {
                 personal.myRating = $0
                 personal.updatedAt = .now
+                savePersonalChanges()
             }
         )
     }
@@ -419,8 +451,31 @@ struct SeriesDetailView: View {
     private func reviewBinding(for personal: PersonalRecord) -> Binding<String> {
         Binding(
             get: { personal.review },
-            set: { personal.review = $0 }
+            set: {
+                personal.review = $0
+                personal.updatedAt = .now
+                personalSaveTask?.cancel()
+                personalSaveTask = Task { @MainActor in
+                    do { try await Task.sleep(nanoseconds: 350_000_000) } catch { return }
+                    savePersonalChanges()
+                }
+            }
         )
+    }
+
+    private func flushPersonalChanges() {
+        personalSaveTask?.cancel()
+        personalSaveTask = nil
+        if modelContext.hasChanges { savePersonalChanges() }
+    }
+
+    private func savePersonalChanges() {
+        do {
+            try modelContext.save()
+            personalSaveError = nil
+        } catch {
+            personalSaveError = "自动保存未完成，内容仍保留在当前页面，请重试。"
+        }
     }
 
     private func refreshMetadata(showNotice: Bool) {
@@ -539,155 +594,6 @@ private enum DetailTheme {
     static let accent = Color(red: 0.30, green: 0.58, blue: 0.96)
     static let trendSurface = Color(uiColor: .systemBackground)
     static let trendPlot = Color(uiColor: .secondarySystemBackground)
-}
-
-private struct OfficialTrendSection: View {
-    let snapshots: [OfficialSnapshot]
-    @State private var interval: TrendInterval = .week
-
-    private var heatCandles: [TrendCandle] {
-        TrendAggregation.candles(
-            from: snapshots,
-            interval: interval,
-            value: { $0.officialHeatScore }
-        )
-    }
-
-    private var ratingCandles: [TrendCandle] {
-        TrendAggregation.candles(
-            from: snapshots,
-            interval: interval,
-            value: { $0.officialRating }
-        )
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Label("官方数据趋势", systemImage: "chart.xyaxis.line")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(Color(uiColor: .label))
-                Spacer()
-                Picker("统计周期", selection: $interval) {
-                    ForEach(TrendInterval.allCases) { value in
-                        Text(value.title).tag(value)
-                    }
-                }
-                .pickerStyle(.menu)
-                .tint(Color.accentColor)
-                .accessibilityLabel("官方趋势统计周期")
-            }
-
-            if heatCandles.isEmpty && ratingCandles.isEmpty {
-                    Text("刷新公开资料后，这里会按日、周、月、季度或年度保存官方热度和评分变化。")
-                        .font(.subheadline)
-                    .foregroundStyle(Color(uiColor: .secondaryLabel))
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                if !heatCandles.isEmpty {
-                    OfficialCandleChart(title: "官方热度", candles: heatCandles, isRating: false)
-                }
-                if !ratingCandles.isEmpty {
-                    OfficialCandleChart(title: "官方评分", candles: ratingCandles, isRating: true)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(DetailTheme.trendSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color(uiColor: .separator), lineWidth: 0.5)
-        }
-        .accessibilityIdentifier("official-trend-section")
-}
-}
-
-private struct OfficialCandleChart: View {
-    let title: String
-    let candles: [TrendCandle]
-    let isRating: Bool
-
-    private var yDomain: ClosedRange<Double> {
-        if isRating {
-            return 0...10
-        }
-        let low = candles.map(\.low).min() ?? 0
-        let high = candles.map(\.high).max() ?? 1
-        let minimumRange = max(high * 0.08, 1)
-        let padding = max((high - low) * 0.14, minimumRange * 0.5)
-        let upperBound = high + padding
-        return max(0, low - padding)...max(upperBound, high + 0.01)
-    }
-
-    private var candleWidth: CGFloat {
-        candles.count > 18 ? 7 : 12
-    }
-
-    private var minimumBodyHeight: Double {
-        max((yDomain.upperBound - yDomain.lowerBound) * 0.012, isRating ? 0.08 : 0.5)
-    }
-
-    private func bodyLower(for candle: TrendCandle) -> Double {
-        let lower = min(candle.open, candle.close)
-        let upper = max(candle.open, candle.close)
-        return max(yDomain.lowerBound, lower == upper ? lower - minimumBodyHeight / 2 : lower)
-    }
-
-    private func bodyUpper(for candle: TrendCandle) -> Double {
-        let lower = min(candle.open, candle.close)
-        let upper = max(candle.open, candle.close)
-        return min(yDomain.upperBound, upper == lower ? upper + minimumBodyHeight / 2 : upper)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color(uiColor: .label))
-
-            Chart(candles) { candle in
-                RuleMark(
-                    x: .value("周期", candle.bucket),
-                    yStart: .value("最低", candle.low),
-                    yEnd: .value("最高", candle.high)
-                )
-                .foregroundStyle(Color(uiColor: .secondaryLabel))
-                .lineStyle(StrokeStyle(lineWidth: 1.2))
-
-                BarMark(
-                    x: .value("周期", candle.bucket),
-                    yStart: .value("开盘", bodyLower(for: candle)),
-                    yEnd: .value("收盘", bodyUpper(for: candle)),
-                    width: .fixed(candleWidth)
-                )
-                .foregroundStyle(candle.close >= candle.open ? Color.green : Color.red)
-            }
-            .chartPlotStyle { plot in
-                plot
-                    .background(DetailTheme.trendPlot)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
-            .chartYScale(domain: yDomain)
-            .chartLegend(.hidden)
-            .chartXAxis {
-                AxisMarks(values: .automatic(desiredCount: 4)) { value in
-                    AxisGridLine().foregroundStyle(Color(uiColor: .separator).opacity(0.7))
-                    AxisTick().foregroundStyle(Color(uiColor: .secondaryLabel))
-                    AxisValueLabel()
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { value in
-                    AxisGridLine().foregroundStyle(Color(uiColor: .separator).opacity(0.7))
-                    AxisTick().foregroundStyle(Color(uiColor: .secondaryLabel))
-                    AxisValueLabel()
-                }
-            }
-            .frame(height: 180)
-        }
-    }
 }
 
 private struct DetailPill: View {

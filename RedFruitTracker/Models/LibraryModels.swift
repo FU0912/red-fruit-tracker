@@ -156,12 +156,25 @@ enum TrendInterval: String, CaseIterable, Identifiable {
     }
 }
 
+struct BatchRefreshProgress: Equatable {
+    let total: Int
+    private(set) var succeeded = 0
+    private(set) var failed = 0
+    var completed: Int { succeeded + failed }
+
+    mutating func record(success: Bool) {
+        guard completed < total else { return }
+        if success { succeeded += 1 } else { failed += 1 }
+    }
+}
+
 struct TrendCandle: Identifiable, Equatable {
     let bucket: Date
     let open: Double
     let close: Double
     let high: Double
     let low: Double
+    let sampleCount: Int
 
     var id: Date { bucket }
 }
@@ -174,7 +187,7 @@ enum TrendAggregation {
         calendar: Calendar = .current
     ) -> [TrendCandle] {
         let values = snapshots.compactMap { snapshot -> (Date, Double)? in
-            guard let number = value(snapshot) else { return nil }
+            guard let number = value(snapshot), number.isFinite, number >= 0 else { return nil }
             return (snapshot.capturedAt, number)
         }
         let groups = Dictionary(grouping: values) { item in
@@ -193,7 +206,8 @@ enum TrendAggregation {
                 open: first.1,
                 close: last.1,
                 high: numbers.max() ?? first.1,
-                low: numbers.min() ?? first.1
+                low: numbers.min() ?? first.1,
+                sampleCount: points.count
             )
         }
     }
