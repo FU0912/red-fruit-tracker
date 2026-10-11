@@ -1,6 +1,19 @@
 import XCTest
 
 final class RedFruitTrackerUITests: XCTestCase {
+    func testLibraryKeepsAdditionOrderAfterOlderWorkWasUpdated() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-testing-order"]
+        app.launch()
+
+        let newer = app.buttons["series-card-order-newer"]
+        let older = app.buttons["series-card-order-older"]
+        XCTAssertTrue(newer.waitForExistence(timeout: 5))
+        XCTAssertTrue(older.exists)
+        XCTAssertLessThan(newer.frame.minY, older.frame.minY,
+                          "Refreshing an older work must never move it ahead of a newly added work.")
+    }
+
     func testLibraryEmptyStateScreenshot() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-testing-empty"]

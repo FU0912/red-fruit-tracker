@@ -30,6 +30,21 @@ struct RedFruitTrackerApp: App {
             if arguments.contains("--ui-testing-fixture") {
                 Self.insertUITestFixture(into: container.mainContext)
             }
+            if arguments.contains("--ui-testing-order") {
+                let older = SeriesRecord(
+                    sourceSeriesID: "order-older", title: "先添加后更新",
+                    createdAt: Date(timeIntervalSince1970: 100),
+                    updatedAt: Date(timeIntervalSince1970: 300)
+                )
+                let newer = SeriesRecord(
+                    sourceSeriesID: "order-newer", title: "后添加的作品",
+                    createdAt: Date(timeIntervalSince1970: 200),
+                    updatedAt: Date(timeIntervalSince1970: 200)
+                )
+                container.mainContext.insert(older)
+                container.mainContext.insert(newer)
+                try? container.mainContext.save()
+            }
         } catch {
             fatalError("Unable to create the local model container: \(error)")
         }
