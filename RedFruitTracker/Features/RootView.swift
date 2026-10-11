@@ -12,6 +12,7 @@ struct RootView: View {
     @State private var isShowingAdd = false
     @State private var pendingShareURL: URL?
     @State private var presentedShareURL: URL?
+    @State private var pendingShareRetryToken = 0
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -86,12 +87,23 @@ struct RootView: View {
     }
 
     private func schedulePendingShareRetry() {
+        pendingShareRetryToken &+= 1
+        schedulePendingShareRetry(token: pendingShareRetryToken, attempt: 0)
+    }
+
+    private func schedulePendingShareRetry(token: Int, attempt: Int) {
+        guard attempt < 5 else { return }
+
         // App Groups are eventually consistent across the extension and host
         // processes. A delayed read covers the handoff where iOS foregrounds
         // the app before the shared defaults store has refreshed.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            guard ShareInbox.firstURL() != nil, !isShowingAdd else { return }
+        let delay = 0.25 * Double(attempt + 1)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard token == pendingShareRetryToken, !isShowingAdd else { return }
             refreshPendingShare()
+            if !isShowingAdd {
+                schedulePendingShareRetry(token: token, attempt: attempt + 1)
+            }
         }
     }
 }
