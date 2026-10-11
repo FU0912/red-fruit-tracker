@@ -2,7 +2,7 @@
 
 | 项目状态 | 创建日期 | 最近更新 |
 | --- | --- | --- |
-| v1.2.18 官方剧级海报与分享导入链路修复，待 CI/真机验收 | 2026-10-11 | 进行中 |
+| v1.2.18 官方剧级海报与分享导入链路修复，CI 已通过，待真机验收 | 2026-10-11 | 进行中 |
 
 ## 一句话目标
 
@@ -73,6 +73,8 @@
 - v1.2.15 产物：`artifacts/RedFruitTracker-unsigned-device-v1.2.15-build18.ipa`，1,031,636 字节；SHA-256 为 `813D8197A33766981EC1C5E67BA0C63C98D7620C7B85F6512E1EA2C5BD59AFCB`。包内含 Share Extension 和 App Icon，但没有 `_CodeSignature` 或 `embedded.mobileprovision`，仍需用户侧签名后安装。
 - v1.2.16 已完成：剧级封面按真实图片尺寸选择，新增独立追更/预约状态和统计筛选；季链接读取到的多季资料归并到同一部作品，趋势图改为固定评分范围、少量坐标和语义背景。版本号为 build 19。
 - v1.2.18 本轮：分享页提取 `video_id` 后优先读取官方详情页，使用详情页 `seriesDetail.series_cover` 并下载检查真实图像方向，只接受竖版剧级海报；详情页公开字段优先于分享页回退字段。分享扩展把完整链接写入 App Group，只发送短唤醒 URL，主 App 前台读取队列并延迟重试后自动打开导入页。主 App 与 Share Extension 更新为 build 21。
+- v1.2.18 CI 已通过：Run `38132924380`（最终修复提交 `c18afd2`），38 个单元测试和 2 个 UI 测试全部通过，模拟器构建、真机架构归档和未签名 IPA 均成功。
+- v1.2.18 产物：`artifacts/RedFruitTracker-unsigned-device-v1.2.18-build21.ipa`，1,088,606 字节；SHA-256 为 `1D446C0E456405B50CCDF8283DC3B696C6649A01B7E1B02A931CD11B2375DF74`。包内含主 App、Share Extension 和 App Icon，但无 `_CodeSignature` 或 `embedded.mobileprovision`，仍需用户侧签名后安装。
 - v1.2.16 CI 已通过：Run `38099393357`，34 个单元测试和 2 个 UI 测试全部通过，模拟器构建、真机架构归档和未签名 IPA 均成功；主 App 与 Share Extension 均为 build 19。
 - v1.2.16 产物：`artifacts/RedFruitTracker-unsigned-device-v1.2.16-build19.ipa`，1,065,434 字节；SHA-256 为 `4BB4D4679965FA8A0CF3AD8E09CCEC094103D3C83DAB248199E053C385F2ABBF`。包内含 Share Extension 和 App Icon，但没有 `_CodeSignature` 或 `embedded.mobileprovision`，仍需用户侧签名后安装。
 - 本轮详情页与删除调整已完成：主详情页移除“选集”起始的季数、集数、当前进度和打开当前入口，保留作品信息、简介以及“我的评分与点评”；书架作品行支持 trailing swipe action 的 `List`，确认后删除作品及其季、集、个人记录和公开快照。
