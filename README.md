@@ -2,7 +2,7 @@
 
 这是一个本地优先的原生 iOS 项目，用来记录红果漫剧作品、季、集、观看进度、个人评分点评和官方数据历史。
 
-当前源代码版本为 `v1.2.16` / build `19`，本轮修正剧级竖版封面探测、增加独立的追更/预约状态与统计筛选、支持从季链接读取并合并其他季资料，并收敛官方趋势图的坐标和背景；历史版本仍保留在 `artifacts` 目录。
+当前源代码版本为 `v1.2.18` / build `21`，本轮改用官方详情页剧级 `series_cover` 获取竖版人物海报，真实探测后拒绝横向视频图；分享扩展改为 App Group 队列加短唤醒 URL，主 App 自动打开导入页；历史版本仍保留在 `artifacts` 目录。
 
 当前版本已经具备可操作的本地 MVP：作品画廊和搜索、分享链接/手动添加、封面和公开 metadata 读取、分季分集、已看标记、观看进度、红果链接跳转、个人评分点评、统计和评分趋势图。
 
@@ -13,7 +13,7 @@
 - iOS Simulator：在 CI 中执行 UI 测试并保存截图和日志。
 - 真实 iPhone：只用于 Share Extension、红果跳转和系统行为的阶段性验收。
 
-本项目不依赖本地 macOS 虚拟机。`v1.2.16` 需要使用 GitHub Actions macOS Runner 构建；CI 产物生成后再进行安装验证，历史版本仍保留在 `artifacts` 目录。
+本项目不依赖本地 macOS 虚拟机。`v1.2.18` 使用 GitHub Actions macOS Runner 构建，CI 产物已保存到 `artifacts` 目录；真实 iPhone 仍需用户侧签名后安装，历史版本继续保留。
 
 ## 生成项目
 
@@ -36,7 +36,9 @@ xcodegen generate --spec project.yml
 
 签名、TestFlight 和真实设备安装暂不自动化，等模拟器构建稳定后再配置。
 
-本轮 `v1.2.15` CI 已通过：Run `37327307931`，32 个单元测试和 2 个 UI 测试全部通过，模拟器构建、真机架构归档和未签名 IPA 均成功；主 App 与 Share Extension 统一为 build 18。
+本轮 `v1.2.16` CI 已通过：Run `38099393357`，34 个单元测试和 2 个 UI 测试全部通过，模拟器构建、真机架构归档和未签名 IPA 均成功；主 App 与 Share Extension 统一为 build 19。
+
+v1.2.16 IPA：1,065,434 字节；SHA-256 为 `4BB4D4679965FA8A0CF3AD8E09CCEC094103D3C83DAB248199E053C385F2ABBF`。包内已确认包含主 App、Share Extension 和 App Icon；没有 `_CodeSignature` 或 `embedded.mobileprovision`，仍需在用户侧签名后安装到 iPhone。
 
 v1.2.15 IPA：1,031,636 字节；SHA-256 为 `813D8197A33766981EC1C5E67BA0C63C98D7620C7B85F6512E1EA2C5BD59AFCB`。包内已确认包含主 App、Share Extension 和 App Icon；没有 `_CodeSignature` 或 `embedded.mobileprovision`，仍需在用户侧签名后安装到 iPhone。
 

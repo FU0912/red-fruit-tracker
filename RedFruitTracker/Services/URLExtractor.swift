@@ -16,6 +16,8 @@ enum URLExtractor {
         return regex.matches(in: text, range: range).compactMap { match in
             guard let matchRange = Range(match.range, in: text) else { return nil }
             let candidate = trimPunctuation(from: String(text[matchRange]))
+                .replacingOccurrences(of: "&amp;", with: "&")
+                .replacingOccurrences(of: "&#x26;", with: "&")
             guard let url = URL(string: candidate),
                   let scheme = url.scheme?.lowercased(),
                   scheme == "http" || scheme == "https",

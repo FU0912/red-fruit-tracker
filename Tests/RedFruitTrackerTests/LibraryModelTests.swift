@@ -47,6 +47,15 @@ final class LibraryModelTests: XCTestCase {
         )
     }
 
+    func testShareTextPreservesLoRoSSchemeParamsAndHTMLAmpersand() {
+        let text = "https://kylin.hainanyuyue.com/LoRoS?schemeParams=%7B%22vid%22%3A%22123%22%7D&amp;from=share"
+
+        XCTAssertEqual(
+            URLExtractor.firstURL(in: text)?.absoluteString,
+            "https://kylin.hainanyuyue.com/LoRoS?schemeParams=%7B%22vid%22%3A%22123%22%7D&from=share"
+        )
+    }
+
     func testTitleNormalizerRemovesRedFruitBranding() {
         XCTAssertEqual(TitleNormalizer.normalize("红果漫剧：《仙途归来》 - 红果"), "仙途归来")
         XCTAssertEqual(TitleNormalizer.normalize("《仙途归来》 | 红果短剧"), "仙途归来")
@@ -385,6 +394,24 @@ final class LibraryModelTests: XCTestCase {
         )
     }
 
+    func testSharePageVideoIDBuildsOfficialDetailURL() throws {
+        let html = #"<script>window.__DATA__={"video_id":"7675745080522574910"}</script>"#
+
+        XCTAssertEqual(
+            HTMLMetadata.officialDetailURL(in: html)?.absoluteString,
+            "https://hongguoduanju.com/detail?series_id=7675745080522574910"
+        )
+    }
+
+    func testSharePageNumericVideoIDBuildsOfficialDetailURL() throws {
+        let html = #"<script>window.__DATA__={"video_id":7675745080522574910}</script>"#
+
+        XCTAssertEqual(
+            HTMLMetadata.officialDetailURL(in: html)?.absoluteString,
+            "https://hongguoduanju.com/detail?series_id=7675745080522574910"
+        )
+    }
+
     func testOfficialDetailFixtureExtractsSocialFieldsAndSeasonEpisodeTotals() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -600,6 +627,13 @@ final class LibraryModelTests: XCTestCase {
         let callback = try XCTUnwrap(ShareRoute.callbackURL(for: sharedURL))
 
         XCTAssertEqual(ShareRoute.sharedURL(from: callback), sharedURL)
+    }
+
+    func testShareRouteWakeURLLeavesTheFullURLInTheSharedQueue() throws {
+        let wakeURL = try XCTUnwrap(ShareRoute.wakeURL())
+
+        XCTAssertEqual(wakeURL.absoluteString, "redfruittracker://share-import")
+        XCTAssertNil(ShareRoute.sharedURL(from: wakeURL))
     }
 
     func testCompletionStatusRecognizesBooleanAndChineseText() {

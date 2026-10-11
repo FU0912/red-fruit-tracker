@@ -180,45 +180,73 @@ actor PublicMetadataService {
             throw PublicMetadataError.unsupportedURL
         }
 
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 15
-        request.setValue(
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-            forHTTPHeaderField: "User-Agent"
-        )
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              200..<400 ~= httpResponse.statusCode else {
-            throw PublicMetadataError.invalidResponse
+        let html = try await requestHTML(from: url)
+        let detailURL = HTMLMetadata.officialDetailURL(in: html)
+        let detailHTML: String
+        let detailBaseURL: URL
+        if let detailURL, let fetchedDetailHTML = try? await requestHTML(from: detailURL) {
+            detailHTML = fetchedDetailHTML
+            detailBaseURL = detailURL
+        } else {
+            detailHTML = html
+            detailBaseURL = url
         }
 
-        let html = String(decoding: data, as: UTF8.self)
-        let rawTitle = HTMLMetadata.currentSeriesDetailValue(for: ["series_name", "title", "name"], in: html)
+        let metadataHTML = detailHTML
+        let rawTitle = HTMLMetadata.currentSeriesDetailValue(for: ["series_name", "title", "name"], in: metadataHTML)
+            ?? HTMLMetadata.currentSeriesDetailValue(for: ["series_name", "title", "name"], in: html)
+            ?? HTMLMetadata.value(for: ["og:title", "twitter:title"], in: metadataHTML)
             ?? HTMLMetadata.value(for: ["og:title", "twitter:title"], in: html)
+            ?? HTMLMetadata.title(in: metadataHTML)
             ?? HTMLMetadata.title(in: html)
         let title = TitleNormalizer.normalize(rawTitle) ?? TitleNormalizer.fallback(from: url)
-        let coverCandidates = HTMLMetadata.coverCandidates(in: html, baseURL: url)
+        var coverCandidates = HTMLMetadata.coverCandidates(in: metadataHTML, baseURL: detailBaseURL)
+        if detailURL != nil {
+            coverCandidates.append(contentsOf: HTMLMetadata.coverCandidates(in: html, baseURL: url))
+        }
         let rankedCoverCandidates = CoverURLSelector.ranked(coverCandidates, title: title)
         let coverURL = await PortraitCoverProbe.preferredURL(from: rankedCoverCandidates)
+        let detailSeasons = HTMLMetadata.seasons(in: metadataHTML, baseURL: detailBaseURL)
+        let shareSeasons = detailURL == nil ? [] : HTMLMetadata.seasons(in: html, baseURL: url)
         let metadata = PublicSeriesMetadata(
             title: title,
             coverURL: coverURL,
             coverCandidates: rankedCoverCandidates.prefix(8).map(\.url),
-            intro: HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: html)
+            intro: HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: metadataHTML)
+                ?? HTMLMetadata.currentSeriesDetailValue(for: ["series_intro", "intro", "description", "abstract", "desc"], in: metadataHTML)
+                ?? HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: html)
                 ?? HTMLMetadata.currentSeriesDetailValue(for: ["series_intro", "intro", "description", "abstract", "desc"], in: html),
-            tagsText: HTMLMetadata.currentSeriesDetailValue(for: ["tags", "tag_list", "series_tags", "category_list", "category", "category_name", "type", "type_name", "genre", "genres", "label", "labels"], in: html)
+            tagsText: HTMLMetadata.currentSeriesDetailValue(for: ["tags", "tag_list", "series_tags", "category_list", "category", "category_name", "type", "type_name", "genre", "genres", "label", "labels"], in: metadataHTML)
+                ?? HTMLMetadata.value(for: ["keywords"], in: metadataHTML)
+                ?? HTMLMetadata.currentSeriesDetailValue(for: ["tags", "tag_list", "series_tags", "category_list", "category", "category_name", "type", "type_name", "genre", "genres", "label", "labels"], in: html)
                 ?? HTMLMetadata.value(for: ["keywords"], in: html),
-            officialRating: HTMLMetadata.decimalValue(for: ["rating", "og:rating"], in: html)
+            officialRating: HTMLMetadata.decimalValue(for: ["rating", "og:rating"], in: metadataHTML)
+                ?? HTMLMetadata.currentSeriesSocialInfoDecimalValue(for: ["rating", "score", "series_score", "official_score"], in: metadataHTML)
+                ?? HTMLMetadata.currentSeriesDetailDecimalValue(for: ["rating", "score", "series_score", "official_score"], in: metadataHTML)
+                ?? HTMLMetadata.decimalValue(for: ["rating", "og:rating"], in: html)
                 ?? HTMLMetadata.currentSeriesSocialInfoDecimalValue(for: ["rating", "score", "series_score", "official_score"], in: html)
                 ?? HTMLMetadata.currentSeriesDetailDecimalValue(for: ["rating", "score", "series_score", "official_score"], in: html),
-            officialRatingCount: HTMLMetadata.currentSeriesSocialInfoIntValue(for: ["rating_count", "ratingCount"], in: html),
+            officialRatingCount: HTMLMetadata.currentSeriesSocialInfoIntValue(for: ["rating_count", "ratingCount"], in: metadataHTML)
+                ?? HTMLMetadata.currentSeriesSocialInfoIntValue(for: ["rating_count", "ratingCount"], in: html),
             officialHeatScore: HTMLMetadata.currentSeriesSocialInfoDecimalValue(
                 for: ["score", "hot_score", "hot_value"],
                 nestedKeys: ["hot_score_data"],
-                in: html
-            ) ?? HTMLMetadata.currentSeriesDetailDecimalValue(for: ["popularity"], in: html),
-            officialHeatText: HTMLMetadata.value(for: ["heat", "og:heat"], in: html)
+                in: metadataHTML
+            ) ?? HTMLMetadata.currentSeriesDetailDecimalValue(for: ["popularity"], in: metadataHTML)
+                ?? HTMLMetadata.currentSeriesSocialInfoDecimalValue(
+                    for: ["score", "hot_score", "hot_value"],
+                    nestedKeys: ["hot_score_data"],
+                    in: html
+                ) ?? HTMLMetadata.currentSeriesDetailDecimalValue(for: ["popularity"], in: html),
+            officialHeatText: HTMLMetadata.value(for: ["heat", "og:heat"], in: metadataHTML)
+                ?? HTMLMetadata.currentSeriesSocialInfoValue(
+                    for: ["text", "heat", "hot_text", "hot_value", "play_count", "total_play_count", "view_count"],
+                    nestedKeys: ["hot_score_data"],
+                    in: metadataHTML
+                )
+                ?? HTMLMetadata.currentSeriesDetailValue(for: ["heat", "heat_score", "hot_value", "play_count", "total_play_count", "view_count"], in: metadataHTML)
+                ?? HTMLMetadata.currentSeriesDetailCompactCountText(for: ["popularity"], in: metadataHTML)
+                ?? HTMLMetadata.value(for: ["heat", "og:heat"], in: html)
                 ?? HTMLMetadata.currentSeriesSocialInfoValue(
                     for: ["text", "heat", "hot_text", "hot_value", "play_count", "total_play_count", "view_count"],
                     nestedKeys: ["hot_score_data"],
@@ -226,8 +254,8 @@ actor PublicMetadataService {
                 )
                 ?? HTMLMetadata.currentSeriesDetailValue(for: ["heat", "heat_score", "hot_value", "play_count", "total_play_count", "view_count"], in: html)
                 ?? HTMLMetadata.currentSeriesDetailCompactCountText(for: ["popularity"], in: html),
-            completionStatus: HTMLMetadata.completionStatus(in: html),
-            seasons: HTMLMetadata.seasons(in: html, baseURL: url)
+            completionStatus: HTMLMetadata.completionStatus(in: metadataHTML) ?? HTMLMetadata.completionStatus(in: html),
+            seasons: detailSeasons.isEmpty ? shareSeasons : detailSeasons
         )
 
         guard rawTitle != nil
@@ -238,6 +266,22 @@ actor PublicMetadataService {
             throw PublicMetadataError.noMetadata
         }
         return metadata
+    }
+
+    private func requestHTML(from url: URL) async throws -> String {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) AppleWebKit/605.1.15",
+            forHTTPHeaderField: "User-Agent"
+        )
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              200..<400 ~= httpResponse.statusCode else {
+            throw PublicMetadataError.invalidResponse
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 }
 
@@ -288,7 +332,60 @@ private enum PortraitCoverProbe {
     }
 }
 
+enum CoverImageOrientation: Sendable, Equatable {
+    case portrait
+    case landscape
+    case unknown
+}
+
+enum CoverImageProbe {
+    static func orientation(urlString: String) async -> CoverImageOrientation {
+        guard let url = URL(string: urlString) else { return .unknown }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 4
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let httpResponse = response as? HTTPURLResponse,
+              200..<400 ~= httpResponse.statusCode,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else {
+            return .unknown
+        }
+        if height.doubleValue > width.doubleValue * 1.05 { return .portrait }
+        if width.doubleValue > height.doubleValue * 1.05 { return .landscape }
+        return .unknown
+    }
+
+    static func isPortrait(urlString: String) async -> Bool {
+        await orientation(urlString: urlString) == .portrait
+    }
+}
+
 enum HTMLMetadata {
+    static func officialDetailURL(in html: String) -> URL? {
+        let patterns = [
+            #"[\"']video_id[\"']\s*:\s*[\"']?(\d{10,})[\"']?"#,
+            #"video_id%22%3A%22(\d{10,})%22"#
+        ]
+
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+                continue
+            }
+            let range = NSRange(html.startIndex..<html.endIndex, in: html)
+            guard let match = regex.firstMatch(in: html, range: range),
+                  let valueRange = Range(match.range(at: 1), in: html),
+                  var components = URLComponents(string: "https://hongguoduanju.com/detail") else {
+                continue
+            }
+            components.queryItems = [URLQueryItem(name: "series_id", value: String(html[valueRange]))]
+            return components.url
+        }
+        return nil
+    }
+
     static func currentSeriesDetailValue(for keys: [String], in html: String) -> String? {
         guard let detail = currentSeriesDetail(in: html) else { return nil }
 
@@ -731,7 +828,9 @@ enum HTMLMetadata {
         let value = "\(candidate.url) \(candidate.context)".lowercased()
         return [
             "first-frame", "first_frame", "video-frame", "video_frame",
-            "snapshot", "screenshot", "video-still", "video_still"
+            "snapshot", "screenshot", "video-still", "video_still",
+            "share-video-cover", "episode-cover", "episode_cover", "horiz-cover", "horiz_cover",
+            "play_url", "play-url"
         ].contains { value.contains($0) }
     }
 

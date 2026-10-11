@@ -41,10 +41,12 @@ struct RootView: View {
         }
         .task {
             refreshPendingShare()
+            schedulePendingShareRetry()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 refreshPendingShare()
+                schedulePendingShareRetry()
             }
         }
         .onOpenURL { callbackURL in
@@ -52,16 +54,44 @@ struct RootView: View {
                 ShareInbox.enqueue(sharedURL)
             }
             refreshPendingShare()
+            schedulePendingShareRetry()
         }
     }
 
     private func refreshPendingShare() {
-        pendingShareURL = ShareInbox.firstURL()
-        if let pendingShareURL,
-           presentedShareURL != pendingShareURL,
-           !isShowingAdd {
-            presentedShareURL = pendingShareURL
+        let nextURL = ShareInbox.firstURL()
+        pendingShareURL = nextURL
+        guard let nextURL,
+              presentedShareURL != nextURL,
+              !isShowingAdd else {
+            if nextURL == nil {
+                presentedShareURL = nil
+            }
+            return
+        }
+
+        selectedTab = 0
+        presentedShareURL = nextURL
+        // Let the scene finish foregrounding before presenting a sheet. This
+        // avoids the share extension's handoff animation dismissing the sheet
+        // in the same run loop as the URL callback.
+        Task { @MainActor in
+            await Task.yield()
+            guard ShareInbox.firstURL() == nextURL,
+                  presentedShareURL == nextURL,
+                  !isShowingAdd else { return }
             isShowingAdd = true
+        }
+
+    }
+
+    private func schedulePendingShareRetry() {
+        // App Groups are eventually consistent across the extension and host
+        // processes. A delayed read covers the handoff where iOS foregrounds
+        // the app before the shared defaults store has refreshed.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            guard ShareInbox.firstURL() != nil, !isShowingAdd else { return }
+            refreshPendingShare()
         }
     }
 }
@@ -272,7 +302,7 @@ private struct LibraryView: View {
         for (item, url) in candidates {
             do {
                 let metadata = try await PublicMetadataService.shared.fetch(from: url)
-                applyPublicMetadata(metadata, to: item)
+                await applyPublicMetadata(metadata, to: item)
                 mergePublicSeasons(metadata.seasons, for: item)
                 insertSnapshot(for: item, metadata: metadata)
                 updatedCount += 1
@@ -291,9 +321,20 @@ private struct LibraryView: View {
         }
     }
 
-    private func applyPublicMetadata(_ metadata: PublicSeriesMetadata, to item: SeriesRecord) {
-        if CoverURLSelector.shouldReplaceExisting(item.coverURL), let coverURL = metadata.coverURL?.nilIfBlank {
+    private func applyPublicMetadata(_ metadata: PublicSeriesMetadata, to item: SeriesRecord) async {
+        if let coverURL = metadata.coverURL?.nilIfBlank,
+           item.coverURL == nil || CoverURLSelector.shouldReplaceExisting(item.coverURL) {
             item.coverURL = coverURL
+        } else if let existingCover = item.coverURL {
+            // Only replace a legacy cover after a successful image probe. A
+            // timeout or CDN failure must not erase a user-selected poster.
+            if await CoverImageProbe.orientation(urlString: existingCover) == .landscape {
+                if let coverURL = metadata.coverURL?.nilIfBlank {
+                    item.coverURL = coverURL
+                } else {
+                    item.coverURL = nil
+                }
+            }
         }
         if item.intro.isEmpty, let intro = metadata.intro, !intro.isEmpty {
             item.intro = intro

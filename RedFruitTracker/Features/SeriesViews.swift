@@ -436,14 +436,26 @@ struct SeriesDetailView: View {
         Task {
             do {
                 let metadata = try await PublicMetadataService.shared.fetch(from: url)
+                let existingCoverOrientation: CoverImageOrientation?
+                if let existingCover = series.coverURL {
+                    existingCoverOrientation = await CoverImageProbe.orientation(urlString: existingCover)
+                } else {
+                    existingCoverOrientation = nil
+                }
                 await MainActor.run {
                     if let title = metadata.title, !title.isEmpty {
                         if series.title.isEmpty {
                             series.title = TitleNormalizer.seriesTitle(title) ?? title
                         }
                     }
-                    if CoverURLSelector.shouldReplaceExisting(series.coverURL), let coverURL = metadata.coverURL?.nilIfBlank {
+                    if let coverURL = metadata.coverURL?.nilIfBlank,
+                       series.coverURL == nil || CoverURLSelector.shouldReplaceExisting(series.coverURL) {
                         series.coverURL = coverURL
+                    } else if existingCoverOrientation == .landscape {
+                        // A previous release could persist the share page's
+                        // landscape video image. Replace or clear it only
+                        // after a successful orientation probe.
+                        series.coverURL = metadata.coverURL?.nilIfBlank
                     }
                     if series.intro.isEmpty, let intro = metadata.intro { series.intro = intro }
                     if series.tagsText.isEmpty, let tagsText = metadata.tagsText { series.tagsText = tagsText }

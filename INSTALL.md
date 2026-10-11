@@ -1,20 +1,26 @@
 # 安装与当前验证方式
 
-## 当前开发版本
+## 当前验证版本
 
-当前代码版本为 `v1.2.16` / build `19`；本轮改动等待 GitHub Actions 构建验证，暂不把历史包冒充本版本安装包。
+当前代码版本为 `v1.2.18` / build `21`，本轮等待 GitHub Actions 验证。上一个 `v1.2.16` / build `19` 的 CI 记录仍保留在下方历史信息中。
 
-目标产物：`artifacts/RedFruitTracker-unsigned-device-v1.2.16-build19.ipa`
+已验证产物：`artifacts/RedFruitTracker-unsigned-device-v1.2.16-build19.ipa`
+
+包体大小：`1,065,434` 字节。
+
+SHA-256：`4BB4D4679965FA8A0CF3AD8E09CCEC094103D3C83DAB248199E053C385F2ABBF`
+
+模拟器包：`artifacts/RedFruitTracker-simulator-v1.2.16-build19.app.zip`
 
 ## 最近一次已验证包
 
-`artifacts/RedFruitTracker-unsigned-device-v1.2.15-build18.ipa`
+`artifacts/RedFruitTracker-unsigned-device-v1.2.15-build18.ipa`（上一版）
 
 包体大小：`1,031,636` 字节。
 
 SHA-256：`813D8197A33766981EC1C5E67BA0C63C98D7620C7B85F6512E1EA2C5BD59AFCB`
 
-CI 下载原始路径：`artifacts/37327307931-download-new/artifacts/RedFruitTracker-unsigned-device-v1.2.15-build18.ipa`
+CI 下载原始路径：`artifacts/38099393357-download/artifacts/RedFruitTracker-unsigned-device-v1.2.16-build19.ipa`
 
 上一版已验证包：`artifacts/37083661180/artifacts/RedFruitTracker-unsigned-device-v1.2.11-build14.ipa`
 
@@ -44,7 +50,7 @@ CI 下载原始路径：`artifacts/37327307931-download-new/artifacts/RedFruitTr
 
 GitHub Actions 当前生成的是 `RedFruitTracker-simulator.app.zip`。它是 iOS Simulator 构建包，只能在 macOS 的 iOS Simulator 中安装，不能直接安装到真实 iPhone。
 
-`RedFruitTracker-unsigned-device-v1.2.15-build18.ipa` 是面向真实 iPhone 架构的未签名测试包，需要在 Windows 上用 Sideloadly 或 AltStore 由你自己的 Apple ID 进行本地签名后安装。免费 Apple ID 通常有设备数和有效期限制，分享扩展/App Groups 也可能需要付费开发者账号。
+`RedFruitTracker-unsigned-device-v1.2.16-build19.ipa` 是面向真实 iPhone 架构的未签名测试包，需要在 Windows 上用 Sideloadly 或 AltStore 由你自己的 Apple ID 进行本地签名后安装。免费 Apple ID 通常有设备数和有效期限制，分享扩展/App Groups 也可能需要付费开发者账号。
 
 ## 真实 iPhone 安装包
 
@@ -60,5 +66,5 @@ GitHub Actions 当前生成的是 `RedFruitTracker-simulator.app.zip`。它是 i
 ## 验证顺序
 
 1. 先看 Simulator 构建包和 UI 测试截图，验证页面能启动。
-2. 当前使用 `v1.2.16` / build `19` 的 `RedFruitTracker-unsigned-device-v1.2.16-build19.ipa`；历史版本 IPA 继续保留在 `artifacts` 目录。
+  2. 当前代码等待 CI 生成 `v1.2.18` / build `21` 的未签名 IPA；历史版本 IPA 继续保留在 `artifacts` 目录。
 3. 在真实 iPhone 上验证作品添加、季集记录、进度、评分点评、分享扩展、红果跳转和本地数据保存。

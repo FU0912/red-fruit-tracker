@@ -27,6 +27,10 @@ enum ShareInbox {
         if !values.contains(value) {
             values.append(value)
             defaults.set(values, forKey: pendingURLsKey)
+            // The extension and the host app are separate processes. Force the
+            // small queue update through the shared defaults store before the
+            // extension asks iOS to foreground the host app.
+            defaults.synchronize()
         }
     }
 
@@ -39,12 +43,20 @@ enum ShareInbox {
         let remaining = (defaults.stringArray(forKey: pendingURLsKey) ?? [])
             .filter { $0 != value }
         defaults.set(remaining, forKey: pendingURLsKey)
+        defaults.synchronize()
     }
 }
 
 enum ShareRoute {
     static let scheme = "redfruittracker"
     static let host = "share-import"
+
+    static func wakeURL() -> URL? {
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        return components.url
+    }
 
     static func callbackURL(for sharedURL: URL) -> URL? {
         var components = URLComponents()
