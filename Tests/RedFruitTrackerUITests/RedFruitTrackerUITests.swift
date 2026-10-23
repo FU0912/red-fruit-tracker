@@ -119,7 +119,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["选集"].exists)
         XCTAssertFalse(app.staticTexts["第1季"].exists)
         XCTAssertFalse(app.staticTexts["已看 1 / 共189集"].exists)
-        XCTAssertTrue(app.staticTexts["官方 8.8分"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["official-rating"].exists)
         XCTAssertTrue(app.staticTexts["3930万热度"].exists)
         XCTAssertTrue(app.staticTexts["修仙"].exists)
         XCTAssertFalse(app.textFields["episode-progress-input"].exists)

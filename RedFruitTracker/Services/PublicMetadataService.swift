@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 import ImageIO
 
 struct PublicSeriesMetadata {
@@ -599,7 +600,7 @@ enum HTMLMetadata {
         if let value = rawValue as? Bool {
             return value ? SeriesCompletionStatus.completed.rawValue : SeriesCompletionStatus.ongoing.rawValue
         }
-        if let number = rawValue as? NSNumber, !(rawValue is Bool) {
+        if let number = rawValue as? NSNumber, !isBooleanNSNumber(number) {
             return number.intValue == 0
                 ? SeriesCompletionStatus.ongoing.rawValue
                 : SeriesCompletionStatus.completed.rawValue
@@ -643,7 +644,7 @@ enum HTMLMetadata {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
-        if let number = rawValue as? NSNumber, !(rawValue is Bool) {
+        if let number = rawValue as? NSNumber, !isBooleanNSNumber(number) {
             return number.stringValue
         }
         if let values = rawValue as? [String] {
@@ -1366,7 +1367,7 @@ enum HTMLMetadata {
     private static func intValue(for keys: [String], in dictionary: [String: Any]) -> Int? {
         for key in keys {
             guard let rawValue = value(for: key, in: dictionary) else { continue }
-            if let number = rawValue as? NSNumber, !(rawValue is Bool) {
+            if let number = rawValue as? NSNumber, !isBooleanNSNumber(number) {
                 return number.intValue
             }
             if let text = scalarText(rawValue), let number = Int(text) {
@@ -1374,6 +1375,10 @@ enum HTMLMetadata {
             }
         }
         return nil
+    }
+
+    private static func isBooleanNSNumber(_ number: NSNumber) -> Bool {
+        CFGetTypeID(number) == CFBooleanGetTypeID()
     }
 
     private static func nestedIntValue(

@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   simulator:
@@ -108,6 +108,29 @@ jobs:
             echo "Unsigned device app was not found at $app_path"
           fi
 
+      - name: Publish unsigned IPA prerelease
+        if: success() && github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ipa_path="$(find artifacts -maxdepth 1 -name 'RedFruitTracker-unsigned-device-v*-build*.ipa' -print -quit)"
+          if [ -z "$ipa_path" ]; then
+            echo "Versioned unsigned IPA was not found."
+            exit 1
+          fi
+          app_path="build/RedFruitTracker.xcarchive/Products/Applications/RedFruitTracker.app"
+          short_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Info.plist")
+          build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_path/Info.plist")
+          tag="v${short_version}-build${build_number}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --target "$GITHUB_SHA" \
+              --title "RedFruitTracker v${short_version} (build ${build_number})" \
+              --notes "Unsigned device IPA produced by iOS CI. Sign it with your own Apple ID before installing on a real iPhone." \
+              --prerelease
+          fi
+          gh release upload "$tag" "$ipa_path" --clobber
+
       - name: Export test attachments
         if: always()
         run: |
@@ -120,6 +143,7 @@ jobs:
 
       - name: Upload build and UI artifacts
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ios-ci-artifacts
