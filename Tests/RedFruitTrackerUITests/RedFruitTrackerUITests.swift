@@ -10,6 +10,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         let older = app.buttons["series-card-order-older"]
         XCTAssertTrue(newer.waitForExistence(timeout: 5))
         XCTAssertTrue(older.exists)
+        XCTAssertTrue(app.staticTexts["series-added-at"].exists)
         XCTAssertLessThan(newer.frame.minY, older.frame.minY,
                           "Refreshing an older work must never move it ahead of a newly added work.")
     }

@@ -2,7 +2,7 @@
 
 | 项目状态 | 创建日期 | 最近更新 |
 | --- | --- | --- |
-| v1.2.19 书架稳定排序、刷新进度、官方热度图和分享反馈，待 CI/真机验收 | 2026-10-11 | 进行中 |
+| v1.2.20 海报去重、刷新冷却、添加时间、真实热度样本、官方评分区分和分季解析，待 CI/真机验收 | 2026-10-24 | 进行中 |
 
 ## 一句话目标
 
@@ -75,6 +75,7 @@
 - v1.2.18 本轮：分享页提取 `video_id` 后优先读取官方详情页，使用详情页 `seriesDetail.series_cover` 并下载检查真实图像方向，只接受竖版剧级海报；详情页公开字段优先于分享页回退字段。分享扩展把完整链接写入 App Group，只发送短唤醒 URL，主 App 前台读取队列并延迟重试后自动打开导入页。主 App 与 Share Extension 更新为 build 21。
 - v1.2.18 CI 已通过：Run `38132924380`（最终修复提交 `c18afd2`），38 个单元测试和 2 个 UI 测试全部通过，模拟器构建、真机架构归档和未签名 IPA 均成功。
 - v1.2.18 产物：`artifacts/RedFruitTracker-unsigned-device-v1.2.18-build21.ipa`，1,088,606 字节；SHA-256 为 `1D446C0E456405B50CCDF8283DC3B696C6649A01B7E1B02A931CD11B2375DF74`。包内含主 App、Share Extension 和 App Icon，但无 `_CodeSignature` 或 `embedded.mobileprovision`，仍需用户侧签名后安装。
+- v1.2.20 / build 23：候选封面按 Byteimg 作品资源 ID 合并 CDN/尺寸变体；整库刷新从请求开始写入 24 小时尝试冷却；书架显示创建时间并分开展示官方与个人评分；趋势快照只写本次真实热度，不再回填旧热度或新写官方评分历史；季集解析支持 snake_case 列表、`video_data.video_list[].vid_index`，并合并详情页与分享页季信息。CI 与真机尚未验证。
 - v1.2.16 CI 已通过：Run `38099393357`，34 个单元测试和 2 个 UI 测试全部通过，模拟器构建、真机架构归档和未签名 IPA 均成功；主 App 与 Share Extension 均为 build 19。
 - v1.2.16 产物：`artifacts/RedFruitTracker-unsigned-device-v1.2.16-build19.ipa`，1,065,434 字节；SHA-256 为 `4BB4D4679965FA8A0CF3AD8E09CCEC094103D3C83DAB248199E053C385F2ABBF`。包内含 Share Extension 和 App Icon，但没有 `_CodeSignature` 或 `embedded.mobileprovision`，仍需用户侧签名后安装。
 - 本轮详情页与删除调整已完成：主详情页移除“选集”起始的季数、集数、当前进度和打开当前入口，保留作品信息、简介以及“我的评分与点评”；书架作品行支持 trailing swipe action 的 `List`，确认后删除作品及其季、集、个人记录和公开快照。

@@ -13,6 +13,22 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(progress.failed, 1)
     }
 
+    func testMetadataRefreshAttemptSuppressesImmediateRetryAfterFailedBatch() {
+        let suiteName = "MetadataRefreshScheduleTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+        XCTAssertTrue(MetadataRefreshSchedule.shouldRun(now: start, defaults: defaults))
+        MetadataRefreshSchedule.markAttempt(start, defaults: defaults)
+
+        XCTAssertFalse(MetadataRefreshSchedule.shouldRun(now: start.addingTimeInterval(60), defaults: defaults))
+        XCTAssertTrue(MetadataRefreshSchedule.shouldRun(
+            now: start.addingTimeInterval(MetadataRefreshSchedule.minimumInterval),
+            defaults: defaults
+        ))
+    }
+
     func testSeriesKeepsExternalIdentifierAndMetadata() {
         let record = SeriesRecord(
             sourceSeriesID: "7680187265020070937",
@@ -31,6 +47,19 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(record.tagsText, "修仙,爽剧")
         XCTAssertEqual(record.officialRating, 9.0)
         XCTAssertEqual(record.officialHeatText, "6859万")
+    }
+
+    func testLegacyOfficialRatingTrendValuesCanBeClearedWithoutTouchingHeat() {
+        let snapshot = OfficialSnapshot(sourceSeriesID: "series")
+        snapshot.officialRating = 9.2
+        snapshot.officialRatingCount = 1200
+        snapshot.officialHeatScore = 36_000_000
+
+        snapshot.clearLegacyRatingTrend()
+
+        XCTAssertNil(snapshot.officialRating)
+        XCTAssertNil(snapshot.officialRatingCount)
+        XCTAssertEqual(snapshot.officialHeatScore, 36_000_000)
     }
 
     func testEpisodeProgressCanBeMarkedWatched() {
@@ -164,19 +193,18 @@ final class LibraryModelTests: XCTestCase {
         )
     }
 
-    func testRatingPresentationPrefersOfficialThenPersonalFallback() {
-        XCTAssertEqual(
-            RatingPresentation.resolve(officialRating: 8.8, personalRating: 4).text,
-            "官方 8.8分"
-        )
-        XCTAssertEqual(
-            RatingPresentation.resolve(officialRating: nil, personalRating: 4).text,
-            "4.0"
-        )
-        XCTAssertEqual(
-            RatingPresentation.resolve(officialRating: nil, personalRating: nil).text,
-            "暂无评分"
-        )
+    func testReportedSeasonEpisodeCountCanRecordDecreasesWithoutErasingMissingValues() {
+        XCTAssertEqual(SeasonEpisodeCount.latest(existing: 152, reported: 125), 125)
+        XCTAssertEqual(SeasonEpisodeCount.latest(existing: 125, reported: 0), 125)
+        XCTAssertEqual(SeasonEpisodeCount.latest(existing: 125, reported: 0, observed: 9), 125)
+        XCTAssertEqual(SeasonEpisodeCount.latest(existing: 0, reported: 0, observed: 9), 9)
+    }
+
+    func testRatingPresentationKeepsOfficialAndPersonalScoresSeparate() {
+        XCTAssertEqual(RatingPresentation.officialText(8.8), "官方 8.8")
+        XCTAssertEqual(RatingPresentation.officialText(nil), "官方暂无评分")
+        XCTAssertEqual(RatingPresentation.personalText(4), "我的 4.0")
+        XCTAssertNil(RatingPresentation.personalText(nil))
     }
 
     func testRatingScaleUsesTenPointHalfStepAndMigratesLegacyStars() {
@@ -452,6 +480,65 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(seasons.first(where: { $0.seasonNumber == 2 })?.episodeCount, 128)
     }
 
+    func testStructuredHeatAndRatingOutrankGenericOpenGraphValues() {
+        let html = #"""
+        <meta property="og:heat" content="4100万">
+        <meta property="og:rating" content="6.0">
+        <script>_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"popularity":41000000},"seriesSocialInfo":{"rating":"9.1","hot_score_data":{"text":"3600万热度","score":"3600万"}}}}};</script>
+        """#
+
+        XCTAssertEqual(HTMLMetadata.officialHeatText(in: html), "3600万热度")
+        XCTAssertEqual(HTMLMetadata.officialHeatScore(in: html), 36_000_000)
+        XCTAssertEqual(HTMLMetadata.officialRating(in: html), 9.1)
+
+        let detailOnlyHeat = #"<script>_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"popularity":41000000}}}};</script>"#
+        XCTAssertEqual(HTMLMetadata.officialHeatText(in: detailOnlyHeat), "4100万")
+        XCTAssertEqual(HTMLMetadata.officialHeatScore(in: detailOnlyHeat), 41_000_000)
+    }
+
+    func testSharedManjuHeatOutranksDifferentDetailPlatformHeat() {
+        let sharePage = #"<script>_ROUTER_DATA={"loaderData":{"video-animation-share_page":{"pageData":{"series_data":{"popularity":36000000}}}}};</script>"#
+        let detailPage = #"<script>_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"popularity":41000000}}}};</script>"#
+
+        XCTAssertEqual(HTMLMetadata.officialHeatText(in: sharePage, fallbackHTML: detailPage), "3600万")
+        XCTAssertEqual(HTMLMetadata.officialHeatScore(in: sharePage, fallbackHTML: detailPage), 36_000_000)
+    }
+
+    func testSeasonParserReadsSnakeCaseSeasonListAndEpisodeIndexes() {
+        let html = #"""
+        <script>_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"series_name":"星海纪元第三季","episode_cnt":2,"video_data":{"video_list":[{"vid":"s3e2","vid_index":2,"title":"第2集"},{"vid":"s3e1","vid_index":1,"title":"第1集"}]}},"video_list":[{"series_name":"星海纪元第一季","series_id":"s1","episode_cnt":90},{"series_name":"星海纪元第二季","series_id":"s2","episode_cnt":80},{"series_name":"星海纪元第三季","series_id":"s3","episode_cnt":2}]}}};</script>
+        """#
+        let seasons = HTMLMetadata.seasons(
+            in: html,
+            baseURL: URL(string: "https://hongguoduanju.com/detail?series_id=s3")!
+        )
+
+        XCTAssertEqual(seasons.map(\.seasonNumber), [1, 2, 3])
+        XCTAssertEqual(seasons.map(\.episodeCount), [90, 80, 2])
+        XCTAssertEqual(seasons.last?.episodes.map(\.sourceVid), ["s3e1", "s3e2"])
+        XCTAssertEqual(seasons.last?.episodes.map(\.episodeNumber), [1, 2])
+    }
+
+    func testSeasonMetadataMergeKeepsOtherSeasonsAndPrefersCurrentDetailCount() {
+        let detail = [PublicSeasonMetadata(
+            seasonNumber: 3,
+            title: "第三季",
+            episodeCount: 152,
+            sourceURL: "https://example.com/detail?s=3",
+            episodes: []
+        )]
+        let share = [
+            PublicSeasonMetadata(seasonNumber: 2, title: "第二季", episodeCount: 128, sourceURL: nil, episodes: []),
+            PublicSeasonMetadata(seasonNumber: 3, title: "第三季", episodeCount: 150, sourceURL: nil, episodes: [])
+        ]
+
+        let merged = PublicSeasonMetadataMerger.merge(primary: detail, supplement: share)
+
+        XCTAssertEqual(merged.map(\.seasonNumber), [2, 3])
+        XCTAssertEqual(merged.map(\.episodeCount), [128, 152])
+        XCTAssertEqual(merged.last?.sourceURL, "https://example.com/detail?s=3")
+    }
+
     func testRedFruitManjuShareFixtureUsesCurrentSeriesMetadataOnly() throws {
         let projectRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -481,6 +568,8 @@ final class LibraryModelTests: XCTestCase {
             HTMLMetadata.currentSeriesDetailCompactCountText(for: ["popularity"], in: html),
             "3892.7万"
         )
+        XCTAssertEqual(HTMLMetadata.officialHeatText(in: html), "3892.7万")
+        XCTAssertEqual(HTMLMetadata.officialHeatScore(in: html), 38_927_338)
         XCTAssertNil(
             HTMLMetadata.selectedCoverURL(in: html, baseURL: baseURL, title: "红袖伴我，修清玄第一季")
         )
@@ -633,6 +722,21 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(CoverURLSelector.ranked(candidates).map(\.url), ["https://example.com/cover.jpg"])
     }
 
+    func testCoverSelectorDeduplicatesByteimgCDNAndResizeVariants() {
+        let canonicalPoster = CoverImageCandidate(
+            url: "https://p3-novel.byteimg.com/novel-pic/poster-123~tplv-shrink:640:0.image",
+            context: "official-current-series-cover"
+        )
+        let resizedPoster = CoverImageCandidate(
+            url: "https://p6-novel.byteimg.com/novel-pic/poster-123~tplv-shrink:1080:0.webp?token=cache",
+            context: "og:image"
+        )
+
+        let ranked = CoverURLSelector.ranked([resizedPoster, canonicalPoster])
+
+        XCTAssertEqual(ranked.map(\.url), [canonicalPoster.url])
+    }
+
     func testShareRouteCarriesAndRecoversTheSharedURL() throws {
         let sharedURL = URL(string: "https://example.com/series/123?from=share")!
         let callback = try XCTUnwrap(ShareRoute.callbackURL(for: sharedURL))
@@ -676,6 +780,19 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(candles.first?.close, 42)
         XCTAssertEqual(candles.first?.high, 42)
         XCTAssertEqual(candles.first?.low, 30)
+    }
+
+    func testOfficialRatingWithoutHeatDoesNotCreateAHeatTrendPoint() {
+        let snapshot = OfficialSnapshot(sourceSeriesID: "series")
+        snapshot.officialRating = 9.2
+
+        let candles = TrendAggregation.candles(
+            from: [snapshot],
+            interval: .day,
+            value: { $0.officialHeatScore }
+        )
+
+        XCTAssertTrue(candles.isEmpty)
     }
 
     private func manjuShareFixture(

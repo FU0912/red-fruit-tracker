@@ -213,37 +213,18 @@ enum TrendAggregation {
     }
 }
 
-enum RatingPresentation: Equatable {
-    case official(Double)
-    case personal(Double)
-    case unavailable
-
-    static func resolve(officialRating: Double?, personalRating: Double?) -> Self {
-        if let officialRating {
-            return .official(officialRating)
-        }
-        if let personalRating {
-            return .personal(personalRating)
-        }
-        return .unavailable
+enum RatingPresentation {
+    static func officialText(_ rating: Double?) -> String {
+        guard let rating else { return "官方暂无评分" }
+        return "官方 \(formatted(rating))"
     }
 
-    var text: String {
-        switch self {
-        case .official(let rating):
-            return "官方 \(Self.formatted(rating))"
-        case .personal(let rating):
-            return Self.formattedTenPoint(rating)
-        case .unavailable:
-            return "暂无评分"
-        }
+    static func personalText(_ rating: Double?) -> String? {
+        guard let rating else { return nil }
+        return "我的 \(formatted(rating))"
     }
 
     private static func formatted(_ rating: Double) -> String {
-        String(format: "%.1f分", rating)
-    }
-
-    private static func formattedTenPoint(_ rating: Double) -> String {
         String(format: "%.1f", rating)
     }
 }
@@ -304,6 +285,13 @@ enum EpisodeProgressSupport {
     static func summary(watchedCount: Int, totalEpisodeCount: Int) -> String {
         guard totalEpisodeCount > 0 else { return "集数待补" }
         return "已看 \(max(0, watchedCount)) / 共\(totalEpisodeCount)集"
+    }
+}
+
+enum SeasonEpisodeCount {
+    static func latest(existing: Int, reported: Int, observed: Int = 0) -> Int {
+        if reported > 0 { return max(reported, observed) }
+        return existing > 0 ? existing : observed
     }
 }
 
@@ -460,6 +448,11 @@ final class OfficialSnapshot {
     init(sourceSeriesID: String, capturedAt: Date = .now) {
         self.sourceSeriesID = sourceSeriesID
         self.capturedAt = capturedAt
+    }
+
+    func clearLegacyRatingTrend() {
+        officialRating = nil
+        officialRatingCount = nil
     }
 }
 

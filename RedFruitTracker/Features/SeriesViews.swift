@@ -202,10 +202,7 @@ struct SeriesDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             TagFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
                 DetailPill(
-                    text: RatingPresentation.resolve(
-                        officialRating: series.officialRating,
-                        personalRating: personalRecord?.myRating
-                    ).text,
+                    text: RatingPresentation.officialText(series.officialRating),
                     systemImage: "number"
                 )
                 .accessibilityIdentifier("official-rating")
@@ -488,6 +485,7 @@ struct SeriesDetailView: View {
         }
 
         isRefreshing = true
+        MetadataRefreshSchedule.markAttempt()
         Task {
             do {
                 let metadata = try await PublicMetadataService.shared.fetch(from: url)
@@ -521,18 +519,19 @@ struct SeriesDetailView: View {
                     mergePublicSeasons(metadata.seasons)
                     series.updatedAt = .now
 
-                    let snapshot = OfficialSnapshot(sourceSeriesID: series.sourceSeriesID)
-                    snapshot.officialRating = metadata.officialRating ?? series.officialRating
-                    snapshot.officialRatingCount = metadata.officialRatingCount ?? series.officialRatingCount
-                    snapshot.officialHeatScore = metadata.officialHeatScore ?? series.officialHeatScore
-                    snapshot.officialHeatText = metadata.officialHeatText ?? series.officialHeatText
-                    if !metadata.seasons.isEmpty {
-                        snapshot.seasonCount = metadata.seasons.count
-                        snapshot.episodeCount = metadata.seasons.map(\.episodeCount).reduce(0, +)
+                    if metadata.officialHeatScore != nil
+                        || !(metadata.officialHeatText?.isEmpty ?? true)
+                        || !metadata.seasons.isEmpty {
+                        let snapshot = OfficialSnapshot(sourceSeriesID: series.sourceSeriesID)
+                        snapshot.officialHeatScore = metadata.officialHeatScore
+                        snapshot.officialHeatText = metadata.officialHeatText
+                        if !metadata.seasons.isEmpty {
+                            snapshot.seasonCount = metadata.seasons.count
+                            snapshot.episodeCount = metadata.seasons.map(\.episodeCount).reduce(0, +)
+                        }
+                        modelContext.insert(snapshot)
                     }
-                    modelContext.insert(snapshot)
                     try? modelContext.save()
-                    MetadataRefreshSchedule.markRun()
                     isRefreshing = false
                     if showNotice {
                         notice = metadata.seasons.isEmpty
@@ -565,7 +564,11 @@ struct SeriesDetailView: View {
             )
             if existing == nil { modelContext.insert(season) }
             season.title = metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季"
-            season.episodeCount = max(season.episodeCount, metadataSeason.episodeCount)
+            season.episodeCount = SeasonEpisodeCount.latest(
+                existing: season.episodeCount,
+                reported: metadataSeason.episodeCount,
+                observed: metadataSeason.episodes.count
+            )
             season.sourceURL = metadataSeason.sourceURL ?? season.sourceURL ?? series.sourceURL
             season.updatedAt = .now
 
@@ -992,7 +995,11 @@ private struct AddSeasonView: View {
                 season.title = metadataSeason.seasonNumber == seasonNumber
                     ? (title.nilIfBlank ?? metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季")
                     : (metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季")
-                season.episodeCount = max(season.episodeCount, metadataSeason.episodeCount)
+                season.episodeCount = SeasonEpisodeCount.latest(
+                    existing: season.episodeCount,
+                    reported: metadataSeason.episodeCount,
+                    observed: metadataSeason.episodes.count
+                )
                 season.sourceURL = metadataSeason.sourceURL ?? cleanURL ?? season.sourceURL
                 season.updatedAt = .now
 
@@ -1024,6 +1031,7 @@ struct SeasonDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     let series: SeriesRecord
     let season: SeasonRecord
@@ -1034,6 +1042,8 @@ struct SeasonDetailView: View {
     @State private var isShowingAddEpisode = false
     @State private var isShowingEdit = false
     @State private var notice: String?
+    @State private var seasonSaveTask: Task<Void, Never>?
+    @State private var seasonSaveError: String?
 
     init(series: SeriesRecord, season: SeasonRecord) {
         self.series = series
@@ -1134,6 +1144,10 @@ struct SeasonDetailView: View {
         } message: {
             Text(notice ?? "")
         }
+        .onDisappear { flushSeasonChanges() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { flushSeasonChanges() }
+        }
     }
 
     private var seasonRatingSection: some View {
@@ -1144,21 +1158,58 @@ struct SeasonDetailView: View {
                 set: {
                     season.myRating = $0
                     season.updatedAt = .now
+                    scheduleSeasonSave()
                 }
             ))
             ReviewEditor(
                 text: Binding(
                     get: { season.review },
-                    set: { season.review = $0 }
+                    set: {
+                        season.review = $0
+                        season.updatedAt = .now
+                        scheduleSeasonSave()
+                    }
                 ),
                 placeholder: "写下这一季的感受"
             )
-            Button("保存本季记录") {
-                season.updatedAt = .now
-                try? modelContext.save()
-                notice = "本季评分和点评已保存。"
+
+            if let seasonSaveError {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(seasonSaveError)
+                    Button("重试保存") { flushSeasonChanges() }
+                }
+                .font(.caption)
+                .foregroundStyle(.red)
+            } else {
+                Text("修改自动保存")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.bordered)
+        }
+    }
+
+    private func scheduleSeasonSave() {
+        seasonSaveTask?.cancel()
+        seasonSaveTask = Task { @MainActor in
+            do { try await Task.sleep(nanoseconds: 350_000_000) } catch { return }
+            saveSeasonChanges()
+        }
+    }
+
+    private func flushSeasonChanges() {
+        seasonSaveTask?.cancel()
+        seasonSaveTask = nil
+        if modelContext.hasChanges { saveSeasonChanges() }
+    }
+
+    private func saveSeasonChanges() {
+        seasonSaveTask?.cancel()
+        seasonSaveTask = nil
+        do {
+            try modelContext.save()
+            seasonSaveError = nil
+        } catch {
+            seasonSaveError = "自动保存未完成，请重试。"
         }
     }
 }

@@ -111,7 +111,10 @@ struct RootView: View {
 private struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
 
-    @Query(sort: \SeriesRecord.createdAt, order: .reverse)
+    @Query(sort: [
+        SortDescriptor(\SeriesRecord.createdAt, order: .reverse),
+        SortDescriptor(\SeriesRecord.sourceSeriesID)
+    ])
     private var series: [SeriesRecord]
 
     @Query(sort: \SeasonRecord.seasonNumber)
@@ -123,6 +126,7 @@ private struct LibraryView: View {
     let pendingShareURL: URL?
     let onAdd: () -> Void
 
+    @AppStorage("redFruitTracker.officialRatingTrendCleaned") private var didClearLegacyRatingTrend = false
     @State private var searchText = ""
     @State private var hasAutoRefreshedMetadata = false
     @State private var isRefreshingAll = false
@@ -268,6 +272,7 @@ private struct LibraryView: View {
                 Text(refreshNotice ?? "")
             }
             .task {
+                clearLegacyRatingTrend()
                 await refreshMetadataIfDue()
             }
         }
@@ -289,6 +294,25 @@ private struct LibraryView: View {
             try modelContext.save()
         } catch {
             deletionErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func clearLegacyRatingTrend() {
+        guard !didClearLegacyRatingTrend else { return }
+        do {
+            let snapshots = try modelContext.fetch(FetchDescriptor<OfficialSnapshot>())
+            let legacySnapshots = snapshots.filter {
+                $0.officialRating != nil || $0.officialRatingCount != nil
+            }
+            guard !legacySnapshots.isEmpty else {
+                didClearLegacyRatingTrend = true
+                return
+            }
+            legacySnapshots.forEach { $0.clearLegacyRatingTrend() }
+            try modelContext.save()
+            didClearLegacyRatingTrend = true
+        } catch {
+            return
         }
     }
 
@@ -322,6 +346,7 @@ private struct LibraryView: View {
     @MainActor
     private func refreshAllMetadata(showNotice: Bool) async {
         guard !isRefreshingAll else { return }
+        MetadataRefreshSchedule.markAttempt()
         isRefreshingAll = true
         isStoppingRefresh = false
         defer { isRefreshingAll = false; isStoppingRefresh = false }
@@ -352,7 +377,6 @@ private struct LibraryView: View {
             }
         }
 
-        if !Task.isCancelled, refreshProgress.succeeded > 0 { MetadataRefreshSchedule.markRun() }
         if showNotice {
             let status = Task.isCancelled ? "已停止更新" : "更新完成"
             refreshNotice = "\(status)：已处理 \(refreshProgress.completed)/\(refreshProgress.total) 部，成功 \(refreshProgress.succeeded) 部，失败 \(refreshProgress.failed) 部。"
@@ -406,7 +430,11 @@ private struct LibraryView: View {
             )
             if existing == nil { modelContext.insert(season) }
             if season.title.isEmpty { season.title = metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季" }
-            season.episodeCount = max(season.episodeCount, metadataSeason.episodeCount)
+            season.episodeCount = SeasonEpisodeCount.latest(
+                existing: season.episodeCount,
+                reported: metadataSeason.episodeCount,
+                observed: metadataSeason.episodes.count
+            )
             season.sourceURL = metadataSeason.sourceURL ?? season.sourceURL ?? item.sourceURL
             season.updatedAt = .now
 
@@ -430,11 +458,14 @@ private struct LibraryView: View {
     }
 
     private func insertSnapshot(for item: SeriesRecord, metadata: PublicSeriesMetadata) {
+        guard metadata.officialHeatScore != nil
+                || !(metadata.officialHeatText?.isEmpty ?? true)
+                || !metadata.seasons.isEmpty else {
+            return
+        }
         let snapshot = OfficialSnapshot(sourceSeriesID: item.sourceSeriesID)
-        snapshot.officialRating = metadata.officialRating ?? item.officialRating
-        snapshot.officialRatingCount = metadata.officialRatingCount ?? item.officialRatingCount
-        snapshot.officialHeatScore = metadata.officialHeatScore ?? item.officialHeatScore
-        snapshot.officialHeatText = metadata.officialHeatText ?? item.officialHeatText
+        snapshot.officialHeatScore = metadata.officialHeatScore
+        snapshot.officialHeatText = metadata.officialHeatText
         if !metadata.seasons.isEmpty {
             snapshot.seasonCount = metadata.seasons.count
             snapshot.episodeCount = metadata.seasons.map(\.episodeCount).reduce(0, +)
@@ -608,14 +639,30 @@ private struct SeriesCard: View {
                     .multilineTextAlignment(.leading)
                     .accessibilityIdentifier("series-card-title")
 
-                CompactInfoPill(
-                    text: RatingPresentation.resolve(
-                        officialRating: series.officialRating,
-                        personalRating: personal?.myRating
-                    ).text,
-                    systemImage: "number",
-                    tint: .orange
-                )
+                Text("添加于 \(series.createdAt.formatted(date: .numeric, time: .omitted))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("series-added-at")
+
+                TagFlowLayout(horizontalSpacing: 4, verticalSpacing: 4) {
+                    CompactInfoPill(
+                        text: RatingPresentation.officialText(series.officialRating),
+                        systemImage: "star.fill",
+                        tint: .orange
+                    )
+                    .accessibilityIdentifier("series-card-official-rating")
+
+                    if let personalRating = RatingPresentation.personalText(personal?.myRating) {
+                        CompactInfoPill(
+                            text: personalRating,
+                            systemImage: "person.fill",
+                            tint: .blue
+                        )
+                        .accessibilityIdentifier("series-card-personal-rating")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 TagFlowLayout(horizontalSpacing: 4, verticalSpacing: 4) {
                     CompactInfoPill(
@@ -1020,7 +1067,10 @@ struct CoverView: View {
 }
 
 private struct StatsView: View {
-    @Query(sort: \SeriesRecord.createdAt, order: .reverse)
+    @Query(sort: [
+        SortDescriptor(\SeriesRecord.createdAt, order: .reverse),
+        SortDescriptor(\SeriesRecord.sourceSeriesID)
+    ])
     private var series: [SeriesRecord]
     @Query private var personalRecords: [PersonalRecord]
     @Query(sort: \OfficialSnapshot.capturedAt, order: .reverse)
@@ -1171,7 +1221,10 @@ private struct StatTile: View {
 private struct FilteredSeriesView: View {
     let filter: LibraryFilter
 
-    @Query(sort: \SeriesRecord.createdAt, order: .reverse)
+    @Query(sort: [
+        SortDescriptor(\SeriesRecord.createdAt, order: .reverse),
+        SortDescriptor(\SeriesRecord.sourceSeriesID)
+    ])
     private var series: [SeriesRecord]
     @Query(sort: \SeasonRecord.seasonNumber)
     private var seasons: [SeasonRecord]
@@ -1640,9 +1693,10 @@ private struct AddSeriesView: View {
                 }
 
                 season.title = metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季"
-                season.episodeCount = max(
-                    season.episodeCount,
-                    max(metadataSeason.episodeCount, metadataSeason.episodes.count)
+                season.episodeCount = SeasonEpisodeCount.latest(
+                    existing: season.episodeCount,
+                    reported: metadataSeason.episodeCount,
+                    observed: metadataSeason.episodes.count
                 )
                 season.sourceURL = metadataSeason.sourceURL ?? cleanURL.nilIfBlank ?? season.sourceURL
                 season.updatedAt = .now
@@ -1670,15 +1724,10 @@ private struct AddSeriesView: View {
                 }
             }
 
-            if Double(officialRatingText) != nil
-                || officialHeatText.nilIfBlank != nil
-                || !importedSeasons.isEmpty
-                || completionStatus != SeriesCompletionStatus.unknown.rawValue {
+            if officialHeatScore != nil || officialHeatText.nilIfBlank != nil || !importedSeasons.isEmpty {
                 let snapshot = OfficialSnapshot(sourceSeriesID: sourceID)
-                snapshot.officialRating = target.officialRating
-                snapshot.officialRatingCount = target.officialRatingCount
-                snapshot.officialHeatScore = target.officialHeatScore
-                snapshot.officialHeatText = target.officialHeatText
+                snapshot.officialHeatScore = officialHeatScore
+                snapshot.officialHeatText = officialHeatText.nilIfBlank
                 if !importedSeasons.isEmpty {
                     snapshot.seasonCount = importedSeasons.count
                     snapshot.episodeCount = importedSeasons.map(\.episodeCount).reduce(0, +)
