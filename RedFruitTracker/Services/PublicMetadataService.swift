@@ -86,8 +86,7 @@ enum CoverURLSelector {
         }
         let queryString = query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")
         let port = components.port.map { ":\($0)" } ?? ""
-        let scheme = components.scheme?.lowercased() ?? "https"
-        return "\(scheme)://\(canonicalHost)\(port)\(path)?\(queryString)"
+        return "https://\(canonicalHost)\(port)\(path)?\(queryString)"
     }
 
     private static func replacing(_ pattern: String, in value: String, with replacement: String) -> String {
