@@ -117,7 +117,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         let copyTitle = app.buttons["copy-series-title"]
         XCTAssertTrue(copyTitle.exists)
         copyTitle.tap()
-        XCTAssertTrue(app.staticTexts["series-title-copied"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["作品名称已复制"].waitForExistence(timeout: 2))
         XCTAssertFalse(app.staticTexts["修改自动保存"].exists)
         XCTAssertFalse(app.buttons["heat-chart-style"].exists)
         let personalRating = app.descendants(matching: .any)["personal-rating-score"].firstMatch

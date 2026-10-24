@@ -184,7 +184,7 @@ struct SeriesDetailView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("复制作品名称")
+                    .accessibilityLabel(titleCopyFeedback ? "作品名称已复制" : "复制作品名称")
                     .accessibilityIdentifier("copy-series-title")
 
                     officialMetadataSection
