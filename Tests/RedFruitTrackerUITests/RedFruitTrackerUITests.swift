@@ -10,7 +10,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         let older = app.buttons["series-card-order-older"]
         XCTAssertTrue(newer.waitForExistence(timeout: 5))
         XCTAssertTrue(older.exists)
-        XCTAssertTrue(app.staticTexts["series-added-at"].exists)
+        XCTAssertFalse(app.staticTexts["series-added-at"].exists)
         XCTAssertLessThan(newer.frame.minY, older.frame.minY,
                           "Refreshing an older work must never move it ahead of a newly added work.")
     }
@@ -30,6 +30,9 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.textFields["红果分享链接"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.textFields["作品名称"].exists)
         XCTAssertTrue(app.buttons["保存"].exists)
+        let manualSeasonToggle = app.switches["manual-season-toggle"]
+        XCTAssertTrue(manualSeasonToggle.exists)
+        XCTAssertEqual(manualSeasonToggle.value as? String, "0")
 
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
@@ -113,6 +116,12 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["全189集"].exists)
         XCTAssertTrue(app.staticTexts["我的评分与点评"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["open-red-fruit-button"].exists)
+        let copyTitle = app.buttons["copy-series-title"]
+        XCTAssertTrue(copyTitle.exists)
+        copyTitle.tap()
+        XCTAssertTrue(app.staticTexts["series-title-copied"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["修改自动保存"].exists)
+        XCTAssertFalse(app.buttons["heat-chart-style"].exists)
         let personalRating = app.descendants(matching: .any)["personal-rating-score"].firstMatch
         XCTAssertTrue(personalRating.exists)
         XCTAssertFalse(app.sliders.firstMatch.exists)

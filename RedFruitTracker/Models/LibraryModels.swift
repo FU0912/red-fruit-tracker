@@ -295,6 +295,32 @@ enum SeasonEpisodeCount {
     }
 }
 
+enum SeriesLinkPolicy {
+    static func primary(existing: String?, incoming: String?) -> String? {
+        let current = existing?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let proposed = incoming?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        if isDetailPage(current), let proposed, !isDetailPage(proposed) {
+            return proposed
+        }
+        return current ?? proposed
+    }
+
+    private static func isDetailPage(_ value: String?) -> Bool {
+        guard let value,
+              let components = URLComponents(string: value),
+              let host = components.host?.lowercased(),
+              ["hongguoduanju.com", "www.hongguoduanju.com"].contains(host),
+              components.path == "/detail" else {
+            return false
+        }
+        return components.queryItems?.contains { $0.name.lowercased() == "series_id" } == true
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
 @Model
 final class SeriesRecord {
     @Attribute(.unique) var sourceSeriesID: String

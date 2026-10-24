@@ -3,7 +3,6 @@ import UIKit
 
 final class ShareViewController: UIViewController {
     private var didStartImport = false
-    private var shouldOpenHostApp = false
     private let statusLabel = UILabel()
     private let doneButton = UIButton(type: .system)
 
@@ -60,13 +59,20 @@ final class ShareViewController: UIViewController {
         }
 
         let provider = providers[providerIndex]
-        let identifiers = [UTType.url.identifier, UTType.plainText.identifier, UTType.text.identifier]
+        let identifiers = [
+            UTType.url.identifier,
+            UTType.webURL.identifier,
+            UTType.plainText.identifier,
+            UTType.utf8PlainText.identifier,
+            UTType.text.identifier,
+            UTType.html.identifier,
+            UTType.data.identifier
+        ]
             .filter { provider.hasItemConformingToTypeIdentifier($0) }
         loadURL(from: provider, identifiers: identifiers, identifierIndex: 0) { [weak self] url in
             guard let self else { return }
             if let url {
                 self.save(url: url)
-                self.finishOnMainThread()
             } else {
                 self.loadURL(from: providers, providerIndex: providerIndex + 1)
             }
@@ -101,27 +107,19 @@ final class ShareViewController: UIViewController {
     }
 
     private static func url(from item: Any?) -> URL? {
-        if let value = item as? URL { return value }
-        if let value = item as? NSURL { return value as URL }
-        if let value = item as? String { return URLExtractor.firstURL(in: value) }
-        if let value = item as? NSString { return URLExtractor.firstURL(in: value as String) }
-        if let value = item as? Data {
-            return URLExtractor.firstURL(in: String(data: value, encoding: .utf8) ?? "")
-        }
-        return nil
+        SharePayloadParser.url(from: item)
     }
 
     private func save(url: URL) {
-        ShareInbox.enqueue(url)
-        shouldOpenHostApp = true
         DispatchQueue.main.async { [weak self] in
-            self?.statusLabel.text = "已接收分享链接\n打开漫剧记录后会自动导入，不需要复制链接。"
-        }
-    }
-
-    private func finishOnMainThread() {
-        DispatchQueue.main.async { [weak self] in
-            self?.finish()
+            guard let self else { return }
+            if ShareInbox.enqueue(url) {
+                self.statusLabel.text = "链接已接收\n打开漫剧记录后会自动完成导入，无须复制链接。"
+                self.doneButton.setTitle("完成", for: .normal)
+                self.doneButton.isHidden = false
+            } else {
+                self.showFailure("链接暂时未能保存，请稍后重试。")
+            }
         }
     }
 
@@ -129,39 +127,6 @@ final class ShareViewController: UIViewController {
         DispatchQueue.main.async { [weak self] in
             self?.statusLabel.text = message
             self?.doneButton.isHidden = false
-        }
-    }
-
-    private func finish() {
-        guard shouldOpenHostApp else {
-            extensionContext?.completeRequest(returningItems: nil)
-            return
-        }
-
-        guard let callbackURL = ShareRoute.wakeURL() else {
-            showFailure("链接已接收。打开漫剧记录后会自动导入。")
-            return
-        }
-
-        shouldOpenHostApp = false
-        // Keep the extension alive until the host-app handoff has been
-        // requested. Calling completeRequest first makes iOS dismiss the
-        // extension without delivering the custom URL reliably.
-        extensionContext?.open(callbackURL) { [weak self] opened in
-            DispatchQueue.main.async {
-                if !opened {
-                    // Ordinary Share Extensions are not guaranteed to be able
-                    // to foreground their containing app. Keep the success
-                    // state visible instead of dismissing with no feedback.
-                    self?.statusLabel.text = "已接收分享链接\n打开漫剧记录后会自动导入，不需要复制链接。"
-                    self?.doneButton.isHidden = false
-                } else {
-                    self?.statusLabel.text = "已发送到漫剧记录，正在打开…"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        self?.extensionContext?.completeRequest(returningItems: nil)
-                    }
-                }
-            }
         }
     }
 

@@ -13,22 +13,6 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(progress.failed, 1)
     }
 
-    func testMetadataRefreshAttemptSuppressesImmediateRetryAfterFailedBatch() {
-        let suiteName = "MetadataRefreshScheduleTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let start = Date(timeIntervalSince1970: 1_800_000_000)
-
-        XCTAssertTrue(MetadataRefreshSchedule.shouldRun(now: start, defaults: defaults))
-        MetadataRefreshSchedule.markAttempt(start, defaults: defaults)
-
-        XCTAssertFalse(MetadataRefreshSchedule.shouldRun(now: start.addingTimeInterval(60), defaults: defaults))
-        XCTAssertTrue(MetadataRefreshSchedule.shouldRun(
-            now: start.addingTimeInterval(MetadataRefreshSchedule.minimumInterval),
-            defaults: defaults
-        ))
-    }
-
     func testSeriesKeepsExternalIdentifierAndMetadata() {
         let record = SeriesRecord(
             sourceSeriesID: "7680187265020070937",
@@ -737,18 +721,103 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(ranked.map(\.url), [canonicalPoster.url])
     }
 
+    func testCoverSelectorCanonicalizesCommonCDNResizeParameters() {
+        let resized = CoverImageCandidate(
+            url: "https://images.example/poster.jpg?width=320&quality=70&token=one",
+            context: "poster"
+        )
+        let alternate = CoverImageCandidate(
+            url: "http://images.example/poster.webp?height=640&fm=webp&token=two",
+            context: "poster"
+        )
+
+        XCTAssertEqual(CoverURLSelector.ranked([resized, alternate]).count, 1)
+    }
+
+    func testCoverCandidateDeduplicatorDropsDifferentURLsWithMatchingImageFingerprints() {
+        let first = VerifiedCoverCandidate(
+            candidate: CoverImageCandidate(url: "https://cdn-a.example/poster.jpg", context: "official poster"),
+            width: 400,
+            height: 600,
+            fingerprint: 0xAA55AA55AA55AA55
+        )
+        let resizedCopy = VerifiedCoverCandidate(
+            candidate: CoverImageCandidate(url: "https://cdn-b.example/poster.webp", context: "image"),
+            width: 240,
+            height: 360,
+            fingerprint: 0xAA55AA55AA55AA5D
+        )
+        let landscape = VerifiedCoverCandidate(
+            candidate: CoverImageCandidate(url: "https://cdn-c.example/video.jpg", context: "video"),
+            width: 600,
+            height: 400,
+            fingerprint: 0x1122334455667788
+        )
+
+        let unique = CoverCandidateDeduplicator.uniquePortraits([first, resizedCopy, landscape])
+
+        XCTAssertEqual(unique.map(\.candidate.url), [first.candidate.url])
+    }
+
+    func testCoverImageFingerprintGroupsSimilarGrayscaleImages() throws {
+        var original = (0..<64).map { index in UInt8((index % 8) * 28) }
+        var resizedVariant = original
+        resizedVariant[0] = min(255, resizedVariant[0] + 12)
+        resizedVariant[1] = min(255, resizedVariant[1] + 12)
+
+        let firstHash = try XCTUnwrap(CoverImageFingerprint.hash(grayscaleSamples: original))
+        let resizedHash = try XCTUnwrap(CoverImageFingerprint.hash(grayscaleSamples: resizedVariant))
+
+        XCTAssertTrue(CoverImageFingerprint.isDuplicate(firstHash, resizedHash))
+        original[63] = 255
+        XCTAssertNotNil(CoverImageFingerprint.hash(grayscaleSamples: original))
+    }
+
+    func testSeriesKeepsOriginalShareURLInsteadOfSeasonDetailURL() {
+        let originalShareURL = "https://share.example.com/work/abc"
+        let resolvedSeasonURL = "https://hongguoduanju.com/detail?series_id=season-1"
+
+        XCTAssertEqual(
+            SeriesLinkPolicy.primary(existing: originalShareURL, incoming: resolvedSeasonURL),
+            originalShareURL
+        )
+        XCTAssertEqual(
+            SeriesLinkPolicy.primary(existing: nil, incoming: originalShareURL),
+            originalShareURL
+        )
+        XCTAssertEqual(
+            SeriesLinkPolicy.primary(existing: resolvedSeasonURL, incoming: originalShareURL),
+            originalShareURL
+        )
+    }
+
+    func testSharePayloadParserAcceptsURLTextAndData() {
+        let expected = URL(string: "https://example.com/series/123")!
+
+        XCTAssertEqual(SharePayloadParser.url(from: expected), expected)
+        XCTAssertEqual(SharePayloadParser.url(from: "分享链接：\(expected.absoluteString)"), expected)
+        XCTAssertEqual(SharePayloadParser.url(from: Data(expected.absoluteString.utf8)), expected)
+    }
+
+    func testShareInboxQueuesSharedURLWithoutCopyingAndDeduplicatesRepeatedShares() throws {
+        let suiteName = "ShareInboxTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let sharedURL = URL(string: "https://example.com/series/123")!
+
+        XCTAssertTrue(ShareInbox.enqueue(sharedURL, in: defaults))
+        XCTAssertTrue(ShareInbox.enqueue(sharedURL, in: defaults))
+
+        XCTAssertEqual(ShareInbox.pendingURLs(in: defaults), [sharedURL])
+        ShareInbox.remove(sharedURL, in: defaults)
+        XCTAssertTrue(ShareInbox.pendingURLs(in: defaults).isEmpty)
+    }
+
     func testShareRouteCarriesAndRecoversTheSharedURL() throws {
         let sharedURL = URL(string: "https://example.com/series/123?from=share")!
         let callback = try XCTUnwrap(ShareRoute.callbackURL(for: sharedURL))
 
         XCTAssertEqual(ShareRoute.sharedURL(from: callback), sharedURL)
-    }
-
-    func testShareRouteWakeURLLeavesTheFullURLInTheSharedQueue() throws {
-        let wakeURL = try XCTUnwrap(ShareRoute.wakeURL())
-
-        XCTAssertEqual(wakeURL.absoluteString, "redfruittracker://share-import")
-        XCTAssertNil(ShareRoute.sharedURL(from: wakeURL))
     }
 
     func testCompletionStatusRecognizesBooleanAndChineseText() {

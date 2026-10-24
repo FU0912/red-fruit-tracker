@@ -31,13 +31,12 @@ struct RootView: View {
                 }
                 .tag(1)
         }
-        .sheet(isPresented: $isShowingAdd) {
+        .sheet(isPresented: $isShowingAdd, onDismiss: refreshPendingShare) {
             AddSeriesView(initialURL: pendingShareURL, autoSaveInitialURL: presentedShareURL != nil) {
                 if let pendingShareURL {
                     ShareInbox.remove(pendingShareURL)
                 }
                 presentedShareURL = nil
-                refreshPendingShare()
             }
         }
         .task {
@@ -128,7 +127,6 @@ private struct LibraryView: View {
 
     @AppStorage("redFruitTracker.officialRatingTrendCleaned") private var didClearLegacyRatingTrend = false
     @State private var searchText = ""
-    @State private var hasAutoRefreshedMetadata = false
     @State private var isRefreshingAll = false
     @State private var refreshProgress = BatchRefreshProgress(total: 0)
     @State private var refreshTask: Task<Void, Never>?
@@ -273,7 +271,6 @@ private struct LibraryView: View {
             }
             .task {
                 clearLegacyRatingTrend()
-                await refreshMetadataIfDue()
             }
         }
     }
@@ -316,16 +313,6 @@ private struct LibraryView: View {
         }
     }
 
-    private func refreshMetadataIfDue() async {
-        guard !hasAutoRefreshedMetadata,
-              !ProcessInfo.processInfo.arguments.contains("--ui-testing"),
-              MetadataRefreshSchedule.shouldRun() else {
-            return
-        }
-        hasAutoRefreshedMetadata = true
-        startRefresh(showNotice: false)
-    }
-
     private func refreshAllMetadata() {
         startRefresh(showNotice: true)
     }
@@ -346,7 +333,6 @@ private struct LibraryView: View {
     @MainActor
     private func refreshAllMetadata(showNotice: Bool) async {
         guard !isRefreshingAll else { return }
-        MetadataRefreshSchedule.markAttempt()
         isRefreshingAll = true
         isStoppingRefresh = false
         defer { isRefreshingAll = false; isStoppingRefresh = false }
@@ -547,7 +533,7 @@ private struct LibraryHeader: View {
             .background(Color(uiColor: .secondarySystemGroupedBackground))
             .clipShape(Capsule())
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, AppLayout.pageInset)
         .padding(.top, 18)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -609,7 +595,7 @@ private struct ShareImportBanner: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, AppLayout.pageInset)
             .padding(.vertical, 10)
             .background(.thinMaterial)
         }
@@ -638,12 +624,6 @@ private struct SeriesCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
                     .accessibilityIdentifier("series-card-title")
-
-                Text("添加于 \(series.createdAt.formatted(date: .numeric, time: .omitted))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .accessibilityIdentifier("series-added-at")
 
                 TagFlowLayout(horizontalSpacing: 4, verticalSpacing: 4) {
                     CompactInfoPill(
@@ -1139,7 +1119,7 @@ private struct StatsView: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.tertiary)
                         }
-                        .padding(16)
+                        .padding(AppLayout.pageInset)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color(uiColor: .secondarySystemGroupedBackground))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -1155,7 +1135,7 @@ private struct StatsView: View {
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
+                    .padding(AppLayout.pageInset)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
@@ -1165,7 +1145,7 @@ private struct StatsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .padding(16)
+                .padding(AppLayout.pageInset)
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("统计")
@@ -1352,7 +1332,7 @@ private struct AddSeriesView: View {
     @State private var completionStatus = SeriesCompletionStatus.unknown.rawValue
     @State private var shelfState = "unstarted"
     @State private var followsUpdates = false
-    @State private var includeFirstSeason = true
+    @State private var includeFirstSeason = false
     @State private var firstSeasonNumber = 1
     @State private var firstSeasonEpisodeCount = 0
     @State private var isFetching = false
@@ -1490,7 +1470,8 @@ private struct AddSeriesView: View {
 
                     Toggle("追更 / 预约", isOn: $followsUpdates)
 
-                    Toggle("先建立一个季", isOn: $includeFirstSeason)
+                    Toggle("手动添加季", isOn: $includeFirstSeason)
+                        .accessibilityIdentifier("manual-season-toggle")
                     if includeFirstSeason {
                         Stepper("第\(firstSeasonNumber)季", value: $firstSeasonNumber, in: 1...99)
                         Stepper("预计 \(firstSeasonEpisodeCount) 集", value: $firstSeasonEpisodeCount, in: 0...999)
@@ -1572,7 +1553,7 @@ private struct AddSeriesView: View {
                     if officialHeatText.isEmpty { officialHeatText = metadata.officialHeatText ?? "" }
                     officialHeatScore = metadata.officialHeatScore
                     detectedSeasons = metadata.seasons
-                    includeFirstSeason = metadata.seasons.isEmpty
+                    includeFirstSeason = false
                     let coverNotice = metadata.coverURL == nil && !metadata.coverCandidates.isEmpty
                         ? "未自动采用不确定的图片，请在候选封面中选择人物海报。"
                         : nil
@@ -1590,7 +1571,7 @@ private struct AddSeriesView: View {
                     guard lastFetchedURL == normalizedURL else { return }
                     detectedTitle = TitleNormalizer.fallback(from: url) ?? ""
                     detectedSeasons = []
-                    includeFirstSeason = true
+                    includeFirstSeason = false
                     notice = "没有读到完整公开资料，可以保存链接后再补充。"
                     isFetching = false
                     autoSaveIfNeeded()
@@ -1630,6 +1611,7 @@ private struct AddSeriesView: View {
                 modelContext.insert(target)
             }
 
+            target.sourceURL = SeriesLinkPolicy.primary(existing: target.sourceURL, incoming: cleanURL)
             target.title = cleanTitle
             if CoverURLSelector.shouldReplaceExisting(target.coverURL), let coverURL = coverURLText.nilIfBlank {
                 target.coverURL = coverURL
@@ -1719,9 +1701,6 @@ private struct AddSeriesView: View {
                     if let webURL = metadataEpisode.webURL { episode.webURL = webURL }
                 }
 
-                if metadataSeason.seasonNumber == 1 || target.sourceURL == nil {
-                    target.sourceURL = metadataSeason.sourceURL ?? cleanURL.nilIfBlank
-                }
             }
 
             if officialHeatScore != nil || officialHeatText.nilIfBlank != nil || !importedSeasons.isEmpty {

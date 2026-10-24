@@ -2,6 +2,7 @@ import Foundation
 import Charts
 import SwiftData
 import SwiftUI
+import UIKit
 
 struct SeriesDetailView: View {
     @Environment(\.modelContext) private var modelContext
@@ -29,6 +30,8 @@ struct SeriesDetailView: View {
     @State private var notice: String?
     @State private var personalSaveTask: Task<Void, Never>?
     @State private var personalSaveError: String?
+    @State private var titleCopyFeedback = false
+    @State private var pendingBrowserFallbackURL: URL?
 
     init(series: SeriesRecord) {
         self.series = series
@@ -70,13 +73,13 @@ struct SeriesDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: AppLayout.sectionSpacing) {
                 detailHeader
                 introSection
                 OfficialTrendSection(snapshots: snapshots)
                 personalSection
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, AppLayout.pageInset)
             .padding(.top, 12)
             .padding(.bottom, 24)
         }
@@ -123,29 +126,29 @@ struct SeriesDetailView: View {
             get: { notice != nil },
             set: { if !$0 { notice = nil } }
         )) {
-            Button("好", role: .cancel) { notice = nil }
+            if let pendingBrowserFallbackURL {
+                Button("用浏览器打开") {
+                    openURL(pendingBrowserFallbackURL)
+                    self.pendingBrowserFallbackURL = nil
+                    notice = nil
+                }
+                Button("取消", role: .cancel) {
+                    self.pendingBrowserFallbackURL = nil
+                    notice = nil
+                }
+            } else {
+                Button("好", role: .cancel) { notice = nil }
+            }
         } message: {
             Text(notice ?? "")
         }
         .task {
             ensurePersonalRecord()
-            if shouldAutoRefreshMetadata {
-                refreshMetadata(showNotice: false)
-            }
         }
         .onDisappear { flushPersonalChanges() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { flushPersonalChanges() }
         }
-    }
-
-    private var shouldAutoRefreshMetadata: Bool {
-        guard redFruitURL != nil,
-              !ProcessInfo.processInfo.arguments.contains("--ui-testing"),
-              MetadataRefreshSchedule.shouldRun() else {
-            return false
-        }
-        return true
     }
 
     private var detailHeader: some View {
@@ -156,12 +159,33 @@ struct SeriesDetailView: View {
                     .accessibilityIdentifier("series-detail-cover")
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(series.title)
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(4)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("series-detail-title")
+                    Button(action: copySeriesTitle) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text(series.title)
+                                    .font(.title2.weight(.bold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(4)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .accessibilityIdentifier("series-detail-title")
+                                Image(systemName: titleCopyFeedback ? "checkmark" : "doc.on.doc")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.72))
+                            }
+
+                            if titleCopyFeedback {
+                                Text("已复制")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.68))
+                                    .accessibilityIdentifier("series-title-copied")
+                            }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: AppLayout.minimumControlHeight, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("复制作品名称")
+                    .accessibilityIdentifier("copy-series-title")
 
                     officialMetadataSection
                 }
@@ -172,7 +196,7 @@ struct SeriesDetailView: View {
 
             if let url = redFruitURL {
                 Button {
-                    openURL(url)
+                    openRedFruitApp(url)
                 } label: {
                     Label("打开红果漫剧", systemImage: "play.rectangle.fill")
                         .frame(maxWidth: .infinity)
@@ -351,7 +375,7 @@ struct SeriesDetailView: View {
                 .font(.body)
                 .foregroundStyle(.white)
                 .tint(.white)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, AppLayout.pageInset)
                 .padding(.vertical, 4)
                 .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12))
 
@@ -370,10 +394,6 @@ struct SeriesDetailView: View {
                     }
                     .font(.footnote)
                     .foregroundStyle(.white)
-                } else {
-                    Text("修改自动保存")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.6))
                 }
             }
         }
@@ -381,6 +401,14 @@ struct SeriesDetailView: View {
 
     private var detailTags: [String] {
         tagValues(series.tagsText)
+    }
+
+    private func copySeriesTitle() {
+        UIPasteboard.general.string = series.title
+        titleCopyFeedback = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            titleCopyFeedback = false
+        }
     }
 
     private var redFruitURL: URL? {
@@ -391,6 +419,16 @@ struct SeriesDetailView: View {
             .compactMap(\.sourceURL)
             .compactMap(URL.init(string:))
             .first
+    }
+
+    private func openRedFruitApp(_ url: URL) {
+        UIApplication.shared.open(url, options: [.universalLinksOnly: true]) { didOpenApp in
+            guard !didOpenApp else { return }
+            DispatchQueue.main.async {
+                self.pendingBrowserFallbackURL = url
+                self.notice = "红果尚未为这个链接提供应用内跳转，要在浏览器打开原始链接吗？"
+            }
+        }
     }
 
     private func ensurePersonalRecord() {
@@ -485,7 +523,6 @@ struct SeriesDetailView: View {
         }
 
         isRefreshing = true
-        MetadataRefreshSchedule.markAttempt()
         Task {
             do {
                 let metadata = try await PublicMetadataService.shared.fetch(from: url)
@@ -1096,7 +1133,7 @@ struct SeasonDetailView: View {
                     }
                     .buttonStyle(.bordered)
                 }
-                .padding(16)
+                .padding(AppLayout.pageInset)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
@@ -1112,7 +1149,7 @@ struct SeasonDetailView: View {
                     }
                 }
             }
-            .padding(16)
+            .padding(AppLayout.pageInset)
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("第\(season.seasonNumber)季")
@@ -1180,10 +1217,6 @@ struct SeasonDetailView: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.red)
-            } else {
-                Text("修改自动保存")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }

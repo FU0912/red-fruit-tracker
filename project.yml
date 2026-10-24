@@ -39,6 +39,7 @@ targets:
       - path: RedFruitTrackerShareExtension
       - path: RedFruitTracker/Services/URLExtractor.swift
       - path: RedFruitTracker/Services/ShareInbox.swift
+      - path: RedFruitTracker/Services/SharePayloadParser.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.f.redfruittracker.share
