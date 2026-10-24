@@ -61,7 +61,6 @@ final class ShareViewController: UIViewController {
         let provider = providers[providerIndex]
         let identifiers = [
             UTType.url.identifier,
-            UTType.webURL.identifier,
             UTType.plainText.identifier,
             UTType.utf8PlainText.identifier,
             UTType.text.identifier,
