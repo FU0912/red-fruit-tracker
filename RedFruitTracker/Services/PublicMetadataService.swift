@@ -56,17 +56,16 @@ enum CoverURLSelector {
     }
 
     private static func deduplicationKey(for rawURL: String) -> String {
-        guard var components = URLComponents(string: rawURL) else { return rawURL }
+        guard let components = URLComponents(string: rawURL) else { return rawURL }
         let host = components.host?.lowercased() ?? ""
         var path = components.path
-        let hostPrefix = host.split(separator: "-").first ?? ""
-        let isNovelByteimgCDN = host.hasSuffix("-novel.byteimg.com")
-            && hostPrefix.first == "p"
-            && !hostPrefix.dropFirst().isEmpty
-            && hostPrefix.dropFirst().allSatisfy { $0.isNumber }
+        let isNovelByteimgCDN = host.range(
+            of: #"^p\d+-novel\.byteimg\.com$"#,
+            options: .regularExpression
+        ) != nil
+        let canonicalHost = isNovelByteimgCDN ? "novel.byteimg.com" : host
 
         if isNovelByteimgCDN {
-            components.host = "novel.byteimg.com"
             if let resizeMarker = path.range(of: "~tplv", options: .caseInsensitive) {
                 path.removeSubrange(resizeMarker.lowerBound..<path.endIndex)
             }
@@ -75,17 +74,20 @@ enum CoverURLSelector {
             .first(where: { path.lowercased().hasSuffix($0) }) {
             path.removeLast(fileExtension.count)
         }
-        components.path = path
-        components.fragment = nil
-        components.scheme = "https"
         let transformKeys: Set<String> = [
             "w", "width", "h", "height", "q", "quality", "fm", "format", "fit", "crop",
             "resize", "token", "expires", "signature", "x-oss-process", "imageMogr2"
         ]
-        components.queryItems = components.queryItems?.filter {
+        let query = (components.queryItems ?? []).filter {
             !transformKeys.contains($0.name.lowercased())
+        }.sorted {
+            if $0.name != $1.name { return $0.name < $1.name }
+            return ($0.value ?? "") < ($1.value ?? "")
         }
-        return components.string ?? rawURL
+        let queryString = query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")
+        let port = components.port.map { ":\($0)" } ?? ""
+        let scheme = components.scheme?.lowercased() ?? "https"
+        return "\(scheme)://\(canonicalHost)\(port)\(path)?\(queryString)"
     }
 
     private static func replacing(_ pattern: String, in value: String, with replacement: String) -> String {

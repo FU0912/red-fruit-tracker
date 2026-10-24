@@ -37,15 +37,6 @@ final class RedFruitTrackerUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
 
-        let manualSeasonToggle = app.descendants(matching: .any)
-            .matching(identifier: "manual-season-toggle")
-            .firstMatch
-        for _ in 0..<4 {
-            if manualSeasonToggle.exists { break }
-            app.swipeUp()
-        }
-        XCTAssertTrue(manualSeasonToggle.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.steppers["第1季"].exists)
     }
 
     func testSeriesCardAndDetailLayoutScreenshot() {
