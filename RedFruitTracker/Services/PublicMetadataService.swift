@@ -58,15 +58,24 @@ enum CoverURLSelector {
     private static func deduplicationKey(for rawURL: String) -> String {
         guard var components = URLComponents(string: rawURL) else { return rawURL }
         let host = components.host?.lowercased() ?? ""
-        var path = components.percentEncodedPath
-        if host.hasSuffix(".byteimg.com"),
-           host.range(of: #"^p\d+-novel\.byteimg\.com$"#, options: .regularExpression) != nil {
+        var path = components.path
+        let hostPrefix = host.split(separator: "-").first ?? ""
+        let isNovelByteimgCDN = host.hasSuffix("-novel.byteimg.com")
+            && hostPrefix.first == "p"
+            && !hostPrefix.dropFirst().isEmpty
+            && hostPrefix.dropFirst().allSatisfy { $0.isNumber }
+
+        if isNovelByteimgCDN {
             components.host = "novel.byteimg.com"
-            path = replacing(#"\.(?:jpe?g|png|webp|image)$"#, in: path, with: "")
-            path = replacing(#"~tplv[^/]*$"#, in: path, with: "")
+            if let resizeMarker = path.range(of: "~tplv", options: .caseInsensitive) {
+                path.removeSubrange(resizeMarker.lowerBound..<path.endIndex)
+            }
         }
-        path = replacing(#"\.(?:jpe?g|png|webp|image)$"#, in: path, with: "")
-        components.percentEncodedPath = path
+        if let fileExtension = [".jpeg", ".jpg", ".png", ".webp", ".image"]
+            .first(where: { path.lowercased().hasSuffix($0) }) {
+            path.removeLast(fileExtension.count)
+        }
+        components.path = path
         components.fragment = nil
         components.scheme = "https"
         let transformKeys: Set<String> = [

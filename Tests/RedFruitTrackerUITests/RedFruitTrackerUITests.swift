@@ -30,17 +30,22 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.textFields["红果分享链接"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.textFields["作品名称"].exists)
         XCTAssertTrue(app.buttons["保存"].exists)
-        let manualSeasonToggle = app.descendants(matching: .any)
-            .matching(identifier: "manual-season-toggle")
-            .firstMatch
-        XCTAssertTrue(manualSeasonToggle.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.steppers["第1季"].exists)
 
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = "library-empty-state"
         attachment.lifetime = .keepAlways
         add(attachment)
+
+        let manualSeasonToggle = app.descendants(matching: .any)
+            .matching(identifier: "manual-season-toggle")
+            .firstMatch
+        for _ in 0..<4 {
+            if manualSeasonToggle.exists { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(manualSeasonToggle.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.steppers["第1季"].exists)
     }
 
     func testSeriesCardAndDetailLayoutScreenshot() {
