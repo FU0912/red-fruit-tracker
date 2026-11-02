@@ -863,7 +863,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(HTMLMetadata.completionStatus(in: ongoing), SeriesCompletionStatus.ongoing.rawValue)
     }
 
-    func testTrendAggregationBuildsOpenHighLowCloseByInterval() throws {
+    func testHeatTrendAggregationBuildsDailySamplesAndObservedRange() throws {
         let calendar = Calendar(identifier: .gregorian)
         let firstDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 2, hour: 9)))
         let secondDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 2, hour: 18)))
@@ -872,31 +872,31 @@ final class LibraryModelTests: XCTestCase {
         let second = OfficialSnapshot(sourceSeriesID: "series", capturedAt: secondDate)
         second.officialHeatScore = 42
 
-        let candles = TrendAggregation.candles(
+        let samples = HeatTrendAggregation.samples(
             from: [second, first],
-            interval: .day,
+            granularity: .day,
             value: { $0.officialHeatScore },
             calendar: calendar
         )
 
-        XCTAssertEqual(candles.count, 1)
-        XCTAssertEqual(candles.first?.open, 30)
-        XCTAssertEqual(candles.first?.close, 42)
-        XCTAssertEqual(candles.first?.high, 42)
-        XCTAssertEqual(candles.first?.low, 30)
+        XCTAssertEqual(samples.count, 1)
+        XCTAssertEqual(samples.first?.value, 42)
+        XCTAssertEqual(samples.first?.highestObserved, 42)
+        XCTAssertEqual(samples.first?.lowestObserved, 30)
+        XCTAssertEqual(samples.first?.observationCount, 2)
     }
 
     func testOfficialRatingWithoutHeatDoesNotCreateAHeatTrendPoint() {
         let snapshot = OfficialSnapshot(sourceSeriesID: "series")
         snapshot.officialRating = 9.2
 
-        let candles = TrendAggregation.candles(
+        let samples = HeatTrendAggregation.samples(
             from: [snapshot],
-            interval: .day,
+            granularity: .day,
             value: { $0.officialHeatScore }
         )
 
-        XCTAssertTrue(candles.isEmpty)
+        XCTAssertTrue(samples.isEmpty)
     }
 
     private func manjuShareFixture(

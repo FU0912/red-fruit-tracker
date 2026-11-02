@@ -12,6 +12,7 @@ struct WorkMetric: Identifiable {
     let label: String
     let value: String
     let tint: Color
+    let symbol: String
 }
 
 struct FixedWorkMetricGrid: View {
@@ -24,17 +25,25 @@ struct FixedWorkMetricGrid: View {
     var body: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 5) {
             ForEach(metrics) { metric in
-                VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Image(systemName: metric.symbol)
+                        .font(.caption.weight(.bold))
                     Text(metric.label)
-                        .font(.caption2)
-                        .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.56) : Color.secondary)
-                    Text(metric.value)
                         .font(.caption.weight(.semibold))
+                    Text(metric.value)
+                        .font(.caption.weight(.bold))
                         .monospacedDigit()
-                        .foregroundStyle(metric.tint)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
                 }
-                .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+                .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.94) : Color.primary)
+                .padding(.horizontal, 9)
+                .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+                .background(metric.tint.opacity(usesDarkAppearance ? 0.24 : 0.14), in: Capsule())
+                .overlay {
+                    Capsule()
+                        .strokeBorder(metric.tint.opacity(usesDarkAppearance ? 0.62 : 0.42), lineWidth: 0.8)
+                }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(metric.label) \(metric.value)")
                 .accessibilityIdentifier(metric.id)

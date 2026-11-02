@@ -228,25 +228,29 @@ struct SeriesDetailView: View {
                     id: "official-rating",
                     label: "官方",
                     value: series.officialRating.map { String(format: "%.1f", $0) } ?? "暂无评分",
-                    tint: .orange
+                    tint: .orange,
+                    symbol: "star.fill"
                 ),
                 WorkMetric(
                     id: "personal-rating",
                     label: "我的",
                     value: personalRecord?.myRating.map { String(format: "%.1f", $0) } ?? "未评分",
-                    tint: .blue
+                    tint: .blue,
+                    symbol: "person.fill"
                 ),
                 WorkMetric(
                     id: "official-heat",
                     label: "热度",
                     value: compactHeatText,
-                    tint: .pink
+                    tint: .pink,
+                    symbol: "flame.fill"
                 ),
                 WorkMetric(
                     id: "detail-season-count",
                     label: "季数",
                     value: seasons.isEmpty ? "待录入" : "\(seasons.count)季",
-                    tint: .teal
+                    tint: .teal,
+                    symbol: "square.stack.3d.up.fill"
                 )
             ], usesDarkAppearance: true)
 

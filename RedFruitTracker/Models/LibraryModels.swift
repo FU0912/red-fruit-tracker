@@ -129,44 +129,16 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     }
 }
 
-enum TrendInterval: String, CaseIterable, Identifiable {
+enum HeatTrendGranularity {
     case day
     case week
     case month
-    case quarter
-    case year
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .day: return "按日"
-        case .week: return "按周"
-        case .month: return "按月"
-        case .quarter: return "按季度"
-        case .year: return "按年"
-        }
-    }
 
     func bucketStart(for date: Date, calendar: Calendar) -> Date {
         switch self {
-        case .day:
-            return calendar.dateInterval(of: .day, for: date)?.start ?? date
-        case .week:
-            return calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date
-        case .month:
-            return calendar.dateInterval(of: .month, for: date)?.start ?? date
-        case .quarter:
-            let components = calendar.dateComponents([.year, .month], from: date)
-            let month = components.month ?? 1
-            let quarterMonth = ((month - 1) / 3) * 3 + 1
-            return calendar.date(from: DateComponents(
-                year: components.year,
-                month: quarterMonth,
-                day: 1
-            )) ?? date
-        case .year:
-            return calendar.dateInterval(of: .year, for: date)?.start ?? date
+        case .day: return calendar.startOfDay(for: date)
+        case .week: return calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date
+        case .month: return calendar.dateInterval(of: .month, for: date)?.start ?? date
         }
     }
 }
@@ -183,30 +155,29 @@ struct BatchRefreshProgress: Equatable {
     }
 }
 
-struct TrendCandle: Identifiable, Equatable {
-    let bucket: Date
-    let open: Double
-    let close: Double
-    let high: Double
-    let low: Double
-    let sampleCount: Int
+struct HeatTrendSample: Identifiable, Equatable {
+    let date: Date
+    let value: Double
+    let highestObserved: Double
+    let lowestObserved: Double
+    let observationCount: Int
 
-    var id: Date { bucket }
+    var id: Date { date }
 }
 
-enum TrendAggregation {
-    static func candles(
+enum HeatTrendAggregation {
+    static func samples(
         from snapshots: [OfficialSnapshot],
-        interval: TrendInterval,
+        granularity: HeatTrendGranularity,
         value: (OfficialSnapshot) -> Double?,
         calendar: Calendar = .current
-    ) -> [TrendCandle] {
+    ) -> [HeatTrendSample] {
         let values = snapshots.compactMap { snapshot -> (Date, Double)? in
             guard let number = value(snapshot), number.isFinite, number >= 0 else { return nil }
             return (snapshot.capturedAt, number)
         }
         let groups = Dictionary(grouping: values) { item in
-            interval.bucketStart(for: item.0, calendar: calendar)
+            granularity.bucketStart(for: item.0, calendar: calendar)
         }
 
         return groups.keys.sorted().compactMap { bucket in
@@ -216,13 +187,12 @@ enum TrendAggregation {
                 return nil
             }
             let numbers = points.map(\.1)
-            return TrendCandle(
-                bucket: bucket,
-                open: first.1,
-                close: last.1,
-                high: numbers.max() ?? first.1,
-                low: numbers.min() ?? first.1,
-                sampleCount: points.count
+            return HeatTrendSample(
+                date: bucket,
+                value: last.1,
+                highestObserved: numbers.max() ?? last.1,
+                lowestObserved: numbers.min() ?? last.1,
+                observationCount: points.count
             )
         }
     }

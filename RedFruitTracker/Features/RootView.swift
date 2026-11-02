@@ -624,25 +624,29 @@ private struct SeriesCard: View {
                         id: "series-card-official-rating",
                         label: "官方",
                         value: series.officialRating.map { String(format: "%.1f", $0) } ?? "暂无评分",
-                        tint: .orange
+                        tint: .orange,
+                        symbol: "star.fill"
                     ),
                     WorkMetric(
                         id: "series-card-personal-rating",
                         label: "我的",
                         value: personal?.myRating.map { String(format: "%.1f", $0) } ?? "未评分",
-                        tint: .blue
+                        tint: .blue,
+                        symbol: "person.fill"
                     ),
                     WorkMetric(
                         id: "series-card-heat",
                         label: "热度",
                         value: compactHeatText,
-                        tint: .pink
+                        tint: .pink,
+                        symbol: "flame.fill"
                     ),
                     WorkMetric(
                         id: "series-card-season-count",
                         label: "季数",
                         value: seasons.isEmpty ? "待录入" : "\(seasons.count)季",
-                        tint: .teal
+                        tint: .teal,
+                        symbol: "square.stack.3d.up.fill"
                     )
                 ])
 
