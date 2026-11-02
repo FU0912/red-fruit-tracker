@@ -3,16 +3,31 @@ import SwiftData
 
 enum RatingScale {
     static let maximum = 10.0
-    static let options = stride(from: 0.0, through: maximum, by: 0.5).map { $0 }
 
     static func normalized(_ value: Double) -> Double {
-        let stepped = (value * 2).rounded() / 2
-        return min(max(stepped, 0), maximum)
+        guard value.isFinite else { return 0 }
+        let rounded = (value * 10).rounded() / 10
+        return min(max(rounded, 0), maximum)
     }
 
     static func fromLegacyFiveStar(_ value: Double) -> Double {
         guard value >= 0, value <= 5 else { return normalized(value) }
         return normalized(value * 2)
+    }
+}
+
+enum LibrarySearch {
+    static func matches(title: String, tags: String, intro: String, query: String) -> Bool {
+        let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty else { return true }
+
+        if keyword.hasPrefix("#") {
+            let tag = String(keyword.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            return !tag.isEmpty && tags.localizedCaseInsensitiveContains(tag)
+        }
+
+        return title.localizedCaseInsensitiveContains(keyword)
+            || intro.localizedCaseInsensitiveContains(keyword)
     }
 }
 
@@ -293,6 +308,32 @@ enum SeasonEpisodeCount {
         if reported > 0 { return max(reported, observed) }
         return existing > 0 ? existing : observed
     }
+}
+
+enum SeriesLinkPolicy {
+    static func primary(existing: String?, incoming: String?) -> String? {
+        let current = existing?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let proposed = incoming?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        if isDetailPage(current), let proposed, !isDetailPage(proposed) {
+            return proposed
+        }
+        return current ?? proposed
+    }
+
+    private static func isDetailPage(_ value: String?) -> Bool {
+        guard let value,
+              let components = URLComponents(string: value),
+              let host = components.host?.lowercased(),
+              ["hongguoduanju.com", "www.hongguoduanju.com"].contains(host),
+              components.path == "/detail" else {
+            return false
+        }
+        return components.queryItems?.contains { $0.name.lowercased() == "series_id" } == true
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 @Model

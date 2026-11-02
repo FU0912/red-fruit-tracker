@@ -5,10 +5,11 @@ enum ShareInbox {
     static let pendingURLsKey = "pendingShareURLs"
 
     static func pendingURLs() -> [URL] {
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            return []
-        }
+        pendingURLs(in: UserDefaults(suiteName: appGroupIdentifier))
+    }
 
+    static func pendingURLs(in defaults: UserDefaults?) -> [URL] {
+        guard let defaults else { return [] }
         return (defaults.stringArray(forKey: pendingURLsKey) ?? [])
             .compactMap(URL.init(string:))
     }
@@ -17,28 +18,32 @@ enum ShareInbox {
         pendingURLs().first
     }
 
-    static func enqueue(_ url: URL) {
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            return
-        }
+    @discardableResult
+    static func enqueue(_ url: URL) -> Bool {
+        enqueue(url, in: UserDefaults(suiteName: appGroupIdentifier))
+    }
 
+    @discardableResult
+    static func enqueue(_ url: URL, in defaults: UserDefaults?) -> Bool {
+        guard let defaults else { return false }
         var values = defaults.stringArray(forKey: pendingURLsKey) ?? []
         let value = url.absoluteString
         if !values.contains(value) {
             values.append(value)
             defaults.set(values, forKey: pendingURLsKey)
-            // The extension and the host app are separate processes. Force the
-            // small queue update through the shared defaults store before the
-            // extension asks iOS to foreground the host app.
+            // The extension and the host app are separate processes; flush the
+            // small queue through shared defaults before the extension exits.
             defaults.synchronize()
         }
+        return true
     }
 
     static func remove(_ url: URL) {
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            return
-        }
+        remove(url, in: UserDefaults(suiteName: appGroupIdentifier))
+    }
 
+    static func remove(_ url: URL, in defaults: UserDefaults?) {
+        guard let defaults else { return }
         let value = url.absoluteString
         let remaining = (defaults.stringArray(forKey: pendingURLsKey) ?? [])
             .filter { $0 != value }
@@ -50,13 +55,6 @@ enum ShareInbox {
 enum ShareRoute {
     static let scheme = "redfruittracker"
     static let host = "share-import"
-
-    static func wakeURL() -> URL? {
-        var components = URLComponents()
-        components.scheme = scheme
-        components.host = host
-        return components.url
-    }
 
     static func callbackURL(for sharedURL: URL) -> URL? {
         var components = URLComponents()

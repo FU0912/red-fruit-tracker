@@ -1,5 +1,4 @@
 import Foundation
-import Charts
 import ImageIO
 import SwiftData
 import SwiftUI
@@ -31,13 +30,12 @@ struct RootView: View {
                 }
                 .tag(1)
         }
-        .sheet(isPresented: $isShowingAdd) {
+        .sheet(isPresented: $isShowingAdd, onDismiss: refreshPendingShare) {
             AddSeriesView(initialURL: pendingShareURL, autoSaveInitialURL: presentedShareURL != nil) {
                 if let pendingShareURL {
                     ShareInbox.remove(pendingShareURL)
                 }
                 presentedShareURL = nil
-                refreshPendingShare()
             }
         }
         .task {
@@ -128,7 +126,6 @@ private struct LibraryView: View {
 
     @AppStorage("redFruitTracker.officialRatingTrendCleaned") private var didClearLegacyRatingTrend = false
     @State private var searchText = ""
-    @State private var hasAutoRefreshedMetadata = false
     @State private var isRefreshingAll = false
     @State private var refreshProgress = BatchRefreshProgress(total: 0)
     @State private var refreshTask: Task<Void, Never>?
@@ -139,13 +136,8 @@ private struct LibraryView: View {
     @State private var deletionErrorMessage: String?
 
     private var visibleSeries: [SeriesRecord] {
-        let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !keyword.isEmpty else { return series }
-
-        return series.filter { item in
-            item.title.localizedCaseInsensitiveContains(keyword)
-                || item.tagsText.localizedCaseInsensitiveContains(keyword)
-                || item.intro.localizedCaseInsensitiveContains(keyword)
+        series.filter {
+            LibrarySearch.matches(title: $0.title, tags: $0.tagsText, intro: $0.intro, query: searchText)
         }
     }
 
@@ -273,7 +265,6 @@ private struct LibraryView: View {
             }
             .task {
                 clearLegacyRatingTrend()
-                await refreshMetadataIfDue()
             }
         }
     }
@@ -316,16 +307,6 @@ private struct LibraryView: View {
         }
     }
 
-    private func refreshMetadataIfDue() async {
-        guard !hasAutoRefreshedMetadata,
-              !ProcessInfo.processInfo.arguments.contains("--ui-testing"),
-              MetadataRefreshSchedule.shouldRun() else {
-            return
-        }
-        hasAutoRefreshedMetadata = true
-        startRefresh(showNotice: false)
-    }
-
     private func refreshAllMetadata() {
         startRefresh(showNotice: true)
     }
@@ -346,7 +327,6 @@ private struct LibraryView: View {
     @MainActor
     private func refreshAllMetadata(showNotice: Bool) async {
         guard !isRefreshingAll else { return }
-        MetadataRefreshSchedule.markAttempt()
         isRefreshingAll = true
         isStoppingRefresh = false
         defer { isRefreshingAll = false; isStoppingRefresh = false }
@@ -527,7 +507,7 @@ private struct LibraryHeader: View {
                     .font(.body.weight(.medium))
                     .foregroundStyle(.secondary)
 
-                TextField("搜索作品、标签或简介", text: $searchText)
+                TextField("搜索作品名、简介或 #标签", text: $searchText)
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("library-search-field")
 
@@ -547,7 +527,7 @@ private struct LibraryHeader: View {
             .background(Color(uiColor: .secondarySystemGroupedBackground))
             .clipShape(Capsule())
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, AppLayout.pageInset)
         .padding(.top, 18)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -609,7 +589,7 @@ private struct ShareImportBanner: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, AppLayout.pageInset)
             .padding(.vertical, 10)
             .background(.thinMaterial)
         }
@@ -639,48 +619,34 @@ private struct SeriesCard: View {
                     .multilineTextAlignment(.leading)
                     .accessibilityIdentifier("series-card-title")
 
-                Text("添加于 \(series.createdAt.formatted(date: .numeric, time: .omitted))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .accessibilityIdentifier("series-added-at")
-
-                TagFlowLayout(horizontalSpacing: 4, verticalSpacing: 4) {
-                    CompactInfoPill(
-                        text: RatingPresentation.officialText(series.officialRating),
-                        systemImage: "star.fill",
+                FixedWorkMetricGrid(metrics: [
+                    WorkMetric(
+                        id: "series-card-official-rating",
+                        label: "官方",
+                        value: series.officialRating.map { String(format: "%.1f", $0) } ?? "暂无评分",
                         tint: .orange
+                    ),
+                    WorkMetric(
+                        id: "series-card-personal-rating",
+                        label: "我的",
+                        value: personal?.myRating.map { String(format: "%.1f", $0) } ?? "未评分",
+                        tint: .blue
+                    ),
+                    WorkMetric(
+                        id: "series-card-heat",
+                        label: "热度",
+                        value: compactHeatText,
+                        tint: .pink
+                    ),
+                    WorkMetric(
+                        id: "series-card-season-count",
+                        label: "季数",
+                        value: seasons.isEmpty ? "待录入" : "\(seasons.count)季",
+                        tint: .teal
                     )
-                    .accessibilityIdentifier("series-card-official-rating")
-
-                    if let personalRating = RatingPresentation.personalText(personal?.myRating) {
-                        CompactInfoPill(
-                            text: personalRating,
-                            systemImage: "person.fill",
-                            tint: .blue
-                        )
-                        .accessibilityIdentifier("series-card-personal-rating")
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                ])
 
                 TagFlowLayout(horizontalSpacing: 4, verticalSpacing: 4) {
-                    CompactInfoPill(
-                        text: officialHeatText,
-                        systemImage: "flame.fill",
-                        tint: .pink
-                    )
-                    .accessibilityIdentifier("series-card-heat")
-
-                    if !seasons.isEmpty {
-                        CompactInfoPill(
-                            text: "\(seasons.count)季",
-                            systemImage: "square.stack.3d.up",
-                            tint: .teal
-                        )
-                        .accessibilityIdentifier("series-card-season-count")
-                    }
-
                     CompactInfoPill(
                         text: completionStatusText,
                         systemImage: completionStatusSymbol,
@@ -737,11 +703,11 @@ private struct SeriesCard: View {
         tagValues(series.tagsText)
     }
 
-    private var officialHeatText: String {
-        guard let heat = series.officialHeatText, !heat.isEmpty else {
-            return "热度待读取"
+    private var compactHeatText: String {
+        guard let heat = series.officialHeatText?.trimmingCharacters(in: .whitespacesAndNewlines), !heat.isEmpty else {
+            return "待读取"
         }
-        return heat.hasSuffix("热度") ? heat : "\(heat)热度"
+        return heat.replacingOccurrences(of: "热度", with: "")
     }
 
     private var completionStatus: SeriesCompletionStatus {
@@ -1139,7 +1105,7 @@ private struct StatsView: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.tertiary)
                         }
-                        .padding(16)
+                        .padding(AppLayout.pageInset)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color(uiColor: .secondarySystemGroupedBackground))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -1155,7 +1121,7 @@ private struct StatsView: View {
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
+                    .padding(AppLayout.pageInset)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
@@ -1165,7 +1131,7 @@ private struct StatsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .padding(16)
+                .padding(AppLayout.pageInset)
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("统计")
@@ -1221,6 +1187,9 @@ private struct StatTile: View {
 private struct FilteredSeriesView: View {
     let filter: LibraryFilter
 
+    @State private var selectedSeriesID: String?
+    @State private var isShowingSeries = false
+
     @Query(sort: [
         SortDescriptor(\SeriesRecord.createdAt, order: .reverse),
         SortDescriptor(\SeriesRecord.sourceSeriesID)
@@ -1262,8 +1231,9 @@ private struct FilteredSeriesView: View {
                 )
             } else {
                 List(filteredSeries) { item in
-                    NavigationLink {
-                        SeriesDetailView(series: item)
+                    Button {
+                        selectedSeriesID = item.sourceSeriesID
+                        isShowingSeries = true
                     } label: {
                         SeriesCard(
                             series: item,
@@ -1271,6 +1241,8 @@ private struct FilteredSeriesView: View {
                             personal: personalRecords.first { $0.sourceSeriesID == item.sourceSeriesID }
                         )
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("filtered-series-\(item.sourceSeriesID)")
                     .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
@@ -1282,6 +1254,12 @@ private struct FilteredSeriesView: View {
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .navigationTitle(filter.title)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $isShowingSeries) {
+            if let selectedSeriesID,
+               let selectedSeries = series.first(where: { $0.sourceSeriesID == selectedSeriesID }) {
+                SeriesDetailView(series: selectedSeries)
+            }
+        }
     }
 }
 
@@ -1352,7 +1330,7 @@ private struct AddSeriesView: View {
     @State private var completionStatus = SeriesCompletionStatus.unknown.rawValue
     @State private var shelfState = "unstarted"
     @State private var followsUpdates = false
-    @State private var includeFirstSeason = true
+    @State private var includeFirstSeason = false
     @State private var firstSeasonNumber = 1
     @State private var firstSeasonEpisodeCount = 0
     @State private var isFetching = false
@@ -1490,7 +1468,8 @@ private struct AddSeriesView: View {
 
                     Toggle("追更 / 预约", isOn: $followsUpdates)
 
-                    Toggle("先建立一个季", isOn: $includeFirstSeason)
+                    Toggle("手动添加季", isOn: $includeFirstSeason)
+                        .accessibilityIdentifier("manual-season-toggle")
                     if includeFirstSeason {
                         Stepper("第\(firstSeasonNumber)季", value: $firstSeasonNumber, in: 1...99)
                         Stepper("预计 \(firstSeasonEpisodeCount) 集", value: $firstSeasonEpisodeCount, in: 0...999)
@@ -1572,7 +1551,7 @@ private struct AddSeriesView: View {
                     if officialHeatText.isEmpty { officialHeatText = metadata.officialHeatText ?? "" }
                     officialHeatScore = metadata.officialHeatScore
                     detectedSeasons = metadata.seasons
-                    includeFirstSeason = metadata.seasons.isEmpty
+                    includeFirstSeason = false
                     let coverNotice = metadata.coverURL == nil && !metadata.coverCandidates.isEmpty
                         ? "未自动采用不确定的图片，请在候选封面中选择人物海报。"
                         : nil
@@ -1590,7 +1569,7 @@ private struct AddSeriesView: View {
                     guard lastFetchedURL == normalizedURL else { return }
                     detectedTitle = TitleNormalizer.fallback(from: url) ?? ""
                     detectedSeasons = []
-                    includeFirstSeason = true
+                    includeFirstSeason = false
                     notice = "没有读到完整公开资料，可以保存链接后再补充。"
                     isFetching = false
                     autoSaveIfNeeded()
@@ -1630,6 +1609,7 @@ private struct AddSeriesView: View {
                 modelContext.insert(target)
             }
 
+            target.sourceURL = SeriesLinkPolicy.primary(existing: target.sourceURL, incoming: cleanURL)
             target.title = cleanTitle
             if CoverURLSelector.shouldReplaceExisting(target.coverURL), let coverURL = coverURLText.nilIfBlank {
                 target.coverURL = coverURL
@@ -1719,9 +1699,6 @@ private struct AddSeriesView: View {
                     if let webURL = metadataEpisode.webURL { episode.webURL = webURL }
                 }
 
-                if metadataSeason.seasonNumber == 1 || target.sourceURL == nil {
-                    target.sourceURL = metadataSeason.sourceURL ?? cleanURL.nilIfBlank
-                }
             }
 
             if officialHeatScore != nil || officialHeatText.nilIfBlank != nil || !importedSeasons.isEmpty {

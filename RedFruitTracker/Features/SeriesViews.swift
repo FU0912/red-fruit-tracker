@@ -1,7 +1,7 @@
 import Foundation
-import Charts
 import SwiftData
 import SwiftUI
+import UIKit
 
 struct SeriesDetailView: View {
     @Environment(\.modelContext) private var modelContext
@@ -29,6 +29,8 @@ struct SeriesDetailView: View {
     @State private var notice: String?
     @State private var personalSaveTask: Task<Void, Never>?
     @State private var personalSaveError: String?
+    @State private var titleCopyFeedback = false
+    @State private var pendingBrowserFallbackURL: URL?
 
     init(series: SeriesRecord) {
         self.series = series
@@ -70,13 +72,13 @@ struct SeriesDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: AppLayout.sectionSpacing) {
                 detailHeader
                 introSection
                 OfficialTrendSection(snapshots: snapshots)
                 personalSection
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, AppLayout.pageInset)
             .padding(.top, 12)
             .padding(.bottom, 24)
         }
@@ -123,29 +125,29 @@ struct SeriesDetailView: View {
             get: { notice != nil },
             set: { if !$0 { notice = nil } }
         )) {
-            Button("好", role: .cancel) { notice = nil }
+            if let pendingBrowserFallbackURL {
+                Button("用浏览器打开") {
+                    openURL(pendingBrowserFallbackURL)
+                    self.pendingBrowserFallbackURL = nil
+                    notice = nil
+                }
+                Button("取消", role: .cancel) {
+                    self.pendingBrowserFallbackURL = nil
+                    notice = nil
+                }
+            } else {
+                Button("好", role: .cancel) { notice = nil }
+            }
         } message: {
             Text(notice ?? "")
         }
         .task {
             ensurePersonalRecord()
-            if shouldAutoRefreshMetadata {
-                refreshMetadata(showNotice: false)
-            }
         }
         .onDisappear { flushPersonalChanges() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { flushPersonalChanges() }
         }
-    }
-
-    private var shouldAutoRefreshMetadata: Bool {
-        guard redFruitURL != nil,
-              !ProcessInfo.processInfo.arguments.contains("--ui-testing"),
-              MetadataRefreshSchedule.shouldRun() else {
-            return false
-        }
-        return true
     }
 
     private var detailHeader: some View {
@@ -156,12 +158,33 @@ struct SeriesDetailView: View {
                     .accessibilityIdentifier("series-detail-cover")
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(series.title)
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(4)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("series-detail-title")
+                    Button(action: copySeriesTitle) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text(series.title)
+                                    .font(.title2.weight(.bold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(4)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .accessibilityIdentifier("series-detail-title")
+                                Image(systemName: titleCopyFeedback ? "checkmark" : "doc.on.doc")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.72))
+                            }
+
+                            if titleCopyFeedback {
+                                Text("已复制")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.68))
+                                    .accessibilityIdentifier("series-title-copied")
+                            }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: AppLayout.minimumControlHeight, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("复制作品名称")
+                    .accessibilityIdentifier("copy-series-title")
 
                     officialMetadataSection
                 }
@@ -172,7 +195,7 @@ struct SeriesDetailView: View {
 
             if let url = redFruitURL {
                 Button {
-                    openURL(url)
+                    openRedFruitApp(url)
                 } label: {
                     Label("打开红果漫剧", systemImage: "play.rectangle.fill")
                         .frame(maxWidth: .infinity)
@@ -200,19 +223,34 @@ struct SeriesDetailView: View {
 
     private var officialMetadataSection: some View {
         VStack(alignment: .leading, spacing: 10) {
+            FixedWorkMetricGrid(metrics: [
+                WorkMetric(
+                    id: "official-rating",
+                    label: "官方",
+                    value: series.officialRating.map { String(format: "%.1f", $0) } ?? "暂无评分",
+                    tint: .orange
+                ),
+                WorkMetric(
+                    id: "personal-rating",
+                    label: "我的",
+                    value: personalRecord?.myRating.map { String(format: "%.1f", $0) } ?? "未评分",
+                    tint: .blue
+                ),
+                WorkMetric(
+                    id: "official-heat",
+                    label: "热度",
+                    value: compactHeatText,
+                    tint: .pink
+                ),
+                WorkMetric(
+                    id: "detail-season-count",
+                    label: "季数",
+                    value: seasons.isEmpty ? "待录入" : "\(seasons.count)季",
+                    tint: .teal
+                )
+            ], usesDarkAppearance: true)
+
             TagFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
-                DetailPill(
-                    text: RatingPresentation.officialText(series.officialRating),
-                    systemImage: "number"
-                )
-                .accessibilityIdentifier("official-rating")
-
-                DetailPill(
-                    text: officialHeatText,
-                    systemImage: "flame.fill"
-                )
-                .accessibilityIdentifier("official-heat")
-
                 DetailPill(
                     text: completionStatusText,
                     systemImage: completionStatusSymbol
@@ -247,11 +285,11 @@ struct SeriesDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var officialHeatText: String {
-        guard let heat = series.officialHeatText, !heat.isEmpty else {
-            return "暂无热度"
+    private var compactHeatText: String {
+        guard let heat = series.officialHeatText?.trimmingCharacters(in: .whitespacesAndNewlines), !heat.isEmpty else {
+            return "暂无"
         }
-        return heat.hasSuffix("热度") ? heat : "\(heat)热度"
+        return heat.replacingOccurrences(of: "热度", with: "")
     }
 
     private var completionStatus: SeriesCompletionStatus {
@@ -351,7 +389,7 @@ struct SeriesDetailView: View {
                 .font(.body)
                 .foregroundStyle(.white)
                 .tint(.white)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, AppLayout.pageInset)
                 .padding(.vertical, 4)
                 .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12))
 
@@ -370,10 +408,6 @@ struct SeriesDetailView: View {
                     }
                     .font(.footnote)
                     .foregroundStyle(.white)
-                } else {
-                    Text("修改自动保存")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.6))
                 }
             }
         }
@@ -381,6 +415,14 @@ struct SeriesDetailView: View {
 
     private var detailTags: [String] {
         tagValues(series.tagsText)
+    }
+
+    private func copySeriesTitle() {
+        UIPasteboard.general.string = series.title
+        titleCopyFeedback = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            titleCopyFeedback = false
+        }
     }
 
     private var redFruitURL: URL? {
@@ -391,6 +433,16 @@ struct SeriesDetailView: View {
             .compactMap(\.sourceURL)
             .compactMap(URL.init(string:))
             .first
+    }
+
+    private func openRedFruitApp(_ url: URL) {
+        UIApplication.shared.open(url, options: [.universalLinksOnly: true]) { didOpenApp in
+            guard !didOpenApp else { return }
+            DispatchQueue.main.async {
+                self.pendingBrowserFallbackURL = url
+                self.notice = "红果尚未为这个链接提供应用内跳转，要在浏览器打开原始链接吗？"
+            }
+        }
     }
 
     private func ensurePersonalRecord() {
@@ -485,7 +537,6 @@ struct SeriesDetailView: View {
         }
 
         isRefreshing = true
-        MetadataRefreshSchedule.markAttempt()
         Task {
             do {
                 let metadata = try await PublicMetadataService.shared.fetch(from: url)
@@ -595,8 +646,6 @@ private enum DetailTheme {
     static let background = Color(red: 0.28, green: 0.28, blue: 0.28)
     static let cell = Color.white.opacity(0.10)
     static let accent = Color(red: 0.30, green: 0.58, blue: 0.96)
-    static let trendSurface = Color(uiColor: .systemBackground)
-    static let trendPlot = Color(uiColor: .secondarySystemBackground)
 }
 
 private struct DetailPill: View {
@@ -1096,7 +1145,7 @@ struct SeasonDetailView: View {
                     }
                     .buttonStyle(.bordered)
                 }
-                .padding(16)
+                .padding(AppLayout.pageInset)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
@@ -1112,7 +1161,7 @@ struct SeasonDetailView: View {
                     }
                 }
             }
-            .padding(16)
+            .padding(AppLayout.pageInset)
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("第\(season.seasonNumber)季")
@@ -1180,10 +1229,6 @@ struct SeasonDetailView: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.red)
-            } else {
-                Text("修改自动保存")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -1407,50 +1452,84 @@ private struct ReviewEditor: View {
 private struct RatingScorePicker: View {
     @Binding var rating: Double?
     var usesDarkAppearance = false
+    @State private var draft = ""
+    @FocusState private var isFocused: Bool
+
+    init(rating: Binding<Double?>, usesDarkAppearance: Bool = false) {
+        self._rating = rating
+        self.usesDarkAppearance = usesDarkAppearance
+        self._draft = State(initialValue: rating.wrappedValue.map { String(format: "%.1f", $0) } ?? "")
+    }
 
     var body: some View {
-        Menu {
-            Button("未评分") {
-                rating = nil
-            }
+        HStack(spacing: 10) {
+            Label("评分", systemImage: "number")
+                .font(.subheadline.weight(.semibold))
+            Spacer(minLength: 8)
+            TextField("未评分", text: $draft)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .focused($isFocused)
+                .submitLabel(.done)
+                .accessibilityIdentifier("personal-rating-input")
+                .frame(minWidth: 56, minHeight: AppLayout.minimumControlHeight)
+                .onSubmit(commitDraft)
 
-            ForEach(RatingScale.options, id: \.self) { value in
+            if !draft.isEmpty {
                 Button {
-                    rating = value
+                    draft = ""
+                    rating = nil
+                    isFocused = false
                 } label: {
-                    if rating == value {
-                        Label(String(format: "%.1f 分", value), systemImage: "checkmark")
-                    } else {
-                        Text(String(format: "%.1f 分", value))
-                    }
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.62) : Color.secondary)
+                        .frame(width: AppLayout.minimumControlHeight, height: AppLayout.minimumControlHeight)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("清除评分")
             }
-        } label: {
-            HStack(spacing: 10) {
-                Label("评分", systemImage: "number")
-                    .font(.subheadline.weight(.semibold))
-                Spacer(minLength: 12)
-                Text(scoreText)
-                    .font(.headline.monospacedDigit())
-                    .accessibilityIdentifier("personal-rating-score")
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.66) : Color.secondary)
-            }
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .padding(.horizontal, 12)
-            .background(usesDarkAppearance ? Color.white.opacity(0.08) : Color(uiColor: .tertiarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
+        .frame(maxWidth: .infinity, minHeight: AppLayout.minimumControlHeight, alignment: .leading)
+        .padding(.horizontal, 12)
+        .background(usesDarkAppearance ? Color.white.opacity(0.08) : Color(uiColor: .tertiarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
         .tint(usesDarkAppearance ? DetailTheme.accent : Color.accentColor)
-        .accessibilityLabel("评分")
-        .accessibilityValue(scoreText)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("personal-rating-score")
+        .onChange(of: rating) { _, value in
+            guard !isFocused else { return }
+            draft = value.map { String(format: "%.1f", $0) } ?? ""
+        }
+        .onChange(of: isFocused) { wasFocused, focused in
+            if wasFocused && !focused { commitDraft() }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("完成") {
+                    commitDraft()
+                    isFocused = false
+                }
+            }
+        }
     }
 
-    private var scoreText: String {
-        guard let rating else { return "未评分" }
-        return String(format: "%.1f", rating)
+    private func commitDraft() {
+        let valueText = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+        guard !valueText.isEmpty else {
+            rating = nil
+            draft = ""
+            return
+        }
+        guard let value = Double(valueText) else {
+            draft = rating.map { String(format: "%.1f", $0) } ?? ""
+            return
+        }
+        let normalized = RatingScale.normalized(value)
+        rating = normalized
+        draft = String(format: "%.1f", normalized)
     }
-
 }

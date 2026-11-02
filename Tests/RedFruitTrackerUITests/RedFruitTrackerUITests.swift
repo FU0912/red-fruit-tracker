@@ -10,7 +10,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         let older = app.buttons["series-card-order-older"]
         XCTAssertTrue(newer.waitForExistence(timeout: 5))
         XCTAssertTrue(older.exists)
-        XCTAssertTrue(app.staticTexts["series-added-at"].exists)
+        XCTAssertFalse(app.staticTexts["series-added-at"].exists)
         XCTAssertLessThan(newer.frame.minY, older.frame.minY,
                           "Refreshing an older work must never move it ahead of a newly added work.")
     }
@@ -21,7 +21,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.staticTexts["漫剧记录"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textFields["搜索作品、标签或简介"].exists)
+        XCTAssertTrue(app.textFields["搜索作品名、简介或 #标签"].exists)
         XCTAssertTrue(app.staticTexts["还没有记录"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["添加作品"].firstMatch.exists)
 
@@ -30,6 +30,9 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.textFields["红果分享链接"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.textFields["作品名称"].exists)
         XCTAssertTrue(app.buttons["保存"].exists)
+        let manualSeasonToggle = app.switches["manual-season-toggle"]
+        XCTAssertTrue(manualSeasonToggle.exists)
+        XCTAssertEqual(manualSeasonToggle.value as? String, "0")
 
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
@@ -44,7 +47,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.staticTexts["漫剧记录"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textFields["搜索作品、标签或简介"].exists)
+        XCTAssertTrue(app.textFields["搜索作品名、简介或 #标签"].exists)
         XCTAssertFalse(app.navigationBars["漫剧记录"].exists)
 
         let title = app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch
@@ -63,7 +66,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(libraryList.exists)
         libraryList.swipeUp()
         XCTAssertFalse(app.staticTexts["漫剧记录"].isHittable)
-        XCTAssertFalse(app.textFields["搜索作品、标签或简介"].isHittable)
+        XCTAssertFalse(app.textFields["搜索作品名、简介或 #标签"].isHittable)
         libraryList.swipeDown()
         XCTAssertTrue(app.staticTexts["漫剧记录"].waitForExistence(timeout: 5))
 
@@ -113,14 +116,23 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["全189集"].exists)
         XCTAssertTrue(app.staticTexts["我的评分与点评"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["open-red-fruit-button"].exists)
+        let copyTitle = app.buttons["copy-series-title"]
+        XCTAssertTrue(copyTitle.exists)
+        copyTitle.tap()
+        XCTAssertTrue(app.staticTexts["series-title-copied"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["修改自动保存"].exists)
+        XCTAssertFalse(app.buttons["heat-chart-style"].exists)
         let personalRating = app.descendants(matching: .any)["personal-rating-score"].firstMatch
         XCTAssertTrue(personalRating.exists)
+        XCTAssertTrue(app.textFields["personal-rating-input"].exists)
         XCTAssertFalse(app.sliders.firstMatch.exists)
         XCTAssertFalse(app.staticTexts["选集"].exists)
         XCTAssertFalse(app.staticTexts["第1季"].exists)
         XCTAssertFalse(app.staticTexts["已看 1 / 共189集"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["official-rating"].exists)
-        XCTAssertTrue(app.staticTexts["3930万热度"].exists)
+        let officialHeat = app.descendants(matching: .any)["official-heat"].firstMatch
+        XCTAssertTrue(officialHeat.exists)
+        XCTAssertTrue(officialHeat.label.contains("3930万"))
         XCTAssertTrue(app.staticTexts["修仙"].exists)
         XCTAssertFalse(app.textFields["episode-progress-input"].exists)
         XCTAssertFalse(app.buttons["第1集，已看，当前"].exists)
@@ -141,6 +153,9 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["completion-status"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["detail-shelf-state"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["official-trend-section"].exists)
+        let weeklyHeatInterval = app.buttons["heat-chart-interval-week"]
+        XCTAssertTrue(weeklyHeatInterval.exists)
+        weeklyHeatInterval.tap()
         XCTAssertGreaterThanOrEqual(
             app.descendants(matching: .any)["official-rating"].frame.minX,
             detailCover.frame.maxX - 4
@@ -158,7 +173,7 @@ final class RedFruitTrackerUITests: XCTestCase {
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["漫剧记录"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textFields["搜索作品、标签或简介"].exists)
+        XCTAssertTrue(app.textFields["搜索作品名、简介或 #标签"].exists)
         XCTAssertFalse(app.navigationBars["漫剧记录"].exists)
         XCTAssertTrue(app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch.exists)
 

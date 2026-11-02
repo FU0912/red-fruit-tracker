@@ -1,5 +1,6 @@
 import Foundation
 import CoreFoundation
+import CoreGraphics
 import ImageIO
 
 struct PublicSeriesMetadata {
@@ -16,7 +17,7 @@ struct PublicSeriesMetadata {
     var seasons: [PublicSeasonMetadata]
 }
 
-struct CoverImageCandidate: Hashable {
+struct CoverImageCandidate: Hashable, Sendable {
     let url: String
     let context: String
 }
@@ -55,23 +56,25 @@ enum CoverURLSelector {
     }
 
     private static func deduplicationKey(for rawURL: String) -> String {
-        guard var components = URLComponents(string: rawURL),
-              let host = components.host?.lowercased(),
-              host.hasSuffix(".byteimg.com") else {
-            return rawURL
-        }
-
-        let isNovelImageHost = host.range(of: #"^p\d+-novel\.byteimg\.com$"#, options: .regularExpression) != nil
-        guard isNovelImageHost else { return rawURL }
-
+        guard var components = URLComponents(string: rawURL) else { return rawURL }
+        let host = components.host?.lowercased() ?? ""
         var path = components.percentEncodedPath
-        path = replacing(#"~tplv[^/]*$"#, in: path, with: "")
+        if host.hasSuffix(".byteimg.com"),
+           host.range(of: #"^p\d+-novel\.byteimg\.com$"#, options: .regularExpression) != nil {
+            components.host = "novel.byteimg.com"
+            path = replacing(#"~tplv[^/]*$"#, in: path, with: "")
+        }
         path = replacing(#"\.(?:jpe?g|png|webp|image)$"#, in: path, with: "")
-        components.host = "novel.byteimg.com"
         components.percentEncodedPath = path
-        components.query = nil
         components.fragment = nil
         components.scheme = "https"
+        let transformKeys: Set<String> = [
+            "w", "width", "h", "height", "q", "quality", "fm", "format", "fit", "crop",
+            "resize", "token", "expires", "signature", "x-oss-process", "imageMogr2"
+        ]
+        components.queryItems = components.queryItems?.filter {
+            !transformKeys.contains($0.name.lowercased())
+        }
         return components.string ?? rawURL
     }
 
@@ -101,6 +104,7 @@ enum CoverURLSelector {
         for token in [
             "banner", "background", "bg", "share", "logo", "icon", "lock", "empty",
             "loading", "qr", "qrcode", "sprite", "placeholder", "avatar", "emoji", "badge",
+            "related", "recommend", "recommendation", "猜你喜欢", "相关推荐", "相关作品", "推荐作品",
             "first-frame", "first_frame", "video-frame", "video_frame", "snapshot", "screenshot",
             "still", "frame", ".svg", "data:image"
         ] {
@@ -263,13 +267,14 @@ actor PublicMetadataService {
             coverCandidates.append(contentsOf: HTMLMetadata.coverCandidates(in: html, baseURL: url))
         }
         let rankedCoverCandidates = CoverURLSelector.ranked(coverCandidates, title: title)
-        let coverURL = await PortraitCoverProbe.preferredURL(from: rankedCoverCandidates)
+        let verifiedCoverCandidates = await PortraitCoverProbe.distinctPortraits(from: rankedCoverCandidates)
+        let coverURL = verifiedCoverCandidates.first?.candidate.url
         let detailSeasons = HTMLMetadata.seasons(in: metadataHTML, baseURL: detailBaseURL)
         let shareSeasons = detailURL == nil ? [] : HTMLMetadata.seasons(in: html, baseURL: url)
         let metadata = PublicSeriesMetadata(
             title: title,
             coverURL: coverURL,
-            coverCandidates: rankedCoverCandidates.prefix(8).map(\.url),
+            coverCandidates: verifiedCoverCandidates.prefix(8).map(\.candidate.url),
             intro: HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: metadataHTML)
                 ?? HTMLMetadata.currentSeriesDetailValue(for: ["series_intro", "intro", "description", "abstract", "desc"], in: metadataHTML)
                 ?? HTMLMetadata.value(for: ["og:description", "description", "twitter:description"], in: html)
@@ -316,49 +321,107 @@ actor PublicMetadataService {
 }
 
 private enum PortraitCoverProbe {
-    static func preferredURL(from candidates: [CoverImageCandidate]) async -> String? {
-        // The share page can expose a landscape video thumbnail and a real
-        // series poster under the same `series_cover` field. Do not infer the
-        // poster orientation from video_meta; inspect the downloaded image.
-        var ordered: [CoverImageCandidate] = []
-        var seen = Set<String>()
-        for candidate in candidates where candidate.context.lowercased().contains("official-current-series-cover") {
-            if seen.insert(candidate.url).inserted { ordered.append(candidate) }
-        }
-        for candidate in candidates where seen.insert(candidate.url).inserted {
-            ordered.append(candidate)
-        }
-
-        for candidate in ordered.prefix(8) {
-            guard let url = URL(string: candidate.url) else { continue }
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 4
-            request.setValue(
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-                forHTTPHeaderField: "User-Agent"
-            )
-            request.setValue("image/jpeg,image/png,image/webp,image/*;q=0.8", forHTTPHeaderField: "Accept")
-
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  let httpResponse = response as? HTTPURLResponse,
-                  200..<400 ~= httpResponse.statusCode,
-                   let dimensions = dimensions(of: data),
-                   dimensions.height > dimensions.width * 1.05 else {
-                continue
+    static func distinctPortraits(from candidates: [CoverImageCandidate]) async -> [VerifiedCoverCandidate] {
+        let candidatesToInspect = Array(candidates.prefix(24))
+        let inspected = await withTaskGroup(of: (Int, VerifiedCoverCandidate?).self) { group in
+            for (index, candidate) in candidatesToInspect.enumerated() {
+                group.addTask {
+                    (index, await inspect(candidate))
+                }
             }
-            return candidate.url
+
+            var values: [(Int, VerifiedCoverCandidate)] = []
+            for await (index, result) in group {
+                if let result { values.append((index, result)) }
+            }
+            return values.sorted { $0.0 < $1.0 }.map(\.1)
         }
-        return nil
+        return CoverCandidateDeduplicator.uniquePortraits(inspected, limit: 8)
     }
 
-    private static func dimensions(of data: Data) -> (width: CGFloat, height: CGFloat)? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
-              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else {
+    private static func inspect(_ candidate: CoverImageCandidate) async -> VerifiedCoverCandidate? {
+        guard let url = URL(string: candidate.url) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 3
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
+        request.setValue("image/jpeg,image/png,image/webp,image/*;q=0.8", forHTTPHeaderField: "Accept")
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              data.count <= 12_000_000,
+              let httpResponse = response as? HTTPURLResponse,
+              200..<400 ~= httpResponse.statusCode,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(
+                source,
+                0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 32
+                ] as CFDictionary
+              ),
+              Double(image.height) > Double(image.width) * 1.05,
+              let fingerprint = CoverImageFingerprint.hash(image: image) else {
             return nil
         }
-        return (width: CGFloat(width.doubleValue), height: CGFloat(height.doubleValue))
+        return VerifiedCoverCandidate(candidate: candidate, width: image.width, height: image.height, fingerprint: fingerprint)
+    }
+}
+
+struct VerifiedCoverCandidate: Sendable {
+    let candidate: CoverImageCandidate
+    let width: Int
+    let height: Int
+    let fingerprint: UInt64
+}
+
+enum CoverCandidateDeduplicator {
+    static func uniquePortraits(_ candidates: [VerifiedCoverCandidate], limit: Int = 8) -> [VerifiedCoverCandidate] {
+        var fingerprints: [UInt64] = []
+        var result: [VerifiedCoverCandidate] = []
+        for candidate in candidates where candidate.height > candidate.width {
+            guard !fingerprints.contains(where: { CoverImageFingerprint.isDuplicate($0, candidate.fingerprint) }) else {
+                continue
+            }
+            fingerprints.append(candidate.fingerprint)
+            result.append(candidate)
+            if result.count == limit { break }
+        }
+        return result
+    }
+}
+
+enum CoverImageFingerprint {
+    static func hash(image: CGImage) -> UInt64? {
+        var grayscale = [UInt8](repeating: 0, count: 64)
+        let rendered = grayscale.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: 8,
+                height: 8,
+                bitsPerComponent: 8,
+                bytesPerRow: 8,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else { return false }
+            context.interpolationQuality = .high
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 8, height: 8))
+            return true
+        }
+        guard rendered else { return nil }
+        return hash(grayscaleSamples: grayscale)
+    }
+
+    static func hash(grayscaleSamples: [UInt8]) -> UInt64? {
+        guard grayscaleSamples.count == 64 else { return nil }
+        let threshold = grayscaleSamples.sorted()[32]
+        return grayscaleSamples.reduce(UInt64(0)) { result, value in
+            (result << 1) | (value >= threshold ? 1 : 0)
+        }
+    }
+
+    static func isDuplicate(_ lhs: UInt64, _ rhs: UInt64) -> Bool {
+        (lhs ^ rhs).nonzeroBitCount <= 5
     }
 }
 
