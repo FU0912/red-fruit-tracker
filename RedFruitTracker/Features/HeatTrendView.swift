@@ -248,7 +248,9 @@ struct OfficialTrendSection: View {
     }
 
     private func plotRect(in size: CGSize) -> CGRect {
-        CGRect(x: 8, y: 8, width: max(size.width - 72, 1), height: max(size.height - 38, 1))
+        // Reserve the same horizontal inset for the first/last date labels so
+        // their centers can remain exactly on the corresponding data points.
+        CGRect(x: 36, y: 8, width: max(size.width - 108, 1), height: max(size.height - 38, 1))
     }
 
     private func xPosition(for date: Date, in rect: CGRect) -> CGFloat {
@@ -264,9 +266,7 @@ struct OfficialTrendSection: View {
     }
 
     private func labelX(at index: Int, point: HeatPoint, in rect: CGRect) -> CGFloat {
-        let x = xPosition(for: point.date, in: rect)
-        let halfWidth: CGFloat = 36
-        return min(max(x, halfWidth), rect.maxX - halfWidth)
+        xPosition(for: point.date, in: rect)
     }
 
     private func selectPoint(at x: CGFloat, in rect: CGRect) {
