@@ -58,16 +58,17 @@ enum CoverURLSelector {
     private static func deduplicationKey(for rawURL: String) -> String {
         guard var components = URLComponents(string: rawURL) else { return rawURL }
         let host = components.host?.lowercased() ?? ""
-        var path = components.percentEncodedPath
+        // Use the decoded path here. URLComponents can expose the same Byteimg
+        // resize marker as either `~tplv` or an escaped form in
+        // `percentEncodedPath`, which made equivalent CDN URLs miss each other.
+        var path = components.path
         if host.hasSuffix(".byteimg.com"),
            host.range(of: #"^p\d+-novel\.byteimg\.com$"#, options: .regularExpression) != nil {
             components.host = "novel.byteimg.com"
-            if let transformStart = path.range(of: "~tplv", options: .caseInsensitive) {
-                path = String(path[..<transformStart.lowerBound])
-            }
+            path = replacing(#"~tplv.*$"#, in: path, with: "")
         }
         path = replacing(#"\.(?:jpe?g|png|webp|image)$"#, in: path, with: "")
-        components.percentEncodedPath = path
+        components.path = path
         components.fragment = nil
         components.scheme = "https"
         let transformKeys: Set<String> = [
