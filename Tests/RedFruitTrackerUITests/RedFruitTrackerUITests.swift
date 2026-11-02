@@ -30,7 +30,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.textFields["红果分享链接"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.textFields["作品名称"].exists)
         XCTAssertTrue(app.buttons["保存"].exists)
-        let manualSeasonToggle = app.switches["manual-season-toggle"]
+        let manualSeasonToggle = app.descendants(matching: .any)["manual-season-toggle"].firstMatch
         XCTAssertTrue(manualSeasonToggle.exists)
         XCTAssertEqual(manualSeasonToggle.value as? String, "0")
 

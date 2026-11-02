@@ -62,7 +62,9 @@ enum CoverURLSelector {
         if host.hasSuffix(".byteimg.com"),
            host.range(of: #"^p\d+-novel\.byteimg\.com$"#, options: .regularExpression) != nil {
             components.host = "novel.byteimg.com"
-            path = replacing(#"~tplv[^/]*$"#, in: path, with: "")
+            if let transformStart = path.range(of: "~tplv", options: .caseInsensitive) {
+                path = String(path[..<transformStart.lowerBound])
+            }
         }
         path = replacing(#"\.(?:jpe?g|png|webp|image)$"#, in: path, with: "")
         components.percentEncodedPath = path
