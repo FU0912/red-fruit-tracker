@@ -276,13 +276,13 @@ struct OfficialTrendSection: View {
     }
 
     private static func number(_ value: Double) -> String {
-        if value >= 100_000_000 { return String(format: \"%.1f亿\", value / 100_000_000) }
-        if value >= 10_000 { return String(format: \"%.1f万\", value / 10_000) }
+        if value >= 100_000_000 { return String(format: "%.1f亿", value / 100_000_000) }
+        if value >= 10_000 { return String(format: "%.1f万", value / 10_000) }
         return value.formatted(.number.precision(.fractionLength(0)))
     }
 
     private static func change(_ value: Double) -> String {
-        (value >= 0 ? \"+\" : \"\") + number(value)
+        (value >= 0 ? "+" : "") + number(value)
     }
 
     private static func axisNumber(_ value: Double) -> String {
@@ -320,10 +320,10 @@ private enum HeatChartPeriod: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .week: return \"周\"
-        case .month: return \"月\"
-        case .quarter: return \"季\"
-        case .year: return \"年\"
+        case .week: return "周"
+        case .month: return "月"
+        case .quarter: return "季"
+        case .year: return "年"
         }
     }
 

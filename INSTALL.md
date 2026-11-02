@@ -2,7 +2,7 @@
 
 ## 当前验证版本
 
-当前代码版本为 `v1.2.30` / build `33`。本轮修改尚未运行 GitHub Actions；CI 需完成 XcodeGen、模拟器编译、单元测试、UI 测试、真机架构归档和未签名 IPA 打包后，才会有新的安装包。
+当前代码版本为 `v1.2.31` / build `34`。本轮修改尚未运行 GitHub Actions；CI 需完成 XcodeGen、模拟器编译、单元测试、UI 测试、真机架构归档和未签名 IPA 打包后，才会有新的安装包。
 
 已验证产物：`artifacts/RedFruitTracker-unsigned-device-v1.2.18-build21.ipa`
 
