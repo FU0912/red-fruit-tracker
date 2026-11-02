@@ -205,12 +205,12 @@ struct OfficialTrendSection: View {
                         .position(x: size.width - 27, y: yPosition(for: value, in: rect))
                 }
 
-                ForEach(Array(axisPoints.enumerated()), id: \.element.id) { index, point in
+                ForEach(axisPoints) { point in
                     Text(Self.dateLabel(point.date, period: period))
                         .font(.caption2)
                         .foregroundStyle(HeatTrendPalette.secondaryText)
-                        .frame(width: 72, alignment: index == 0 ? .leading : index == axisPoints.count - 1 ? .trailing : .center)
-                        .position(x: labelX(at: index, point: point, in: rect), y: size.height - 10)
+                        .frame(width: 72, alignment: .center)
+                        .position(x: labelX(for: point, in: rect), y: size.height - 10)
                 }
 
                 if points.count == 1 {
@@ -250,13 +250,12 @@ struct OfficialTrendSection: View {
     private func plotRect(in size: CGSize) -> CGRect {
         // Reserve the same horizontal inset for the first/last date labels so
         // their centers can remain exactly on the corresponding data points.
-        CGRect(x: 36, y: 8, width: max(size.width - 108, 1), height: max(size.height - 38, 1))
+        HeatTrendChartGeometry.plotRect(in: size)
     }
 
     private func xPosition(for date: Date, in rect: CGRect) -> CGFloat {
         guard let first = points.first?.date, let last = points.last?.date, last > first else { return rect.midX }
-        let fraction = CGFloat(date.timeIntervalSince(first) / last.timeIntervalSince(first))
-        return rect.minX + fraction * rect.width
+        return HeatTrendChartGeometry.xPosition(for: date, first: first, last: last, in: rect)
     }
 
     private func yPosition(for value: Double, in rect: CGRect) -> CGFloat {
@@ -265,7 +264,7 @@ struct OfficialTrendSection: View {
         return rect.maxY - CGFloat((value - valueRange.lowerBound) / range) * rect.height
     }
 
-    private func labelX(at index: Int, point: HeatPoint, in rect: CGRect) -> CGFloat {
+    private func labelX(for point: HeatPoint, in rect: CGRect) -> CGFloat {
         xPosition(for: point.date, in: rect)
     }
 
@@ -297,6 +296,18 @@ struct OfficialTrendSection: View {
         case .week, .month, .quarter:
             return date.formatted(.dateTime.month(.abbreviated).day())
         }
+    }
+}
+
+enum HeatTrendChartGeometry {
+    static func plotRect(in size: CGSize) -> CGRect {
+        CGRect(x: 36, y: 8, width: max(size.width - 108, 1), height: max(size.height - 38, 1))
+    }
+
+    static func xPosition(for date: Date, first: Date, last: Date, in rect: CGRect) -> CGFloat {
+        guard last > first else { return rect.midX }
+        let fraction = CGFloat(date.timeIntervalSince(first) / last.timeIntervalSince(first))
+        return rect.minX + fraction * rect.width
     }
 }
 

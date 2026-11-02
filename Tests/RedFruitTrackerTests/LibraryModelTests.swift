@@ -886,6 +886,23 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(samples.first?.observationCount, 2)
     }
 
+    func testHeatTrendDateLabelsSharePointCoordinatesWithoutClippingAtEdges() throws {
+        let size = CGSize(width: 320, height: 210)
+        let rect = HeatTrendChartGeometry.plotRect(in: size)
+        let first = Date(timeIntervalSince1970: 1_800_000_000)
+        let last = first.addingTimeInterval(6 * 86_400)
+
+        let firstPointX = HeatTrendChartGeometry.xPosition(for: first, first: first, last: last, in: rect)
+        let firstLabelX = HeatTrendChartGeometry.xPosition(for: first, first: first, last: last, in: rect)
+        let lastPointX = HeatTrendChartGeometry.xPosition(for: last, first: first, last: last, in: rect)
+        let lastLabelX = HeatTrendChartGeometry.xPosition(for: last, first: first, last: last, in: rect)
+
+        XCTAssertEqual(firstLabelX, firstPointX)
+        XCTAssertEqual(lastLabelX, lastPointX)
+        XCTAssertGreaterThanOrEqual(firstLabelX - 36, 0)
+        XCTAssertLessThanOrEqual(lastLabelX + 36, size.width)
+    }
+
     func testOfficialRatingWithoutHeatDoesNotCreateAHeatTrendPoint() {
         let snapshot = OfficialSnapshot(sourceSeriesID: "series")
         snapshot.officialRating = 9.2
