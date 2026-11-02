@@ -1,8 +1,8 @@
 import Foundation
 import SwiftUI
 
-/// Official heat is a cumulative popularity signal. A period line chart and
-/// range summary are more honest than inventing stock-style open/close values.
+/// Official heat is a cumulative popularity signal. A clean line chart is a
+/// better representation than inventing stock-style open/high/low/close data.
 struct OfficialTrendSection: View {
     let snapshots: [OfficialSnapshot]
 
@@ -10,7 +10,10 @@ struct OfficialTrendSection: View {
     @State private var selectedDate: Date?
 
     private var points: [HeatPoint] {
-        let heatSnapshots = snapshots.filter { $0.officialHeatScore?.isFinite == true && $0.officialHeatScore! >= 0 }
+        let heatSnapshots = snapshots.filter {
+            guard let score = $0.officialHeatScore else { return false }
+            return score.isFinite && score >= 0
+        }
         guard let latestDate = heatSnapshots.map(\.capturedAt).max() else { return [] }
         let calendar = Calendar.current
         let start = calendar.date(byAdding: .day, value: -(period.windowDays - 1), to: latestDate) ?? latestDate
@@ -25,7 +28,9 @@ struct OfficialTrendSection: View {
 
     private var selected: HeatPoint? {
         guard let selectedDate else { return points.last }
-        return points.min { abs($0.date.timeIntervalSince(selectedDate)) < abs($1.date.timeIntervalSince(selectedDate)) }
+        return points.min {
+            abs($0.date.timeIntervalSince(selectedDate)) < abs($1.date.timeIntervalSince(selectedDate))
+        }
     }
 
     private var valueRange: ClosedRange<Double> {
@@ -40,7 +45,7 @@ struct OfficialTrendSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text("官方热度")
+                Label("官方热度", systemImage: "flame.fill")
                     .font(.headline)
                     .foregroundStyle(HeatTrendPalette.primaryText)
                 Spacer()
@@ -82,7 +87,9 @@ struct OfficialTrendSection: View {
                         .foregroundStyle(period == value ? HeatTrendPalette.primaryText : HeatTrendPalette.secondaryText)
                         .frame(maxWidth: .infinity, minHeight: AppLayout.minimumControlHeight)
                         .background {
-                            if period == value { Capsule().fill(HeatTrendPalette.selection) }
+                            if period == value {
+                                Capsule().fill(HeatTrendPalette.selection)
+                            }
                         }
                         .contentShape(Rectangle())
                 }
@@ -100,7 +107,8 @@ struct OfficialTrendSection: View {
     }
 
     private func readout(_ point: HeatPoint) -> some View {
-        let delta = point.value - (points.first?.value ?? point.value)
+        let firstValue = points.first?.value ?? point.value
+        let delta = point.value - firstValue
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(Self.number(point.value))
@@ -116,10 +124,13 @@ struct OfficialTrendSection: View {
                     .font(.caption)
                     .foregroundStyle(HeatTrendPalette.secondaryText)
             }
+
             HStack(spacing: 16) {
                 rangeValue("最高", points.map(\.highestObserved).max() ?? point.value)
                 rangeValue("最低", points.map(\.lowestObserved).min() ?? point.value)
-                Text("过去\(period.title)").foregroundStyle(HeatTrendPalette.secondaryText)
+                Spacer(minLength: 0)
+                Text("过去\(period.title)")
+                    .foregroundStyle(HeatTrendPalette.secondaryText)
             }
             .font(.caption.monospacedDigit())
         }
@@ -138,6 +149,7 @@ struct OfficialTrendSection: View {
             let size = proxy.size
             let rect = plotRect(in: size)
             let ticks = [valueRange.upperBound, (valueRange.upperBound + valueRange.lowerBound) / 2, valueRange.lowerBound]
+
             ZStack(alignment: .topLeading) {
                 Canvas { context, _ in
                     for value in ticks {
@@ -148,30 +160,40 @@ struct OfficialTrendSection: View {
                         context.stroke(grid, with: .color(HeatTrendPalette.grid), lineWidth: 0.7)
                     }
 
-                    if points.count == 1, let point = points.first {
+                    for point in axisPoints {
                         let x = xPosition(for: point.date, in: rect)
-                        let y = yPosition(for: point.value, in: rect)
-                        context.fill(Path(ellipseIn: CGRect(x: x - 4, y: y - 4, width: 8, height: 8)), with: .color(HeatTrendPalette.rising))
-                    } else if points.count > 1 {
-                        var area = linePath(in: rect)
+                        var guide = Path()
+                        guide.move(to: CGPoint(x: x, y: rect.minY))
+                        guide.addLine(to: CGPoint(x: x, y: rect.maxY))
+                        context.stroke(guide, with: .color(HeatTrendPalette.grid.opacity(0.55)), lineWidth: 0.6)
+                    }
+
+                    guard !points.isEmpty else { return }
+                    let path = linePath(in: rect)
+                    if points.count > 1 {
+                        var area = path
                         area.addLine(to: CGPoint(x: xPosition(for: points.last!.date, in: rect), y: rect.maxY))
                         area.addLine(to: CGPoint(x: xPosition(for: points.first!.date, in: rect), y: rect.maxY))
                         area.closeSubpath()
-                        context.fill(area, with: .color(HeatTrendPalette.rising.opacity(0.13)))
-                        context.stroke(linePath(in: rect), with: .color(HeatTrendPalette.rising), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-                        for point in points {
-                            let x = xPosition(for: point.date, in: rect)
-                            let y = yPosition(for: point.value, in: rect)
-                            context.fill(Path(ellipseIn: CGRect(x: x - 2.5, y: y - 2.5, width: 5, height: 5)), with: .color(HeatTrendPalette.rising))
-                        }
+                        context.fill(area, with: .color(HeatTrendPalette.rising.opacity(0.11)))
+                        context.stroke(path, with: .color(HeatTrendPalette.rising), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                     }
 
-                    if selectedDate != nil, let selected {
+                    for point in points {
+                        let x = xPosition(for: point.date, in: rect)
+                        let y = yPosition(for: point.value, in: rect)
+                        context.fill(Path(ellipseIn: CGRect(x: x - 2.75, y: y - 2.75, width: 5.5, height: 5.5)), with: .color(HeatTrendPalette.rising))
+                    }
+
+                    if let selectedDate, let selected {
                         let x = xPosition(for: selected.date, in: rect)
+                        let y = yPosition(for: selected.value, in: rect)
                         var guide = Path()
                         guide.move(to: CGPoint(x: x, y: rect.minY))
                         guide.addLine(to: CGPoint(x: x, y: rect.maxY))
                         context.stroke(guide, with: .color(HeatTrendPalette.guide), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        context.fill(Path(ellipseIn: CGRect(x: x - 5, y: y - 5, width: 10, height: 10)), with: .color(HeatTrendPalette.surface))
+                        context.stroke(Path(ellipseIn: CGRect(x: x - 5, y: y - 5, width: 10, height: 10)), with: .color(HeatTrendPalette.rising), lineWidth: 2)
                     }
                 }
 
@@ -179,25 +201,29 @@ struct OfficialTrendSection: View {
                     Text(Self.axisNumber(value))
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(HeatTrendPalette.secondaryText)
-                        .frame(width: 52, alignment: .leading)
-                        .position(x: size.width - 26, y: yPosition(for: value, in: rect))
+                        .frame(width: 54, alignment: .leading)
+                        .position(x: size.width - 27, y: yPosition(for: value, in: rect))
                 }
+
                 ForEach(Array(axisPoints.enumerated()), id: \.element.id) { index, point in
                     Text(Self.dateLabel(point.date, period: period))
                         .font(.caption2)
                         .foregroundStyle(HeatTrendPalette.secondaryText)
-                        .frame(width: 62, alignment: axisAlignment(at: index))
-                        .position(x: axisLabelX(at: index, point: point, in: rect), y: size.height - 10)
+                        .frame(width: 72, alignment: index == 0 ? .leading : index == axisPoints.count - 1 ? .trailing : .center)
+                        .position(x: labelX(at: index, point: point, in: rect), y: size.height - 10)
                 }
+
                 if points.count == 1 {
                     Text("当前只有 1 次采样")
                         .font(.caption)
                         .foregroundStyle(HeatTrendPalette.secondaryText)
-                        .position(x: rect.midX, y: rect.midY + 22)
+                        .position(x: rect.midX, y: rect.midY + 24)
                 }
             }
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { value in selectPoint(at: value.location.x, in: rect) })
+            .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                selectPoint(at: value.location.x, in: rect)
+            })
         }
         .frame(height: 210)
         .accessibilityIdentifier("official-heat-chart")
@@ -212,16 +238,23 @@ struct OfficialTrendSection: View {
         var path = Path()
         for (index, point) in points.enumerated() {
             let location = CGPoint(x: xPosition(for: point.date, in: rect), y: yPosition(for: point.value, in: rect))
-            if index == 0 { path.move(to: location) } else { path.addLine(to: location) }
+            if index == 0 {
+                path.move(to: location)
+            } else {
+                path.addLine(to: location)
+            }
         }
         return path
     }
 
-    private func plotRect(in size: CGSize) -> CGRect { CGRect(x: 6, y: 8, width: max(size.width - 64, 1), height: max(size.height - 38, 1)) }
+    private func plotRect(in size: CGSize) -> CGRect {
+        CGRect(x: 8, y: 8, width: max(size.width - 72, 1), height: max(size.height - 38, 1))
+    }
 
     private func xPosition(for date: Date, in rect: CGRect) -> CGFloat {
         guard let first = points.first?.date, let last = points.last?.date, last > first else { return rect.midX }
-        return rect.minX + CGFloat(date.timeIntervalSince(first) / last.timeIntervalSince(first)) * rect.width
+        let fraction = CGFloat(date.timeIntervalSince(first) / last.timeIntervalSince(first))
+        return rect.minX + fraction * rect.width
     }
 
     private func yPosition(for value: Double, in rect: CGRect) -> CGFloat {
@@ -230,43 +263,39 @@ struct OfficialTrendSection: View {
         return rect.maxY - CGFloat((value - valueRange.lowerBound) / range) * rect.height
     }
 
-    private func axisAlignment(at index: Int) -> Alignment {
-        if axisPoints.count == 1 { return .center }
-        if index == 0 { return .leading }
-        if index == axisPoints.count - 1 { return .trailing }
-        return .center
-    }
-
-    private func axisLabelX(at index: Int, point: HeatPoint, in rect: CGRect) -> CGFloat {
-        if axisPoints.count == 1 { return xPosition(for: point.date, in: rect) }
-        if index == 0 { return rect.minX + 30 }
-        if index == axisPoints.count - 1 { return rect.maxX - 30 }
-        return xPosition(for: point.date, in: rect)
+    private func labelX(at index: Int, point: HeatPoint, in rect: CGRect) -> CGFloat {
+        let x = xPosition(for: point.date, in: rect)
+        let halfWidth: CGFloat = 36
+        return min(max(x, halfWidth), rect.maxX - halfWidth)
     }
 
     private func selectPoint(at x: CGFloat, in rect: CGRect) {
         guard !points.isEmpty else { return }
-        selectedDate = points.min { abs(xPosition(for: $0.date, in: rect) - x) < abs(xPosition(for: $1.date, in: rect) - x) }?.date
+        selectedDate = points.min {
+            abs(xPosition(for: $0.date, in: rect) - x) < abs(xPosition(for: $1.date, in: rect) - x)
+        }?.date
     }
 
     private static func number(_ value: Double) -> String {
-        if value >= 100_000_000 { return String(format: "%.1f亿", value / 100_000_000) }
-        if value >= 10_000 { return String(format: "%.1f万", value / 10_000) }
+        if value >= 100_000_000 { return String(format: \"%.1f亿\", value / 100_000_000) }
+        if value >= 10_000 { return String(format: \"%.1f万\", value / 10_000) }
         return value.formatted(.number.precision(.fractionLength(0)))
     }
 
-    private static func change(_ value: Double) -> String { (value >= 0 ? "+" : "") + number(value) }
+    private static func change(_ value: Double) -> String {
+        (value >= 0 ? \"+\" : \"\") + number(value)
+    }
 
     private static func axisNumber(_ value: Double) -> String {
-        if value >= 100_000_000 { return String(format: "%.1f亿", value / 100_000_000) }
-        if value >= 10_000 { return String(format: "%.1f万", value / 10_000) }
-        return value.formatted(.number.precision(.fractionLength(0)))
+        number(value)
     }
 
     private static func dateLabel(_ date: Date, period: HeatChartPeriod) -> String {
         switch period {
-        case .year: return date.formatted(.dateTime.year().month(.abbreviated))
-        case .week, .month, .quarter: return date.formatted(.dateTime.month(.abbreviated).day())
+        case .year:
+            return date.formatted(.dateTime.year().month(.abbreviated))
+        case .week, .month, .quarter:
+            return date.formatted(.dateTime.month(.abbreviated).day())
         }
     }
 }
@@ -277,14 +306,16 @@ private enum HeatChartPeriod: String, CaseIterable, Identifiable {
     case week, month, quarter, year
 
     var id: String { rawValue }
+
     var title: String {
         switch self {
-        case .week: return "周"
-        case .month: return "月"
-        case .quarter: return "季"
-        case .year: return "年"
+        case .week: return \"周\"
+        case .month: return \"月\"
+        case .quarter: return \"季\"
+        case .year: return \"年\"
         }
     }
+
     var windowDays: Int {
         switch self {
         case .week: return 7
@@ -293,6 +324,7 @@ private enum HeatChartPeriod: String, CaseIterable, Identifiable {
         case .year: return 365
         }
     }
+
     var granularity: HeatTrendGranularity {
         switch self {
         case .week, .month: return .day
@@ -306,7 +338,7 @@ private enum HeatTrendPalette {
     static let primaryText = Color.white.opacity(0.94)
     static let secondaryText = Color.white.opacity(0.66)
     static let grid = Color.white.opacity(0.14)
-    static let guide = Color.white.opacity(0.46)
+    static let guide = Color.white.opacity(0.58)
     static let surface = Color.white.opacity(0.075)
     static let controlSurface = Color.white.opacity(0.07)
     static let selection = Color.white.opacity(0.16)
