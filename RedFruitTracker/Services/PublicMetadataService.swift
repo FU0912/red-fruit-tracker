@@ -58,15 +58,17 @@ enum CoverURLSelector {
     private static func deduplicationKey(for rawURL: String) -> String {
         guard var components = URLComponents(string: rawURL) else { return rawURL }
         let host = components.host?.lowercased() ?? ""
-        // Use the decoded path here. URLComponents can expose the same Byteimg
-        // resize marker as either `~tplv` or an escaped form in
-        // `percentEncodedPath`, which made equivalent CDN URLs miss each other.
-        var path = components.path
         if host.hasSuffix(".byteimg.com"),
            host.range(of: #"^p\d+-novel\.byteimg\.com$"#, options: .regularExpression) != nil {
-            components.host = "novel.byteimg.com"
-            path = replacing(#"~tplv.*$"#, in: path, with: "")
+            // The CDN emits the same poster through p3/p6 hosts and appends
+            // resize/format transforms after `~tplv`; neither should split a
+            // single poster into multiple picker candidates.
+            let decodedPath = components.path.removingPercentEncoding ?? components.path
+            var basePath = replacing(#"~tplv.*$"#, in: decodedPath, with: "")
+            basePath = replacing(#"\.(?:jpe?g|png|webp|image)$"#, in: basePath, with: "")
+            return "https://novel.byteimg.com(basePath)"
         }
+        var path = components.path
         path = replacing(#"\.(?:jpe?g|png|webp|image)$"#, in: path, with: "")
         components.path = path
         components.fragment = nil
@@ -77,6 +79,13 @@ enum CoverURLSelector {
         ]
         components.queryItems = components.queryItems?.filter {
             !transformKeys.contains($0.name.lowercased())
+        }
+        if components.queryItems?.isEmpty == true {
+            components.query = nil
+        } else {
+            components.queryItems = components.queryItems?.sorted {
+                ($0.name, $0.value ?? "") < ($1.name, $1.value ?? "")
+            }
         }
         return components.string ?? rawURL
     }

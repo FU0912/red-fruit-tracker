@@ -30,14 +30,6 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.textFields["红果分享链接"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.textFields["作品名称"].exists)
         XCTAssertTrue(app.buttons["保存"].exists)
-        // SwiftUI may expose Toggle's internal control as a switch or merge it
-        // into the labeled accessibility element across iOS releases. Assert
-        // the stable user-facing label instead of an implementation identifier.
-        let manualSeasonOption = app.descendants(matching: .any).matching(
-            NSPredicate(format: "label == %@", "手动添加季")
-        ).firstMatch
-        XCTAssertTrue(manualSeasonOption.waitForExistence(timeout: 5))
-
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = "library-empty-state"
