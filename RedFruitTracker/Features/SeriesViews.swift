@@ -19,15 +19,11 @@ struct SeriesDetailView: View {
     @Query
     private var personalRecords: [PersonalRecord]
 
-    @Query
-    private var snapshots: [OfficialSnapshot]
-
     @State private var isShowingEdit = false
     @State private var isShowingAddSeason = false
     @State private var isRefreshing = false
     @State private var isIntroExpanded = false
     @State private var notice: String?
-    @State private var personalSaveTask: Task<Void, Never>?
     @State private var personalSaveError: String?
     @State private var titleCopyFeedback = false
     @State private var pendingBrowserFallbackURL: URL?
@@ -53,12 +49,6 @@ struct SeriesDetailView: View {
                 personal.sourceSeriesID == sourceSeriesID
             }
         )
-        _snapshots = Query(
-            filter: #Predicate<OfficialSnapshot> { snapshot in
-                snapshot.sourceSeriesID == sourceSeriesID
-            },
-            sort: \OfficialSnapshot.capturedAt
-        )
     }
 
     private var seasons: [SeasonRecord] {
@@ -75,7 +65,6 @@ struct SeriesDetailView: View {
             VStack(alignment: .leading, spacing: AppLayout.sectionSpacing) {
                 detailHeader
                 introSection
-                OfficialTrendSection(snapshots: snapshots)
                 personalSection
             }
             .padding(.horizontal, AppLayout.pageInset)
@@ -83,6 +72,7 @@ struct SeriesDetailView: View {
             .padding(.bottom, 24)
         }
         .scrollIndicators(.hidden)
+        .scrollDismissesKeyboard(.interactively)
         .background(DetailTheme.background.ignoresSafeArea())
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -257,18 +247,20 @@ struct SeriesDetailView: View {
             TagFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
                 DetailPill(
                     text: completionStatusText,
-                    systemImage: completionStatusSymbol
+                    systemImage: completionStatusSymbol,
+                    tint: completionStatusTint
                 )
                 .accessibilityIdentifier("completion-status")
 
                 DetailPill(
                     text: shelfState.title,
-                    systemImage: shelfState.systemImage
+                    systemImage: shelfState.systemImage,
+                    tint: shelfStateTint
                 )
                 .accessibilityIdentifier("detail-shelf-state")
 
                 if personalRecord?.followsUpdates == true {
-                    DetailPill(text: "追更 / 预约", systemImage: "bell.badge.fill")
+                    DetailPill(text: "追更 / 预约", systemImage: "bell.badge.fill", tint: .indigo)
                         .accessibilityIdentifier("detail-follow-updates")
                 }
             }
@@ -312,8 +304,26 @@ struct SeriesDetailView: View {
         }
     }
 
+    private var completionStatusTint: Color {
+        switch completionStatus {
+        case .completed: return .green
+        case .ongoing: return .orange
+        case .unknown: return .secondary
+        }
+    }
+
     private var shelfState: ShelfState {
         ShelfState.resolve(personalRecord?.localShelfState)
+    }
+
+    private var shelfStateTint: Color {
+        switch shelfState {
+        case .unstarted: return .secondary
+        case .watching: return .blue
+        case .finished: return .green
+        case .paused: return .orange
+        case .dropped: return .red
+        }
     }
 
     private var introSection: some View {
@@ -397,11 +407,16 @@ struct SeriesDetailView: View {
                 .padding(.vertical, 4)
                 .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12))
 
-                RatingScorePicker(rating: ratingBinding(for: personalRecord), usesDarkAppearance: true)
+                RatingScorePicker(initialRating: personalRecord.myRating, usesDarkAppearance: true) { value in
+                    commitPersonalRating(value, for: personalRecord)
+                }
                 ReviewEditor(
-                    text: reviewBinding(for: personalRecord),
+                    initialText: personalRecord.review,
                     placeholder: "写下整部漫剧的感受",
-                    usesDarkAppearance: true
+                    usesDarkAppearance: true,
+                    onCommit: { value in
+                        commitPersonalReview(value, for: personalRecord)
+                    }
                 )
 
                 if let personalSaveError {
@@ -490,35 +505,19 @@ struct SeriesDetailView: View {
         )
     }
 
-    private func ratingBinding(for personal: PersonalRecord) -> Binding<Double?> {
-        Binding(
-            get: { personal.myRating },
-            set: {
-                personal.myRating = $0
-                personal.updatedAt = .now
-                savePersonalChanges()
-            }
-        )
+    private func commitPersonalRating(_ value: Double?, for personal: PersonalRecord) {
+        personal.myRating = value
+        personal.updatedAt = .now
+        savePersonalChanges()
     }
 
-    private func reviewBinding(for personal: PersonalRecord) -> Binding<String> {
-        Binding(
-            get: { personal.review },
-            set: {
-                personal.review = $0
-                personal.updatedAt = .now
-                personalSaveTask?.cancel()
-                personalSaveTask = Task { @MainActor in
-                    do { try await Task.sleep(nanoseconds: 350_000_000) } catch { return }
-                    savePersonalChanges()
-                }
-            }
-        )
+    private func commitPersonalReview(_ value: String, for personal: PersonalRecord) {
+        personal.review = value
+        personal.updatedAt = .now
+        savePersonalChanges()
     }
 
     private func flushPersonalChanges() {
-        personalSaveTask?.cancel()
-        personalSaveTask = nil
         if modelContext.hasChanges { savePersonalChanges() }
     }
 
@@ -655,6 +654,7 @@ private enum DetailTheme {
 private struct DetailPill: View {
     let text: String
     let systemImage: String
+    var tint: Color = .secondary
 
     var body: some View {
         HStack(spacing: 4) {
@@ -662,13 +662,14 @@ private struct DetailPill: View {
             Text(text)
         }
             .accessibilityElement(children: .combine)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.86))
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(tint)
             .lineLimit(1)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(Color.white.opacity(0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .background(tint.opacity(0.16))
+            .clipShape(Capsule())
     }
 }
 
@@ -1206,24 +1207,19 @@ struct SeasonDetailView: View {
     private var seasonRatingSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionTitle(title: "本季评分与点评", symbol: "number.circle")
-            RatingScorePicker(rating: Binding(
-                get: { season.myRating },
-                set: {
-                    season.myRating = $0
+            RatingScorePicker(initialRating: season.myRating) { value in
+                season.myRating = value
+                season.updatedAt = .now
+                scheduleSeasonSave()
+            }
+            ReviewEditor(
+                initialText: season.review,
+                placeholder: "写下这一季的感受",
+                onCommit: { value in
+                    season.review = value
                     season.updatedAt = .now
                     scheduleSeasonSave()
                 }
-            ))
-            ReviewEditor(
-                text: Binding(
-                    get: { season.review },
-                    set: {
-                        season.review = $0
-                        season.updatedAt = .now
-                        scheduleSeasonSave()
-                    }
-                ),
-                placeholder: "写下这一季的感受"
             )
 
             if let seasonSaveError {
@@ -1427,22 +1423,42 @@ private struct SectionTitle: View {
 }
 
 private struct ReviewEditor: View {
-    @Binding var text: String
+    let initialText: String
     let placeholder: String
     var usesDarkAppearance = false
+    let onCommit: (String) -> Void
+
+    @State private var draftBuffer: TextDraftBuffer
+    @State private var commitTask: Task<Void, Never>?
+    @FocusState private var isFocused: Bool
+
+    init(
+        initialText: String,
+        placeholder: String,
+        usesDarkAppearance: Bool = false,
+        onCommit: @escaping (String) -> Void
+    ) {
+        self.initialText = initialText
+        self.placeholder = placeholder
+        self.usesDarkAppearance = usesDarkAppearance
+        self.onCommit = onCommit
+        _draftBuffer = State(initialValue: TextDraftBuffer(initialText))
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if text.isEmpty {
+            if draftBuffer.draft.isEmpty {
                 Text(placeholder)
                     .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.42) : Color(uiColor: .secondaryLabel))
                     .padding(.top, 8)
                     .padding(.leading, 5)
             }
-            TextEditor(text: $text)
+            TextEditor(text: $draftBuffer.draft)
                 .frame(minHeight: 100)
                 .scrollContentBackground(.hidden)
                 .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
+                .focused($isFocused)
+                .scrollDismissesKeyboard(.interactively)
         }
         .background(usesDarkAppearance ? Color.white.opacity(0.08) : Color(uiColor: .tertiarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -1450,19 +1466,51 @@ private struct ReviewEditor: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(usesDarkAppearance ? Color.white.opacity(0.14) : Color(uiColor: .separator), lineWidth: 0.5)
         }
+        .onChange(of: draftBuffer.draft) { _, _ in
+            scheduleCommit()
+        }
+        .onChange(of: initialText) { _, value in
+            guard value != draftBuffer.committed else { return }
+            draftBuffer.reset(to: value)
+        }
+        .onChange(of: isFocused) { wasFocused, focused in
+            if wasFocused && !focused { commitDraft() }
+        }
+        .onDisappear { commitDraft() }
+    }
+
+    private func scheduleCommit() {
+        commitTask?.cancel()
+        commitTask = Task { @MainActor in
+            do { try await Task.sleep(nanoseconds: 450_000_000) } catch { return }
+            commitDraft()
+        }
+    }
+
+    private func commitDraft() {
+        commitTask?.cancel()
+        commitTask = nil
+        guard let value = draftBuffer.commit() else { return }
+        onCommit(value)
     }
 }
 
 private struct RatingScorePicker: View {
-    @Binding var rating: Double?
+    let initialRating: Double?
+    let onCommit: (Double?) -> Void
     var usesDarkAppearance = false
     @State private var draft = ""
     @FocusState private var isFocused: Bool
 
-    init(rating: Binding<Double?>, usesDarkAppearance: Bool = false) {
-        self._rating = rating
+    init(
+        initialRating: Double?,
+        usesDarkAppearance: Bool = false,
+        onCommit: @escaping (Double?) -> Void
+    ) {
+        self.initialRating = initialRating
         self.usesDarkAppearance = usesDarkAppearance
-        self._draft = State(initialValue: rating.wrappedValue.map { String(format: "%.1f", $0) } ?? "")
+        self.onCommit = onCommit
+        self._draft = State(initialValue: initialRating.map { String(format: "%.1f", $0) } ?? "")
     }
 
     var body: some View {
@@ -1483,7 +1531,7 @@ private struct RatingScorePicker: View {
             if !draft.isEmpty {
                 Button {
                     draft = ""
-                    rating = nil
+                    onCommit(nil)
                     isFocused = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -1502,7 +1550,7 @@ private struct RatingScorePicker: View {
         .tint(usesDarkAppearance ? DetailTheme.accent : Color.accentColor)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("personal-rating-score")
-        .onChange(of: rating) { _, value in
+        .onChange(of: initialRating) { _, value in
             guard !isFocused else { return }
             draft = value.map { String(format: "%.1f", $0) } ?? ""
         }
@@ -1524,16 +1572,16 @@ private struct RatingScorePicker: View {
         let valueText = draft.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: ",", with: ".")
         guard !valueText.isEmpty else {
-            rating = nil
+            onCommit(nil)
             draft = ""
             return
         }
         guard let value = Double(valueText) else {
-            draft = rating.map { String(format: "%.1f", $0) } ?? ""
+            draft = initialRating.map { String(format: "%.1f", $0) } ?? ""
             return
         }
         let normalized = RatingScale.normalized(value)
-        rating = normalized
+        onCommit(normalized)
         draft = String(format: "%.1f", normalized)
     }
 }

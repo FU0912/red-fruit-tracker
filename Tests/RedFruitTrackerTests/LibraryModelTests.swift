@@ -2,6 +2,18 @@ import XCTest
 @testable import RedFruitTracker
 
 final class LibraryModelTests: XCTestCase {
+    func testTextDraftBufferDoesNotCommitEveryKeystroke() {
+        var buffer = TextDraftBuffer("初始点评")
+
+        for value in ["初始点评。", "初始点评。节", "初始点评。节奏", "初始点评。节奏很快"] {
+            buffer.update(value)
+        }
+
+        XCTAssertEqual(buffer.committed, "初始点评")
+        XCTAssertEqual(buffer.commit(), "初始点评。节奏很快")
+        XCTAssertNil(buffer.commit())
+    }
+
     func testBatchRefreshProgressTracksSuccessAndFailureWithoutExceedingTotal() {
         var progress = BatchRefreshProgress(total: 2)
         progress.record(success: true)

@@ -148,14 +148,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["official-tags"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["completion-status"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["detail-shelf-state"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["official-trend-section"].exists)
-        let weeklyHeatInterval = app.buttons["heat-chart-interval-week"]
-        XCTAssertTrue(weeklyHeatInterval.exists)
-        weeklyHeatInterval.tap()
-        XCTAssertFalse(app.buttons["heat-chart-interval-day"].exists)
-        XCTAssertTrue(app.buttons["heat-chart-interval-month"].exists)
-        XCTAssertTrue(app.buttons["heat-chart-interval-quarter"].exists)
-        XCTAssertTrue(app.buttons["heat-chart-interval-year"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["official-trend-section"].exists)
         XCTAssertGreaterThanOrEqual(
             app.descendants(matching: .any)["official-rating"].frame.minX,
             detailCover.frame.maxX - 4

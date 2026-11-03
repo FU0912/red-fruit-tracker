@@ -15,40 +15,66 @@ struct WorkMetric: Identifiable {
     let symbol: String
 }
 
+struct TextDraftBuffer: Equatable {
+    var draft: String
+    private(set) var committed: String
+
+    init(_ text: String) {
+        draft = text
+        committed = text
+    }
+
+    mutating func update(_ text: String) {
+        draft = text
+    }
+
+    mutating func reset(to text: String) {
+        draft = text
+        committed = text
+    }
+
+    mutating func commit() -> String? {
+        guard draft != committed else { return nil }
+        committed = draft
+        return committed
+    }
+}
+
 struct FixedWorkMetricGrid: View {
     let metrics: [WorkMetric]
     var usesDarkAppearance = false
 
-    private let columns = [GridItem(.flexible(minimum: 0), alignment: .leading),
-                           GridItem(.flexible(minimum: 0), alignment: .leading)]
-
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 5) {
+        TagFlowLayout(horizontalSpacing: 4, verticalSpacing: 4) {
             ForEach(metrics) { metric in
-                HStack(spacing: 6) {
-                    Image(systemName: metric.symbol)
-                        .font(.caption.weight(.bold))
-                    Text(metric.label)
-                        .font(.caption.weight(.semibold))
-                    Text(metric.value)
-                        .font(.caption.weight(.bold))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                }
-                .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.94) : Color.primary)
-                .padding(.horizontal, 9)
-                .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-                .background(metric.tint.opacity(usesDarkAppearance ? 0.24 : 0.14), in: Capsule())
-                .overlay {
-                    Capsule()
-                        .strokeBorder(metric.tint.opacity(usesDarkAppearance ? 0.62 : 0.42), lineWidth: 0.8)
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(metric.label) \(metric.value)")
-                .accessibilityIdentifier(metric.id)
+                WorkMetricPill(metric: metric, usesDarkAppearance: usesDarkAppearance)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct WorkMetricPill: View {
+    let metric: WorkMetric
+    let usesDarkAppearance: Bool
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: metric.symbol)
+            Text(metric.label)
+            Text(metric.value)
+                .monospacedDigit()
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(usesDarkAppearance ? metric.tint : metric.tint)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 5)
+        .background(metric.tint.opacity(usesDarkAppearance ? 0.16 : 0.10))
+        .clipShape(Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(metric.label) \(metric.value)")
+        .accessibilityIdentifier(metric.id)
     }
 }
