@@ -7,6 +7,12 @@ on:
       - master
   pull_request:
   workflow_dispatch:
+    inputs:
+      package_only:
+        description: Build the device IPA without running simulator tests
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -45,6 +51,7 @@ jobs:
             | tee xcodebuild-build.log
 
       - name: Run unit and UI tests
+        if: ${{ inputs.package_only != true }}
         run: |
           set -euo pipefail
           mkdir -p artifacts
