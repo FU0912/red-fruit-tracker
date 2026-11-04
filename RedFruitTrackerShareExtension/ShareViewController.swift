@@ -3,6 +3,7 @@ import UIKit
 
 final class ShareViewController: UIViewController {
     private var didStartImport = false
+    private var pendingCallbackURL: URL?
     private let statusLabel = UILabel()
     private let doneButton = UIButton(type: .system)
 
@@ -113,13 +114,47 @@ final class ShareViewController: UIViewController {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if ShareInbox.enqueue(url) {
-                self.statusLabel.text = "链接已接收\n打开漫剧记录后会自动完成导入，无须复制链接。"
-                self.doneButton.setTitle("完成", for: .normal)
-                self.doneButton.isHidden = false
+                guard let callbackURL = ShareRoute.callbackURL(for: url) else {
+                    self.showQueuedResult()
+                    return
+                }
+                self.pendingCallbackURL = callbackURL
+                self.openHostApp(isRetry: false)
             } else {
                 self.showFailure("链接暂时未能保存，请稍后重试。")
             }
         }
+    }
+
+    private func openHostApp(isRetry: Bool) {
+        guard let pendingCallbackURL, let context = extensionContext else {
+            self.pendingCallbackURL = nil
+            showQueuedResult()
+            return
+        }
+        statusLabel.text = "链接已保存，正在打开漫剧记录…"
+        context.open(pendingCallbackURL) { [weak self] opened in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if opened {
+                    context.completeRequest(returningItems: nil)
+                } else if isRetry {
+                    self.pendingCallbackURL = nil
+                    self.statusLabel.text = "链接已放入待导入队列。打开漫剧记录后会自动显示导入窗口。"
+                    self.doneButton.setTitle("完成", for: .normal)
+                } else {
+                    self.showQueuedResult()
+                }
+            }
+        }
+    }
+
+    private func showQueuedResult() {
+        statusLabel.text = pendingCallbackURL == nil
+            ? "链接已放入待导入队列。打开漫剧记录后会自动显示导入窗口。"
+            : "链接已保存，主 App 尚未打开。点下方按钮重试，导入窗口会自动出现。"
+        doneButton.setTitle(pendingCallbackURL == nil ? "完成" : "打开漫剧记录", for: .normal)
+        doneButton.isHidden = false
     }
 
     private func showFailure(_ message: String) {
@@ -130,6 +165,10 @@ final class ShareViewController: UIViewController {
     }
 
     @objc private func doneTapped() {
+        if pendingCallbackURL != nil {
+            openHostApp(isRetry: true)
+            return
+        }
         extensionContext?.completeRequest(returningItems: nil)
     }
 }

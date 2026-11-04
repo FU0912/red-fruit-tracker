@@ -31,6 +31,8 @@ targets:
     dependencies:
       - target: RedFruitTrackerShareExtension
         embed: true
+      - target: RedFruitTrackerWidget
+        embed: true
 
   RedFruitTrackerShareExtension:
     type: app-extension
@@ -59,6 +61,20 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.f.redfruittracker.tests
         GENERATE_INFOPLIST_FILE: YES
 
+  RedFruitTrackerWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RedFruitTrackerWidget
+      - path: RedFruitTracker/Services/RecentSeriesWidgetData.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.f.redfruittracker.widget
+        INFOPLIST_FILE: RedFruitTrackerWidget/Info.plist
+        CODE_SIGN_ENTITLEMENTS: RedFruitTrackerWidget/RedFruitTrackerWidget.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+
   RedFruitTrackerUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -76,6 +92,7 @@ schemes:
     build:
       targets:
         RedFruitTracker: all
+        RedFruitTrackerWidget: all
         RedFruitTrackerTests: [test]
         RedFruitTrackerUITests: [test]
     test:

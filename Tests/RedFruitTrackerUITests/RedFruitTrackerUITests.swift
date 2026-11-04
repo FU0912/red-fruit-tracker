@@ -35,6 +35,35 @@ final class RedFruitTrackerUITests: XCTestCase {
         attachment.name = "library-empty-state"
         attachment.lifetime = .keepAlways
         add(attachment)
+
+        let personalRating = app.textFields["add-personal-rating"]
+        for _ in 0..<3 where !personalRating.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(personalRating.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["add-personal-review"].exists)
+    }
+
+    func testOnlyRefreshButtonStartsLibraryRefresh() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-testing-fixture"]
+        app.launch()
+
+        let searchField = app.textFields["library-search-field"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        let title = app.staticTexts["library-header-title"]
+        title.tap()
+        let progress = app.descendants(matching: .any)["library-refresh-progress"]
+        XCTAssertFalse(progress.exists)
+
+        searchField.tap()
+        XCTAssertFalse(progress.exists)
+
+        let refreshButton = app.buttons["更新全部公开资料"]
+        XCTAssertTrue(refreshButton.exists)
+        refreshButton.tap()
+        XCTAssertTrue(progress.waitForExistence(timeout: 2))
+        app.buttons["停止"].tap()
     }
 
     func testSeriesCardAndDetailLayoutScreenshot() {

@@ -12,6 +12,9 @@ struct RootView: View {
     @State private var pendingShareURL: URL?
     @State private var presentedShareURL: URL?
     @State private var pendingShareRetryToken = 0
+    @State private var pendingClipboardURL: URL?
+    @State private var isShowingClipboardPrompt = false
+    @AppStorage("redFruitTracker.lastHandledClipboardChangeCount") private var handledClipboardChangeCount = -1
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -41,11 +44,13 @@ struct RootView: View {
         .task {
             refreshPendingShare()
             schedulePendingShareRetry()
+            detectClipboardShare()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 refreshPendingShare()
                 schedulePendingShareRetry()
+                detectClipboardShare()
             }
         }
         .onOpenURL { callbackURL in
@@ -54,6 +59,24 @@ struct RootView: View {
             }
             refreshPendingShare()
             schedulePendingShareRetry()
+        }
+        .confirmationDialog(
+            "发现剪贴板中的红果漫剧链接",
+            isPresented: $isShowingClipboardPrompt,
+            titleVisibility: .visible
+        ) {
+            Button("导入这部漫剧") {
+                guard let pendingClipboardURL else { return }
+                ShareInbox.enqueue(pendingClipboardURL)
+                pendingShareURL = pendingClipboardURL
+                presentedShareURL = pendingClipboardURL
+                isShowingAdd = true
+            }
+            Button("暂不导入", role: .cancel) {
+                pendingClipboardURL = nil
+            }
+        } message: {
+            Text(pendingClipboardURL?.host ?? "剪贴板中有一条红果分享链接")
         }
     }
 
@@ -82,6 +105,21 @@ struct RootView: View {
             isShowingAdd = true
         }
 
+    }
+
+    private func detectClipboardShare() {
+        let pasteboard = UIPasteboard.general
+        let changeCount = pasteboard.changeCount
+        guard !ProcessInfo.processInfo.arguments.contains("--ui-testing"),
+              pendingShareURL == nil,
+              !isShowingAdd,
+              changeCount != handledClipboardChangeCount,
+              let text = pasteboard.string,
+              let url = ClipboardShareDetector.redFruitURL(in: text) else { return }
+
+        handledClipboardChangeCount = changeCount
+        pendingClipboardURL = url
+        isShowingClipboardPrompt = true
     }
 
     private func schedulePendingShareRetry() {
@@ -265,6 +303,7 @@ private struct LibraryView: View {
             }
             .task {
                 clearLegacyRatingTrend()
+                RecentSeriesWidgetSnapshot.refresh(series: series)
             }
         }
     }
@@ -283,6 +322,7 @@ private struct LibraryView: View {
             snapshots.filter { $0.sourceSeriesID == sourceID }.forEach { modelContext.delete($0) }
             modelContext.delete(series)
             try modelContext.save()
+            RecentSeriesWidgetSnapshot.refresh(series: self.series.filter { $0.sourceSeriesID != sourceID })
         } catch {
             deletionErrorMessage = error.localizedDescription
         }
@@ -363,6 +403,7 @@ private struct LibraryView: View {
                 + (skipped > 0 ? "另有 \(skipped) 部没有网页链接，已跳过。" : "")
                 + "个人评分、点评、观看状态和书架顺序均保留。"
         }
+        RecentSeriesWidgetSnapshot.refresh(series: series)
     }
 
     private func applyPublicMetadata(_ metadata: PublicSeriesMetadata, to item: SeriesRecord) async {
@@ -395,8 +436,15 @@ private struct LibraryView: View {
 
     private func mergePublicSeasons(_ metadataSeasons: [PublicSeasonMetadata], for item: SeriesRecord) {
         guard !metadataSeasons.isEmpty else { return }
-        guard let existingSeasons = try? modelContext.fetch(FetchDescriptor<SeasonRecord>()),
-              let existingEpisodes = try? modelContext.fetch(FetchDescriptor<EpisodeRecord>()) else {
+        let sourceID = item.sourceSeriesID
+        let seasonDescriptor = FetchDescriptor<SeasonRecord>(
+            predicate: #Predicate<SeasonRecord> { $0.sourceSeriesID == sourceID }
+        )
+        let episodeDescriptor = FetchDescriptor<EpisodeRecord>(
+            predicate: #Predicate<EpisodeRecord> { $0.sourceSeriesID == sourceID }
+        )
+        guard let existingSeasons = try? modelContext.fetch(seasonDescriptor),
+              let existingEpisodes = try? modelContext.fetch(episodeDescriptor) else {
             return
         }
 
@@ -1331,6 +1379,8 @@ private struct AddSeriesView: View {
     @State private var officialRatingCount: Int?
     @State private var officialHeatText = ""
     @State private var officialHeatScore: Double?
+    @State private var myRatingText = ""
+    @State private var myReview = ""
     @State private var completionStatus = SeriesCompletionStatus.unknown.rawValue
     @State private var shelfState = "unstarted"
     @State private var followsUpdates = false
@@ -1456,6 +1506,14 @@ private struct AddSeriesView: View {
                 }
 
                 Section("我的记录") {
+                    TextField("我的评分（0–10）", text: $myRatingText)
+                        .keyboardType(.decimalPad)
+                        .accessibilityIdentifier("add-personal-rating")
+
+                    TextField("我的评价（可选）", text: $myReview, axis: .vertical)
+                        .lineLimit(3...6)
+                        .accessibilityIdentifier("add-personal-review")
+
                     Picker("完结状态", selection: $completionStatus) {
                         ForEach(SeriesCompletionStatus.allCases) { status in
                             Text(status.title).tag(status.rawValue)
@@ -1599,10 +1657,16 @@ private struct AddSeriesView: View {
         let identity = SeriesImportIdentity(title: detectedTitle, fallbackURL: sourceURL)
         let cleanTitle = identity.baseTitle.isEmpty ? "待补充作品" : identity.baseTitle
         let cleanURL = sourceURL.absoluteString
+        let normalizedRatingText = myRatingText.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+        let personalRating = normalizedRatingText.isEmpty ? nil : Double(normalizedRatingText)
+        guard normalizedRatingText.isEmpty || personalRating.map({ (0...10).contains($0) }) == true else {
+            errorMessage = "我的评分请输入 0 到 10 之间的数字。"
+            return
+        }
 
         do {
-            let existing = try modelContext.fetch(FetchDescriptor<SeriesRecord>())
-            let record = existing.first { SeriesImportMatcher.matches($0, identity: identity) }
+            let record = try SeriesRecordLookup.existing(matching: identity, in: modelContext)
             let sourceID = record?.sourceSeriesID ?? identity.sourceID
             let target = record ?? SeriesRecord(
                 sourceSeriesID: sourceID,
@@ -1633,12 +1697,20 @@ private struct AddSeriesView: View {
             }
             target.updatedAt = .now
 
-            let personalRecords = try modelContext.fetch(FetchDescriptor<PersonalRecord>())
+            var personalDescriptor = FetchDescriptor<PersonalRecord>(
+                predicate: #Predicate<PersonalRecord> { $0.sourceSeriesID == sourceID }
+            )
+            personalDescriptor.fetchLimit = 1
+            let personalRecords = try modelContext.fetch(personalDescriptor)
             if let personal = personalRecords.first(where: { $0.sourceSeriesID == sourceID }) {
                 if record == nil {
                     personal.localShelfState = shelfState
                     personal.followsUpdates = followsUpdates
                     personal.followedAt = followsUpdates ? .now : nil
+                }
+                if let personalRating { personal.myRating = RatingScale.normalized(personalRating) }
+                if !myReview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    personal.review = myReview.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
                 personal.updatedAt = .now
             } else {
@@ -1646,11 +1718,19 @@ private struct AddSeriesView: View {
                 personal.localShelfState = shelfState
                 personal.followsUpdates = followsUpdates
                 personal.followedAt = followsUpdates ? .now : nil
+                personal.myRating = personalRating.map(RatingScale.normalized)
+                personal.review = myReview.trimmingCharacters(in: .whitespacesAndNewlines)
                 modelContext.insert(personal)
             }
 
-            let existingSeasons = try modelContext.fetch(FetchDescriptor<SeasonRecord>())
-            let existingEpisodes = try modelContext.fetch(FetchDescriptor<EpisodeRecord>())
+            let seasonDescriptor = FetchDescriptor<SeasonRecord>(
+                predicate: #Predicate<SeasonRecord> { $0.sourceSeriesID == sourceID }
+            )
+            let episodeDescriptor = FetchDescriptor<EpisodeRecord>(
+                predicate: #Predicate<EpisodeRecord> { $0.sourceSeriesID == sourceID }
+            )
+            let existingSeasons = try modelContext.fetch(seasonDescriptor)
+            let existingEpisodes = try modelContext.fetch(episodeDescriptor)
             var importedSeasons = detectedSeasons
 
             if detectedSeasons.isEmpty, includeFirstSeason {
@@ -1717,6 +1797,7 @@ private struct AddSeriesView: View {
             }
 
             try modelContext.save()
+            RecentSeriesWidgetSnapshot.refresh(context: modelContext)
             onSaved()
             dismiss()
         } catch {

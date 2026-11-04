@@ -78,6 +78,7 @@
 - v1.2.20 / build 23：候选封面按 Byteimg 作品资源 ID 合并 CDN/尺寸变体；整库刷新从请求开始写入 24 小时尝试冷却；书架显示创建时间并分开展示官方与个人评分；趋势快照只写本次真实热度，不再回填旧热度或新写官方评分历史；季集解析支持 snake_case 列表、`video_data.video_list[].vid_index`，并合并详情页与分享页季信息。CI 与真机尚未验证。
 - v1.2.34 / build 37：详情和书架指标使用紧凑自然宽度的彩色气泡；详情页移除热度趋势图展示；评分和点评采用本地草稿，停止输入、失焦或离开页面时提交，降低键盘输入期间的持久化刷新。CI 与真机尚未验证。
 - v1.2.35 / build 38：修正复制作品名称提示的 UI 测试可访问性定位，主 App 与 Share Extension 版本同步递增。CI 与真机尚未验证。
+- v1.2.36 / build 39：指标胶囊隐藏说明文字；添加页可填个人评分与评价；优化作品查重和 Widget 快照查询；新增剪贴板导入确认、Share Extension 主 App 唤起尝试和最近添加 2×2/4×2 Widget。等待 CI 与真机验收。
 - v1.2.16 CI 已通过：Run `38099393357`，34 个单元测试和 2 个 UI 测试全部通过，模拟器构建、真机架构归档和未签名 IPA 均成功；主 App 与 Share Extension 均为 build 19。
 - v1.2.16 产物：`artifacts/RedFruitTracker-unsigned-device-v1.2.16-build19.ipa`，1,065,434 字节；SHA-256 为 `4BB4D4679965FA8A0CF3AD8E09CCEC094103D3C83DAB248199E053C385F2ABBF`。包内含 Share Extension 和 App Icon，但没有 `_CodeSignature` 或 `embedded.mobileprovision`，仍需用户侧签名后安装。
 - 本轮详情页与删除调整已完成：主详情页移除“选集”起始的季数、集数、当前进度和打开当前入口，保留作品信息、简介以及“我的评分与点评”；书架作品行支持 trailing swipe action 的 `List`，确认后删除作品及其季、集、个人记录和公开快照。

@@ -1,4 +1,5 @@
 import XCTest
+import SwiftData
 @testable import RedFruitTracker
 
 final class LibraryModelTests: XCTestCase {
@@ -131,6 +132,32 @@ final class LibraryModelTests: XCTestCase {
 
         XCTAssertEqual(firstIdentity.sourceID, secondIdentity.sourceID)
         XCTAssertTrue(SeriesImportMatcher.matches(existing, identity: secondIdentity))
+    }
+
+    func testSeriesRecordLookupUsesCanonicalIDAndFallsBackToExactBaseTitle() throws {
+        let schema = Schema([SeriesRecord.self])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = container.mainContext
+
+        let firstURL = URL(string: "https://example.com/series/first")!
+        let firstIdentity = SeriesImportIdentity(title: "第一部漫剧", fallbackURL: firstURL)
+        let canonicalRecord = SeriesRecord(
+            sourceSeriesID: firstIdentity.sourceID,
+            title: "被改过的显示名称"
+        )
+        let secondURL = URL(string: "https://example.com/series/second")!
+        let secondIdentity = SeriesImportIdentity(title: "第二部漫剧第二季", fallbackURL: secondURL)
+        let legacyRecord = SeriesRecord(
+            sourceSeriesID: "legacy-second-series-id",
+            title: secondIdentity.baseTitle
+        )
+        context.insert(canonicalRecord)
+        context.insert(legacyRecord)
+        try context.save()
+
+        XCTAssertTrue(try SeriesRecordLookup.existing(matching: firstIdentity, in: context) === canonicalRecord)
+        XCTAssertTrue(try SeriesRecordLookup.existing(matching: secondIdentity, in: context) === legacyRecord)
     }
 
     func testThreeManjuSharePagesKeepTheirOwnSeasonMetadata() {
@@ -480,6 +507,19 @@ final class LibraryModelTests: XCTestCase {
             HTMLMetadata.officialDetailURL(in: html)?.absoluteString,
             "https://hongguoduanju.com/detail?series_id=7675745080522574910"
         )
+    }
+
+    func testClipboardShareDetectorOnlyAcceptsRedFruitLinks() {
+        XCTAssertEqual(
+            ClipboardShareDetector.redFruitURL(in: "分享给你 https://hongguoduanju.com/detail?series_id=123")?.host,
+            "hongguoduanju.com"
+        )
+        XCTAssertEqual(
+            ClipboardShareDetector.redFruitURL(in: "https://kylin.hainanyuyue.com/s/GXf3C13NXeQ/")?.host,
+            "kylin.hainanyuyue.com"
+        )
+        XCTAssertNil(ClipboardShareDetector.redFruitURL(in: "https://example.com/detail?id=123"))
+        XCTAssertNil(ClipboardShareDetector.redFruitURL(in: "https://hongguoduanju.com.attacker.invalid/detail?id=123"))
     }
 
     func testOfficialDetailFixtureExtractsSocialFieldsAndSeasonEpisodeTotals() throws {
@@ -858,6 +898,12 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(ShareInbox.pendingURLs(in: defaults), [sharedURL])
         ShareInbox.remove(sharedURL, in: defaults)
         XCTAssertTrue(ShareInbox.pendingURLs(in: defaults).isEmpty)
+    }
+
+    func testShareCallbackCarriesOriginalURLToHostApp() throws {
+        let sharedURL = URL(string: "https://hongguoduanju.com/detail?series_id=123")!
+        let callback = try XCTUnwrap(ShareRoute.callbackURL(for: sharedURL))
+        XCTAssertEqual(ShareRoute.sharedURL(from: callback), sharedURL)
     }
 
     func testShareRouteCarriesAndRecoversTheSharedURL() throws {

@@ -34,3 +34,14 @@ enum URLExtractor {
         return value.trimmingCharacters(in: punctuation)
     }
 }
+
+enum ClipboardShareDetector {
+    static func redFruitURL(in text: String) -> URL? {
+        URLExtractor.allURLs(in: text).first { url in
+            let host = url.host?.lowercased() ?? ""
+            return host == "hongguoduanju.com" || host.hasSuffix(".hongguoduanju.com")
+                || host == "hongguo.com" || host.hasSuffix(".hongguo.com")
+                || host == "kylin.hainanyuyue.com"
+        }
+    }
+}

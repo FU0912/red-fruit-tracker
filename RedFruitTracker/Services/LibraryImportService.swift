@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 struct SeriesImportIdentity: Equatable {
     let baseTitle: String
@@ -27,5 +28,29 @@ enum SeriesImportMatcher {
         }
 
         return TitleNormalizer.seriesKey(record.title) == identity.key
+    }
+}
+
+enum SeriesRecordLookup {
+    static func existing(
+        matching identity: SeriesImportIdentity,
+        in context: ModelContext
+    ) throws -> SeriesRecord? {
+        let sourceID = identity.sourceID
+        var idDescriptor = FetchDescriptor<SeriesRecord>(
+            predicate: #Predicate<SeriesRecord> { $0.sourceSeriesID == sourceID }
+        )
+        idDescriptor.fetchLimit = 1
+        if let record = try context.fetch(idDescriptor).first {
+            return record
+        }
+
+        let title = identity.baseTitle
+        let titleDescriptor = FetchDescriptor<SeriesRecord>(
+            predicate: #Predicate<SeriesRecord> { $0.title == title }
+        )
+        return try context.fetch(titleDescriptor).first {
+            SeriesImportMatcher.matches($0, identity: identity)
+        }
     }
 }

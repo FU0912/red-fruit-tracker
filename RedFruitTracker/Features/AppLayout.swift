@@ -61,7 +61,6 @@ private struct WorkMetricPill: View {
     var body: some View {
         HStack(spacing: 3) {
             Image(systemName: metric.symbol)
-            Text(metric.label)
             Text(metric.value)
                 .monospacedDigit()
         }
