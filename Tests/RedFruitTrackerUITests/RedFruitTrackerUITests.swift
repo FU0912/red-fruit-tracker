@@ -64,6 +64,9 @@ final class RedFruitTrackerUITests: XCTestCase {
         refreshButton.tap()
         XCTAssertTrue(progress.waitForExistence(timeout: 5))
         let stopButton = app.buttons["library-refresh-cancel"]
+        XCTAssertTrue(stopButton.waitForExistence(timeout: 5))
+        stopButton.tap()
+        XCTAssertFalse(progress.exists)
     }
 
     func testSeriesCardAndDetailLayoutScreenshot() {

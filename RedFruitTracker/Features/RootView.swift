@@ -538,6 +538,7 @@ private struct LibraryHeader: View {
                     }
                 }
                 .frame(width: 44, height: 44)
+                .buttonStyle(.borderless)
                 .accessibilityIdentifier("library-refresh-button")
                 .accessibilityLabel("更新全部公开资料")
                 .disabled(isRefreshing)
@@ -556,12 +557,13 @@ private struct LibraryHeader: View {
                     }
                     ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
                         .accessibilityLabel("公开资料更新进度")
+                        .accessibilityIdentifier("library-refresh-progress")
                     Text("成功 \(progress.succeeded) · 失败 \(progress.failed)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .font(.subheadline)
-                .accessibilityIdentifier("library-refresh-progress")
+
             }
 
             HStack(spacing: 10) {
