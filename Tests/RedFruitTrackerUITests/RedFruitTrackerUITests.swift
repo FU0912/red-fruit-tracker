@@ -46,7 +46,7 @@ final class RedFruitTrackerUITests: XCTestCase {
 
     func testOnlyRefreshButtonStartsLibraryRefresh() {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing", "--ui-testing-fixture"]
+        app.launchArguments = ["--ui-testing", "--ui-testing-fixture", "--ui-testing-refresh"]
         app.launch()
 
         let searchField = app.textFields["library-search-field"]

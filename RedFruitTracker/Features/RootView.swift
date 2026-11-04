@@ -353,6 +353,18 @@ private struct LibraryView: View {
 
     private func startRefresh(showNotice: Bool) {
         guard !isRefreshingAll, refreshTask == nil else { return }
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-refresh") {
+            isRefreshingAll = true
+            isStoppingRefresh = false
+            refreshProgress = BatchRefreshProgress(total: series.count)
+            refreshTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                isRefreshingAll = false
+                isStoppingRefresh = false
+                refreshTask = nil
+            }
+            return
+        }
         refreshTask = Task { @MainActor in
             await refreshAllMetadata(showNotice: showNotice)
             refreshTask = nil
