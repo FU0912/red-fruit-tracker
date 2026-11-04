@@ -358,7 +358,7 @@ private struct LibraryView: View {
             isStoppingRefresh = false
             refreshProgress = BatchRefreshProgress(total: series.count)
             refreshTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
                 isRefreshingAll = false
                 isStoppingRefresh = false
                 refreshTask = nil
