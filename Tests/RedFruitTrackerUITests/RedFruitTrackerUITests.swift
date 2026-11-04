@@ -49,9 +49,9 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launchArguments = ["--ui-testing", "--ui-testing-fixture", "--ui-testing-refresh"]
         app.launch()
 
-        let searchField = app.textFields["library-search-field"]
+        let searchField = app.textFields["搜索作品名、简介或 #标签"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 5))
-        let title = app.staticTexts["library-header-title"]
+        let title = app.staticTexts["漫剧记录"]
         title.tap()
         let progress = app.descendants(matching: .any)["library-refresh-progress"]
         XCTAssertFalse(progress.exists)
