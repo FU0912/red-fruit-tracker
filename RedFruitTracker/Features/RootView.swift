@@ -538,6 +538,7 @@ private struct LibraryHeader: View {
                     }
                 }
                 .frame(width: 44, height: 44)
+                .accessibilityIdentifier("library-refresh-button")
                 .accessibilityLabel("更新全部公开资料")
                 .disabled(isRefreshing)
             }
@@ -549,6 +550,7 @@ private struct LibraryHeader: View {
                             .monospacedDigit()
                         Spacer()
                         Button(isStopping ? "正在停止…" : "停止", action: onCancel)
+                            .accessibilityIdentifier("library-refresh-cancel")
                             .disabled(isStopping)
                             .frame(minWidth: 44, minHeight: 44)
                     }
@@ -592,7 +594,7 @@ private struct LibraryHeader: View {
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .systemGroupedBackground))
-        .accessibilityIdentifier("library-header")
+        
     }
 }
 
