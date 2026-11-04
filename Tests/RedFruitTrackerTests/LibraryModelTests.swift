@@ -134,6 +134,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertTrue(SeriesImportMatcher.matches(existing, identity: secondIdentity))
     }
 
+    @MainActor
     func testSeriesRecordLookupUsesCanonicalIDAndFallsBackToExactBaseTitle() throws {
         let schema = Schema([SeriesRecord.self])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
