@@ -1471,10 +1471,10 @@ private struct ReviewEditor: View {
         TextField(
             "",
             text: $draftBuffer.draft,
-            prompt: Text(placeholder).foregroundColor(usesDarkAppearance ? Color.white.opacity(0.76) : Color.secondary),
+            prompt: Text(placeholder).foregroundColor(usesDarkAppearance ? Color.white.opacity(0.92) : Color.secondary),
             axis: .vertical
         )
-            .font(.body)
+            .font(.system(.body, design: .rounded))
             .lineLimit(5...)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12)
@@ -1484,11 +1484,11 @@ private struct ReviewEditor: View {
             .tint(usesDarkAppearance ? DetailTheme.accent : Color.accentColor)
             .focused($isFocused)
             .accessibilityIdentifier(accessibilityIdentifier)
-            .background(usesDarkAppearance ? Color.white.opacity(0.08) : Color(uiColor: .tertiarySystemGroupedBackground))
+            .background(usesDarkAppearance ? Color.white.opacity(0.12) : Color(uiColor: .tertiarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(usesDarkAppearance ? Color.white.opacity(0.14) : Color(uiColor: .separator), lineWidth: 0.5)
+                    .strokeBorder(usesDarkAppearance ? Color.white.opacity(0.28) : Color(uiColor: .separator), lineWidth: 0.5)
             }
         .onChange(of: draftBuffer.draft) { _, _ in
             scheduleCommit()
@@ -1545,9 +1545,9 @@ private struct RatingScorePicker: View {
             TextField(
                 "",
                 text: $draft,
-                prompt: Text("未评分").foregroundColor(usesDarkAppearance ? Color.white.opacity(0.76) : Color.secondary)
+                prompt: Text("未评分").foregroundColor(usesDarkAppearance ? Color.white.opacity(0.92) : Color.secondary)
             )
-                .font(.body.weight(.semibold))
+                .font(.system(.body, design: .rounded).weight(.semibold))
                 .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
@@ -1565,7 +1565,7 @@ private struct RatingScorePicker: View {
                     isFocused = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.62) : Color.secondary)
+                        .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.82) : Color.secondary)
                         .frame(width: AppLayout.minimumControlHeight, height: AppLayout.minimumControlHeight)
                 }
                 .buttonStyle(.plain)

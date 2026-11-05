@@ -136,7 +136,7 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     }
 }
 
-enum TagStatisticsPeriod: Hashable, Identifiable {
+enum TagStatisticsPeriod: Hashable, Identifiable, Sendable {
     case all
     case month
     case year(Int)
@@ -172,19 +172,76 @@ enum TagStatisticsPeriod: Hashable, Identifiable {
     }
 }
 
-struct TagStatisticsSlice: Identifiable, Equatable {
+struct TagStatisticsSeriesInput: Equatable, Sendable {
+    let sourceSeriesID: String
+    let tagsText: String
+    let createdAt: Date
+}
+
+struct TagStatisticsEpisodeInput: Equatable, Sendable {
+    let sourceSeriesID: String
+    let isWatched: Bool
+    let watchedAt: Date?
+}
+
+struct TagStatisticsPersonalInput: Equatable, Sendable {
+    let sourceSeriesID: String
+    let followedAt: Date?
+}
+
+struct TagStatisticsInput: Equatable, Sendable {
+    let series: [TagStatisticsSeriesInput]
+    let episodes: [TagStatisticsEpisodeInput]
+    let personalRecords: [TagStatisticsPersonalInput]
+}
+
+struct TagStatisticsRequest: Equatable, Sendable {
+    let input: TagStatisticsInput
+    let period: TagStatisticsPeriod
+}
+
+struct TagStatisticsSlice: Identifiable, Equatable, Sendable {
     let tag: String
     let proportion: Double
 
     var id: String { tag }
 }
 
-struct TagStatisticsSummary: Equatable {
+struct TagStatisticsSummary: Equatable, Sendable {
     let workCount: Int
     let slices: [TagStatisticsSlice]
 }
 
 enum TagStatistics {
+    static func input(
+        series: [SeriesRecord],
+        episodes: [EpisodeRecord],
+        personalRecords: [PersonalRecord] = []
+    ) -> TagStatisticsInput {
+        TagStatisticsInput(
+            series: series.map {
+                TagStatisticsSeriesInput(
+                    sourceSeriesID: $0.sourceSeriesID,
+                    tagsText: $0.tagsText,
+                    createdAt: $0.createdAt
+                )
+            },
+            episodes: episodes.map {
+                TagStatisticsEpisodeInput(
+                    sourceSeriesID: $0.sourceSeriesID,
+                    isWatched: $0.isWatched,
+                    watchedAt: $0.watchedAt
+                )
+            },
+            personalRecords: personalRecords.map {
+                TagStatisticsPersonalInput(
+                    sourceSeriesID: $0.sourceSeriesID,
+                    followedAt: $0.followedAt
+                )
+            }
+        )
+    }
+
     static func summary(
         series: [SeriesRecord],
         episodes: [EpisodeRecord],
@@ -193,18 +250,36 @@ enum TagStatistics {
         now: Date = .now,
         calendar: Calendar = .current
     ) -> TagStatisticsSummary {
-        let watchedDatesBySeries = Dictionary(grouping: episodes.filter { $0.isWatched }, by: \.sourceSeriesID)
-            .mapValues { $0.compactMap(\.watchedAt) }
+        summary(
+            input: input(series: series, episodes: episodes, personalRecords: personalRecords),
+            period: period,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    static func summary(
+        input: TagStatisticsInput,
+        period: TagStatisticsPeriod,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> TagStatisticsSummary {
+        let watchedDatesBySeries = Dictionary(
+            grouping: input.episodes.filter(\.isWatched),
+            by: \.sourceSeriesID
+        ).mapValues { $0.compactMap(\.watchedAt) }
         let personalBySeries = Dictionary(
-            personalRecords.map { ($0.sourceSeriesID, $0) },
+            input.personalRecords.compactMap { record in
+                record.followedAt.map { (record.sourceSeriesID, $0) }
+            },
             uniquingKeysWith: { first, _ in first }
         )
-        let includedSeries = series.filter { record in
+        let includedSeries = input.series.filter { record in
             guard period != .all else { return true }
             if let watchedDates = watchedDatesBySeries[record.sourceSeriesID], !watchedDates.isEmpty {
                 return watchedDates.contains { period.includes($0, now: now, calendar: calendar) }
             }
-            let fallbackDate = personalBySeries[record.sourceSeriesID]?.followedAt ?? record.createdAt
+            let fallbackDate = personalBySeries[record.sourceSeriesID] ?? record.createdAt
             return period.includes(fallbackDate, now: now, calendar: calendar)
         }
 
@@ -230,6 +305,19 @@ enum TagStatistics {
                 return $0.proportion > $1.proportion
             }
         return TagStatisticsSummary(workCount: includedSeries.count, slices: slices)
+    }
+
+    static func yearOptions(
+        in input: TagStatisticsInput,
+        currentYear: Int,
+        calendar: Calendar = .current
+    ) -> [Int] {
+        let dates = input.series.map(\.createdAt)
+            + input.personalRecords.compactMap(\.followedAt)
+            + input.episodes.compactMap(\.watchedAt)
+        return Set(dates.map { calendar.component(.year, from: $0) })
+            .union([currentYear])
+            .sorted(by: >)
     }
 }
 

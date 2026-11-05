@@ -233,8 +233,18 @@ final class RedFruitTrackerUITests: XCTestCase {
             targetComponents.month!,
             targetComponents.day!
         )
-        app.buttons[dayIdentifier].tap()
+        let targetDay = app.buttons[dayIdentifier]
+        targetDay.tap()
+        XCTAssertEqual(targetDay.value as? String, "已选")
+        XCTAssertTrue(app.navigationBars["预约下一季"].exists)
+        app.buttons["appointment-confirm"].tap()
+        XCTAssertFalse(app.navigationBars["预约下一季"].waitForExistence(timeout: 1))
         XCTAssertEqual(dateRow.value as? String, "\(targetComponents.month!)月\(targetComponents.day!)日")
+
+        dateRow.tap()
+        XCTAssertTrue(app.navigationBars["预约下一季"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.buttons[dayIdentifier].value as? String, "已选")
+        app.navigationBars.buttons["取消"].tap()
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
         let appointment = app.buttons["series-card-next-season-date"]
@@ -251,7 +261,7 @@ final class RedFruitTrackerUITests: XCTestCase {
 
         app.tabBars.buttons["统计"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["tag-distribution-chart"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.descendants(matching: .any)["tag-distribution-穿越"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["tag-distribution-穿越"].waitForExistence(timeout: 5))
         let periodControl = app.segmentedControls.firstMatch
         XCTAssertTrue(periodControl.waitForExistence(timeout: 5))
         XCTAssertTrue(periodControl.buttons["本月"].exists)
@@ -262,15 +272,13 @@ final class RedFruitTrackerUITests: XCTestCase {
         periodControl.buttons["按年"].tap()
         yearMenu.tap()
         let currentYear = Calendar.current.component(.year, from: Date())
-        let currentYearOption = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "\(currentYear)年")
-        ).firstMatch
+        let currentYearOption = app.descendants(matching: .any)["tag-statistics-year-\(currentYear)"]
         XCTAssertTrue(currentYearOption.waitForExistence(timeout: 3))
         currentYearOption.tap()
         XCTAssertEqual(yearMenu.value as? String, "\(currentYear)年")
     }
 
-    func testAppointmentDateSelectionCommitsImmediatelyAndRemainsAvailableWithoutFollowToggle() {
+    func testAppointmentDateSelectionCanBeConfirmedWithoutFollowToggle() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-testing-fixture"]
         app.launch()
@@ -306,6 +314,9 @@ final class RedFruitTrackerUITests: XCTestCase {
         let targetDay = app.buttons[dayIdentifier]
         XCTAssertTrue(targetDay.waitForExistence(timeout: 3))
         targetDay.tap()
+        XCTAssertEqual(targetDay.value as? String, "已选")
+        XCTAssertTrue(app.navigationBars["预约下一季"].exists)
+        app.buttons["appointment-confirm"].tap()
 
         XCTAssertFalse(app.navigationBars["预约下一季"].waitForExistence(timeout: 1))
         XCTAssertEqual(dateRow.value as? String, "\(targetComponents.month!)月\(targetComponents.day!)日")

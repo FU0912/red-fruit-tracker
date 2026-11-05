@@ -60,7 +60,7 @@ struct OptionalDatePickerRow: View {
     }
 
     private var valueColor: Color {
-        usesDarkAppearance ? Color.white.opacity(0.68) : Color.accentColor
+        usesDarkAppearance ? Color.white.opacity(0.92) : Color.accentColor
     }
 }
 
@@ -71,14 +71,15 @@ private struct AppointmentCalendarSheet: View {
     let usesDarkAppearance: Bool
 
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedDate: Date
     @State private var displayedMonth: Date
 
     init(date: Binding<Date?>, usesDarkAppearance: Bool) {
         _date = date
         self.usesDarkAppearance = usesDarkAppearance
-        _displayedMonth = State(
-            initialValue: Calendar.current.startOfMonth(for: date.wrappedValue ?? .now)
-        )
+        let initialDate = date.wrappedValue ?? .now
+        _selectedDate = State(initialValue: initialDate)
+        _displayedMonth = State(initialValue: Calendar.current.startOfMonth(for: initialDate))
     }
 
     private var calendar: Calendar { .autoupdatingCurrent }
@@ -160,6 +161,12 @@ private struct AppointmentCalendarSheet: View {
                 }
                 .accessibilityIdentifier("appointment-calendar-days")
 
+                Text("已选择  \(AppDateText.monthDay(selectedDate))")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.92) : Color.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("appointment-selected-date")
+
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, AppLayout.pageInset)
@@ -169,6 +176,11 @@ private struct AppointmentCalendarSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("确定", action: commitSelection)
+                        .fontWeight(.semibold)
+                        .accessibilityIdentifier("appointment-confirm")
                 }
                 if date != nil {
                     ToolbarItem(placement: .bottomBar) {
@@ -193,12 +205,11 @@ private struct AppointmentCalendarSheet: View {
             components.month ?? 0,
             components.day ?? 0
         )
-        let isSelected = date.map { calendar.isDate($0, inSameDayAs: dayDate) } ?? false
+        let isSelected = calendar.isDate(selectedDate, inSameDayAs: dayDate)
         let isAvailable = calendar.startOfDay(for: dayDate) >= calendar.startOfDay(for: .now)
 
         Button {
-            date = dayDate
-            dismiss()
+            selectedDate = calendar.startOfDay(for: dayDate)
         } label: {
             Text("\(components.day ?? 0)")
                 .font(.body.weight(isSelected ? .semibold : .regular))
@@ -215,8 +226,13 @@ private struct AppointmentCalendarSheet: View {
         .buttonStyle(.plain)
         .disabled(!isAvailable)
         .accessibilityLabel("\(components.year ?? 0)年\(components.month ?? 0)月\(components.day ?? 0)日")
-        .accessibilityValue(isSelected ? "已选" : "")
+        .accessibilityValue(isSelected ? "已选" : "未选")
         .accessibilityIdentifier(identifier)
+    }
+
+    private func commitSelection() {
+        date = calendar.startOfDay(for: selectedDate)
+        dismiss()
     }
 
     private func dayTextColor(isSelected: Bool, isAvailable: Bool) -> Color {

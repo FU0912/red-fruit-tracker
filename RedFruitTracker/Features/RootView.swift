@@ -593,7 +593,7 @@ private struct LibraryHeader: View {
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .systemGroupedBackground))
-        
+
     }
 }
 
@@ -785,7 +785,6 @@ private struct SeriesCard: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("series-card-next-season-date")
                 .accessibilityLabel("取消预约日期，\(AppDateText.monthDay(nextSeasonDate))")
-                .padding(.leading, 104)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
             }
@@ -1139,6 +1138,9 @@ private struct StatsView: View {
     private var snapshots: [OfficialSnapshot]
     @State private var tagStatisticsPeriod: TagStatisticsPeriod = .all
     @State private var selectedStatisticsYear = Calendar.current.component(.year, from: .now)
+    @State private var tagStatisticsYearOptions = [Calendar.current.component(.year, from: .now)]
+    @State private var tagStatisticsSummary = TagStatisticsSummary(workCount: 0, slices: [])
+    @State private var isLoadingTagStatistics = true
 
     private var completedCount: Int {
         series.filter { $0.completionStatus == SeriesCompletionStatus.completed.rawValue }.count
@@ -1155,17 +1157,6 @@ private struct StatsView: View {
     private var lastUpdateText: String {
         guard let date = snapshots.map(\.capturedAt).max() else { return "暂无更新" }
         return date.formatted(date: .abbreviated, time: .shortened)
-    }
-
-    private var statisticsYearOptions: [Int] {
-        let calendar = Calendar.current
-        let currentYear = calendar.component(.year, from: .now)
-        let dates = series.map(\.createdAt)
-            + personalRecords.compactMap(\.followedAt)
-            + episodes.compactMap(\.watchedAt)
-        return Set(dates.map { calendar.component(.year, from: $0) })
-            .union([currentYear])
-            .sorted(by: >)
     }
 
     private var tagStatisticsSelection: Binding<TagStatisticsPeriod> {
@@ -1201,7 +1192,8 @@ private struct StatsView: View {
     private func tagStatisticsSection(
         summary: TagStatisticsSummary,
         displayedSlices: [TagStatisticsSlice],
-        yearOptions: [Int]
+        yearOptions: [Int],
+        isLoading: Bool
     ) -> some View {
         let chartColors = displayedSlices.map { slice in
             guard slice.tag != "其他",
@@ -1236,6 +1228,7 @@ private struct StatsView: View {
                                 Text(verbatim: "\(year)年")
                             }
                         }
+                        .accessibilityIdentifier("tag-statistics-year-\(year)")
                     }
                 } label: {
                     Label(Text(verbatim: "\(selectedStatisticsYear)年"), systemImage: "chevron.down")
@@ -1248,7 +1241,20 @@ private struct StatsView: View {
                 .accessibilityValue("\(selectedStatisticsYear)年")
             }
 
-            if summary.workCount == 0 {
+            if isLoading {
+                HStack(spacing: 16) {
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.18), lineWidth: 12)
+                        .frame(width: 96, height: 96)
+                    ProgressView()
+                    Text("正在整理观看类型")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+                .accessibilityIdentifier("tag-distribution-loading")
+            } else if summary.workCount == 0 {
                 HStack(spacing: 16) {
                     Circle()
                         .stroke(Color.secondary.opacity(0.18), lineWidth: 12)
@@ -1283,6 +1289,7 @@ private struct StatsView: View {
                         VStack(spacing: 1) {
                             Text("\(summary.workCount)")
                                 .font(.headline.monospacedDigit())
+                                .accessibilityIdentifier("tag-distribution-work-count")
                             Text("部")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
@@ -1301,12 +1308,13 @@ private struct StatsView: View {
                                     .font(.caption)
                                     .lineLimit(1)
                                     .frame(maxWidth: .infinity, alignment: .leading)
+                                    .accessibilityIdentifier("tag-distribution-\(slice.tag)")
                                 Text(String(format: "%.1f%%", slice.proportion * 100))
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
-                            .accessibilityElement(children: .combine)
-                            .accessibilityIdentifier("tag-distribution-\(slice.tag)")
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier("tag-distribution-row-\(slice.tag)")
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1328,14 +1336,16 @@ private struct StatsView: View {
     }
 
     var body: some View {
-        let summary = TagStatistics.summary(
-            series: series,
-            episodes: episodes,
-            personalRecords: personalRecords,
+        let request = TagStatisticsRequest(
+            input: TagStatistics.input(
+                series: series,
+                episodes: episodes,
+                personalRecords: personalRecords
+            ),
             period: tagStatisticsPeriod
         )
-        let displayedSlices = Self.displayedTagSlices(from: summary.slices)
-        let yearOptions = statisticsYearOptions
+        let displayedSlices = Self.displayedTagSlices(from: tagStatisticsSummary.slices)
+        let yearOptions = tagStatisticsYearOptions
 
         NavigationStack {
             ScrollView {
@@ -1344,9 +1354,10 @@ private struct StatsView: View {
                         .font(.title2.weight(.bold))
 
                     tagStatisticsSection(
-                        summary: summary,
+                        summary: tagStatisticsSummary,
                         displayedSlices: displayedSlices,
-                        yearOptions: yearOptions
+                        yearOptions: yearOptions,
+                        isLoading: isLoadingTagStatistics
                     )
 
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
@@ -1418,6 +1429,29 @@ private struct StatsView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("统计")
+        }
+        .task(id: request) {
+            isLoadingTagStatistics = true
+            let now = Date()
+            let calendar = Calendar.current
+            let result = await Task.detached(priority: .userInitiated) {
+                let summary = TagStatistics.summary(
+                    input: request.input,
+                    period: request.period,
+                    now: now,
+                    calendar: calendar
+                )
+                let years = TagStatistics.yearOptions(
+                    in: request.input,
+                    currentYear: calendar.component(.year, from: now),
+                    calendar: calendar
+                )
+                return (summary, years)
+            }.value
+            guard !Task.isCancelled else { return }
+            tagStatisticsSummary = result.0
+            tagStatisticsYearOptions = result.1
+            isLoadingTagStatistics = false
         }
     }
 

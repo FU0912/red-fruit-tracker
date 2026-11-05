@@ -364,6 +364,22 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(proportions["校园"] ?? 0, 0.25, accuracy: 0.0001)
     }
 
+    func testTagStatisticsIncludesTwoHundredShelfWorksWithoutEpisodeProgress() {
+        let records = (0..<200).map { index in
+            SeriesRecord(
+                sourceSeriesID: "series-\(index)",
+                title: "作品 \(index)",
+                tagsText: index.isMultiple(of: 2) ? "穿越,校园" : "都市,恋爱"
+            )
+        }
+        let input = TagStatistics.input(series: records, episodes: [])
+        let summary = TagStatistics.summary(input: input, period: .all)
+
+        XCTAssertEqual(summary.workCount, 200)
+        XCTAssertEqual(summary.slices.reduce(0) { $0 + $1.proportion }, 1, accuracy: 0.0001)
+        XCTAssertEqual(Set(summary.slices.map(\.tag)), Set(["恋爱", "穿越", "都市", "校园"]))
+    }
+
     func testYearlyTagStatisticsUsesSelectedCalendarYear() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
