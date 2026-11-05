@@ -257,7 +257,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(periodControl.buttons["本月"].exists)
         XCTAssertTrue(periodControl.buttons["按年"].exists)
         XCTAssertFalse(periodControl.buttons["本季度"].exists)
-        let yearMenu = app.buttons["tag-statistics-year-menu"]
+        let yearMenu = app.popUpButtons["tag-statistics-year-menu"]
         XCTAssertTrue(yearMenu.exists)
         periodControl.buttons["按年"].tap()
         yearMenu.tap()

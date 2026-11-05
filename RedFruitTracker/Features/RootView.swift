@@ -1232,14 +1232,14 @@ private struct StatsView: View {
                             tagStatisticsPeriod = .year(year)
                         } label: {
                             if selectedStatisticsYear == year {
-                                Label("\(year)年", systemImage: "checkmark")
+                                Label(Text(verbatim: "\(year)年"), systemImage: "checkmark")
                             } else {
-                                Text("\(year)年")
+                                Text(verbatim: "\(year)年")
                             }
                         }
                     }
                 } label: {
-                    Label("\(selectedStatisticsYear)年", systemImage: "chevron.down")
+                    Label(Text(verbatim: "\(selectedStatisticsYear)年"), systemImage: "chevron.down")
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
@@ -1278,6 +1278,7 @@ private struct StatsView: View {
                             range: chartColors
                         )
                         .accessibilityIdentifier("tag-distribution-chart")
+                        .accessibilityLabel("观看类型标签分布")
 
                         VStack(spacing: 1) {
                             Text("\(summary.workCount)")
@@ -1289,8 +1290,6 @@ private struct StatsView: View {
                         .allowsHitTesting(false)
                     }
                     .frame(width: 112, height: 112)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("本周期作品 \(summary.workCount) 部")
 
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(displayedSlices) { slice in
