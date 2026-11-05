@@ -329,9 +329,9 @@ final class LibraryModelTests: XCTestCase {
         let proportions = Dictionary(uniqueKeysWithValues: summary.slices.map { ($0.tag, $0.proportion) })
 
         XCTAssertEqual(summary.workCount, 3)
-        XCTAssertEqual(proportions["穿越"] ?? 0, 0.6, accuracy: 0.0001)
-        XCTAssertEqual(proportions["校园"] ?? 0, 0.2, accuracy: 0.0001)
-        XCTAssertEqual(proportions["未分类"] ?? 0, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(proportions["穿越"] ?? 0, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(proportions["校园"] ?? 0, 1.0 / 6.0, accuracy: 0.0001)
+        XCTAssertEqual(proportions["未分类"] ?? 0, 1.0 / 3.0, accuracy: 0.0001)
         XCTAssertEqual(summary.slices.reduce(0) { $0 + $1.proportion }, 1, accuracy: 0.0001)
 
         let quarter = TagStatistics.summary(

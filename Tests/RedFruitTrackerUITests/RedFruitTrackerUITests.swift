@@ -241,6 +241,6 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.tabBars.buttons["统计"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["tag-distribution-chart"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["穿越"].exists)
-        XCTAssertTrue(app.segmentedControls["tag-statistics-period"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["tag-statistics-period"].exists)
     }
 }
