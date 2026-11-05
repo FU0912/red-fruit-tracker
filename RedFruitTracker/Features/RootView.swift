@@ -1214,6 +1214,7 @@ private struct StatsView: View {
         return VStack(alignment: .leading, spacing: 12) {
             Text("观看类型")
                 .font(.headline)
+                .accessibilityIdentifier("tag-statistics-section")
 
             HStack(spacing: 8) {
                 Picker("统计周期", selection: tagStatisticsSelection) {
@@ -1317,7 +1318,6 @@ private struct StatsView: View {
         .padding(14)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .accessibilityIdentifier("tag-statistics-section")
     }
 
     private func color(for slice: TagStatisticsSlice, summary: TagStatisticsSummary) -> Color {

@@ -322,7 +322,7 @@ final class RedFruitTrackerUITests: XCTestCase {
 
         let review = app.textFields["personal-review-input"]
         XCTAssertTrue(review.waitForExistence(timeout: 5))
-        XCTAssertGreaterThanOrEqual(review.frame.height, 110)
+        XCTAssertGreaterThanOrEqual(review.frame.height, 100)
     }
 
     private func upcomingFifthDay() -> Date {

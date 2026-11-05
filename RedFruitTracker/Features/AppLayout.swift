@@ -10,12 +10,10 @@ enum AppLayout {
 
 enum AppDateText {
     static func monthDay(_ date: Date) -> String {
-        date.formatted(
-            Date.FormatStyle()
-                .locale(Locale(identifier: "zh_CN"))
-                .month(.defaultDigits)
-                .day(.defaultDigits)
-        )
+        let calendar = Calendar.current
+        let month = calendar.component(.month, from: date)
+        let day = calendar.component(.day, from: date)
+        return "\(month)月\(day)日"
     }
 }
 
