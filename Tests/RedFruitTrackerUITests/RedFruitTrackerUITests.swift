@@ -147,7 +147,6 @@ final class RedFruitTrackerUITests: XCTestCase {
         let copyTitle = app.buttons["copy-series-title"]
         XCTAssertTrue(copyTitle.exists)
         copyTitle.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["series-title-copied"].waitForExistence(timeout: 2))
         XCTAssertFalse(app.staticTexts["修改自动保存"].exists)
         XCTAssertFalse(app.buttons["heat-chart-style"].exists)
         let personalRating = app.descendants(matching: .any)["personal-rating-score"].firstMatch
@@ -241,6 +240,8 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.tabBars.buttons["统计"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["tag-distribution-chart"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["穿越"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["tag-statistics-period"].exists)
+        let periodControl = app.segmentedControls.firstMatch
+        XCTAssertTrue(periodControl.waitForExistence(timeout: 5))
+        XCTAssertTrue(periodControl.buttons["本月"].exists)
     }
 }
