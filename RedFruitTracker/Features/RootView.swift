@@ -1211,7 +1211,7 @@ private struct StatsView: View {
             return Self.tagPalette[index % Self.tagPalette.count]
         }
 
-        VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 12) {
             Text("观看类型")
                 .font(.headline)
 
