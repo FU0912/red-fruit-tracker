@@ -31,6 +31,13 @@ enum LibrarySearch {
     }
 }
 
+func tagValues(_ value: String) -> [String] {
+    value
+        .components(separatedBy: CharacterSet(charactersIn: ",，、|丨·/"))
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+}
+
 enum SeriesCompletionStatus: String, CaseIterable, Identifiable {
     case completed
     case ongoing
@@ -126,6 +133,104 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
         case .paused: return "pause.circle"
         case .dropped: return "minus.circle"
         }
+    }
+}
+
+enum TagStatisticsPeriod: String, CaseIterable, Identifiable {
+    case all
+    case month
+    case year
+    case quarter
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "全部"
+        case .month: return "本月"
+        case .year: return "近一年"
+        case .quarter: return "本季度"
+        }
+    }
+
+    func includes(_ date: Date?, now: Date, calendar: Calendar) -> Bool {
+        guard self != .all else { return true }
+        guard let date else { return false }
+
+        let interval: DateInterval?
+        switch self {
+        case .all:
+            interval = nil
+        case .month:
+            interval = calendar.dateInterval(of: .month, for: now)
+        case .year:
+            interval = DateInterval(
+                start: calendar.date(byAdding: .year, value: -1, to: now) ?? now,
+                end: now
+            )
+        case .quarter:
+            interval = calendar.dateInterval(of: .quarter, for: now)
+        }
+        return interval?.contains(date) == true
+    }
+}
+
+struct TagStatisticsSlice: Identifiable, Equatable {
+    let tag: String
+    let proportion: Double
+
+    var id: String { tag }
+}
+
+struct TagStatisticsSummary: Equatable {
+    let workCount: Int
+    let slices: [TagStatisticsSlice]
+}
+
+enum TagStatistics {
+    static func summary(
+        series: [SeriesRecord],
+        episodes: [EpisodeRecord],
+        period: TagStatisticsPeriod,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> TagStatisticsSummary {
+        let seriesByID = Dictionary(
+            series.map { ($0.sourceSeriesID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let watchedSeriesIDs = Set(episodes.compactMap { episode -> String? in
+            guard episode.isWatched,
+                  period.includes(episode.watchedAt, now: now, calendar: calendar),
+                  seriesByID[episode.sourceSeriesID] != nil else {
+                return nil
+            }
+            return episode.sourceSeriesID
+        })
+
+        guard !watchedSeriesIDs.isEmpty else {
+            return TagStatisticsSummary(workCount: 0, slices: [])
+        }
+
+        var contributions: [String: Double] = [:]
+        for seriesID in watchedSeriesIDs {
+            guard let record = seriesByID[seriesID] else { continue }
+            let tags = Array(Set(tagValues(record.tagsText))).sorted()
+            let categories = tags.isEmpty ? ["未分类"] : tags
+            let contribution = 1 / Double(categories.count)
+            for tag in categories {
+                contributions[tag, default: 0] += contribution
+            }
+        }
+
+        let totalContribution = contributions.values.reduce(0, +)
+        let slices = contributions
+            .map { TagStatisticsSlice(tag: $0.key, proportion: $0.value / totalContribution) }
+            .sorted {
+                if $0.proportion == $1.proportion { return $0.tag.localizedStandardCompare($1.tag) == .orderedAscending }
+                return $0.proportion > $1.proportion
+            }
+        return TagStatisticsSummary(workCount: watchedSeriesIDs.count, slices: slices)
     }
 }
 
@@ -430,6 +535,7 @@ final class PersonalRecord {
     /// finished while still being followed for a future season or update.
     var followsUpdates: Bool = false
     var followedAt: Date?
+    var nextSeasonDate: Date?
     var updatedAt: Date
 
     init(sourceSeriesID: String) {
@@ -438,6 +544,7 @@ final class PersonalRecord {
         self.localShelfState = "unstarted"
         self.followsUpdates = false
         self.followedAt = nil
+        self.nextSeasonDate = nil
         self.updatedAt = .now
     }
 }

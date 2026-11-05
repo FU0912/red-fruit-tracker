@@ -399,6 +399,15 @@ struct SeriesDetailView: View {
                         .tint(DetailTheme.accent)
                         .frame(minHeight: 52)
                         .accessibilityIdentifier("follow-updates-toggle")
+                    if personalRecord.followsUpdates {
+                        Divider().overlay(.white.opacity(0.12))
+                        OptionalDatePickerRow(
+                            date: nextSeasonDateBinding(for: personalRecord),
+                            usesDarkAppearance: true
+                        )
+                        .accessibilityIdentifier("next-season-date-picker")
+                        .padding(.horizontal, AppLayout.pageInset)
+                    }
                 }
                 .font(.body)
                 .foregroundStyle(.white)
@@ -414,6 +423,7 @@ struct SeriesDetailView: View {
                     initialText: personalRecord.review,
                     placeholder: "写下整部漫剧的感受",
                     usesDarkAppearance: true,
+                    accessibilityIdentifier: "personal-review-input",
                     onCommit: { value in
                         commitPersonalReview(value, for: personalRecord)
                     }
@@ -488,6 +498,18 @@ struct SeriesDetailView: View {
             set: { value in
                 personal.followsUpdates = value
                 personal.followedAt = value ? (personal.followedAt ?? .now) : nil
+                if !value { personal.nextSeasonDate = nil }
+                personal.updatedAt = .now
+                savePersonalChanges()
+            }
+        )
+    }
+
+    private func nextSeasonDateBinding(for personal: PersonalRecord) -> Binding<Date?> {
+        Binding(
+            get: { personal.nextSeasonDate },
+            set: { value in
+                personal.nextSeasonDate = value
                 personal.updatedAt = .now
                 savePersonalChanges()
             }
@@ -1215,6 +1237,7 @@ struct SeasonDetailView: View {
             ReviewEditor(
                 initialText: season.review,
                 placeholder: "写下这一季的感受",
+                accessibilityIdentifier: "season-review-input",
                 onCommit: { value in
                     season.review = value
                     season.updatedAt = .now
@@ -1425,6 +1448,7 @@ private struct SectionTitle: View {
 private struct ReviewEditor: View {
     let initialText: String
     let placeholder: String
+    let accessibilityIdentifier: String
     var usesDarkAppearance = false
     let onCommit: (String) -> Void
 
@@ -1436,36 +1460,34 @@ private struct ReviewEditor: View {
         initialText: String,
         placeholder: String,
         usesDarkAppearance: Bool = false,
+        accessibilityIdentifier: String = "review-input",
         onCommit: @escaping (String) -> Void
     ) {
         self.initialText = initialText
         self.placeholder = placeholder
         self.usesDarkAppearance = usesDarkAppearance
+        self.accessibilityIdentifier = accessibilityIdentifier
         self.onCommit = onCommit
         _draftBuffer = State(initialValue: TextDraftBuffer(initialText))
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            if draftBuffer.draft.isEmpty {
-                Text(placeholder)
-                    .foregroundStyle(usesDarkAppearance ? Color.white.opacity(0.42) : Color(uiColor: .secondaryLabel))
-                    .padding(.top, 8)
-                    .padding(.leading, 5)
+        TextField(placeholder, text: $draftBuffer.draft, axis: .vertical)
+            .lineLimit(1...)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
+            .tint(usesDarkAppearance ? DetailTheme.accent : Color.accentColor)
+            .focused($isFocused)
+            .accessibilityIdentifier(accessibilityIdentifier)
+            .background(usesDarkAppearance ? Color.white.opacity(0.08) : Color(uiColor: .tertiarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(usesDarkAppearance ? Color.white.opacity(0.14) : Color(uiColor: .separator), lineWidth: 0.5)
             }
-            TextEditor(text: $draftBuffer.draft)
-                .frame(minHeight: 100)
-                .scrollContentBackground(.hidden)
-                .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
-                .focused($isFocused)
-                .scrollDismissesKeyboard(.interactively)
-        }
-        .background(usesDarkAppearance ? Color.white.opacity(0.08) : Color(uiColor: .tertiarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(usesDarkAppearance ? Color.white.opacity(0.14) : Color(uiColor: .separator), lineWidth: 0.5)
-        }
         .onChange(of: draftBuffer.draft) { _, _ in
             scheduleCommit()
         }

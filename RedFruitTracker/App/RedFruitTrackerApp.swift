@@ -113,6 +113,8 @@ struct RedFruitTrackerApp: App {
         personal.currentSeasonNumber = 1
         personal.currentEpisodeNumber = 1
         personal.localShelfState = "watching"
+        personal.followsUpdates = true
+        personal.followedAt = .now
         personal.myRating = 8
         personal.review = "节奏明快，设定很有趣。"
         context.insert(personal)

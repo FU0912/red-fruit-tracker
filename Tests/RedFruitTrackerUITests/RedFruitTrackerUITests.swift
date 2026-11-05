@@ -207,4 +207,40 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["stats-filter-watching"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["season-change-log-link"].exists)
     }
+
+    func testNextSeasonDateCanBeScheduledAndClearedFromLibrary() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-testing-fixture"]
+        app.launch()
+
+        let card = app.buttons["series-card-ui-fixture-series"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        card.tap()
+
+        let dateRow = app.buttons["next-season-date-picker"]
+        XCTAssertTrue(dateRow.waitForExistence(timeout: 5))
+        dateRow.tap()
+        XCTAssertTrue(app.navigationBars["预约下一季"].waitForExistence(timeout: 3))
+        let saveDate = app.buttons["完成"]
+        XCTAssertTrue(saveDate.exists)
+        saveDate.tap()
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let appointment = app.buttons["series-card-next-season-date"]
+        XCTAssertTrue(appointment.waitForExistence(timeout: 3))
+        appointment.tap()
+        XCTAssertFalse(appointment.waitForExistence(timeout: 1))
+        XCTAssertTrue(card.exists, "Clearing the date must not open the detail page.")
+    }
+
+    func testStatisticsShowsWatchedWorkTagDistribution() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-testing-fixture"]
+        app.launch()
+
+        app.tabBars.buttons["统计"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["tag-distribution-chart"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["穿越"].exists)
+        XCTAssertTrue(app.segmentedControls["tag-statistics-period"].exists)
+    }
 }

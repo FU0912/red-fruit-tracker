@@ -297,6 +297,86 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(LibraryFilter.followed.title, "追更/预约")
     }
 
+    func testTagStatisticsCountsEachWatchedWorkOnceAndSplitsMultipleTags() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 5, hour: 12))!
+        let thisMonth = calendar.date(from: DateComponents(year: 2026, month: 11, day: 2))!
+        let lastMonth = calendar.date(from: DateComponents(year: 2026, month: 10, day: 31))!
+
+        let first = SeriesRecord(sourceSeriesID: "first", title: "第一部", tagsText: "穿越,校园")
+        let second = SeriesRecord(sourceSeriesID: "second", title: "第二部", tagsText: "穿越")
+        let third = SeriesRecord(sourceSeriesID: "third", title: "第三部", tagsText: "校园")
+        let untagged = SeriesRecord(sourceSeriesID: "untagged", title: "未分类作品")
+        let old = SeriesRecord(sourceSeriesID: "old", title: "旧作品", tagsText: "都市")
+        let episodes = [
+            EpisodeRecord(sourceVid: "first-1", sourceSeriesID: "first", seasonNumber: 1, episodeNumber: 1, isWatched: true, watchedAt: thisMonth),
+            EpisodeRecord(sourceVid: "first-2", sourceSeriesID: "first", seasonNumber: 1, episodeNumber: 2, isWatched: true, watchedAt: thisMonth.addingTimeInterval(86_400)),
+            EpisodeRecord(sourceVid: "second-1", sourceSeriesID: "second", seasonNumber: 1, episodeNumber: 1, isWatched: true, watchedAt: thisMonth),
+            EpisodeRecord(sourceVid: "third-1", sourceSeriesID: "third", seasonNumber: 1, episodeNumber: 1, isWatched: true, watchedAt: lastMonth),
+            EpisodeRecord(sourceVid: "untagged-1", sourceSeriesID: "untagged", seasonNumber: 1, episodeNumber: 1, isWatched: true, watchedAt: thisMonth),
+            EpisodeRecord(sourceVid: "old-1", sourceSeriesID: "old", seasonNumber: 1, episodeNumber: 1, isWatched: true, watchedAt: lastMonth.addingTimeInterval(-366 * 86_400)),
+            EpisodeRecord(sourceVid: "unwatched-1", sourceSeriesID: "second", seasonNumber: 1, episodeNumber: 3, isWatched: false, watchedAt: thisMonth)
+        ]
+
+        let summary = TagStatistics.summary(
+            series: [first, second, third, untagged, old],
+            episodes: episodes,
+            period: .month,
+            now: now,
+            calendar: calendar
+        )
+        let proportions = Dictionary(uniqueKeysWithValues: summary.slices.map { ($0.tag, $0.proportion) })
+
+        XCTAssertEqual(summary.workCount, 3)
+        XCTAssertEqual(proportions["穿越"] ?? 0, 0.6, accuracy: 0.0001)
+        XCTAssertEqual(proportions["校园"] ?? 0, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(proportions["未分类"] ?? 0, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(summary.slices.reduce(0) { $0 + $1.proportion }, 1, accuracy: 0.0001)
+
+        let quarter = TagStatistics.summary(
+            series: [first, second, third, untagged, old],
+            episodes: episodes,
+            period: .quarter,
+            now: now,
+            calendar: calendar
+        )
+        let year = TagStatistics.summary(
+            series: [first, second, third, untagged, old],
+            episodes: episodes,
+            period: .year,
+            now: now,
+            calendar: calendar
+        )
+        let all = TagStatistics.summary(
+            series: [first, second, third, untagged, old],
+            episodes: episodes,
+            period: .all,
+            now: now,
+            calendar: calendar
+        )
+        XCTAssertEqual(quarter.workCount, 4)
+        XCTAssertEqual(year.workCount, 4)
+        XCTAssertEqual(all.workCount, 5)
+    }
+
+    @MainActor
+    func testNextSeasonDatePersistsOnPersonalRecord() throws {
+        let schema = Schema([PersonalRecord.self])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = container.mainContext
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+        let personal = PersonalRecord(sourceSeriesID: "series-1")
+        personal.followsUpdates = true
+        personal.nextSeasonDate = date
+        context.insert(personal)
+        try context.save()
+
+        let loaded = try context.fetch(FetchDescriptor<PersonalRecord>()).first
+        XCTAssertEqual(loaded?.nextSeasonDate, date)
+    }
+
     func testCompletionStatusIsManualAndDefaultsToUnselected() {
         let record = SeriesRecord(sourceSeriesID: "series-1", title: "测试作品")
 

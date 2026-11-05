@@ -1,4 +1,5 @@
 import Foundation
+import Charts
 import ImageIO
 import SwiftData
 import SwiftUI
@@ -216,17 +217,13 @@ private struct LibraryView: View {
                         }
 
                         ForEach(visibleSeries) { item in
-                            Button {
-                                selectedSeries = item
-                            } label: {
-                                SeriesCard(
-                                    series: item,
-                                    seasons: seasons.filter { $0.sourceSeriesID == item.sourceSeriesID },
-                                    personal: personalRecords.first { $0.sourceSeriesID == item.sourceSeriesID }
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("series-card-\(item.sourceSeriesID)")
+                            SeriesCard(
+                                series: item,
+                                seasons: seasons.filter { $0.sourceSeriesID == item.sourceSeriesID },
+                                personal: personalRecords.first { $0.sourceSeriesID == item.sourceSeriesID },
+                                accessibilityIdentifier: "series-card-\(item.sourceSeriesID)",
+                                onSelect: { selectedSeries = item }
+                            )
                             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -662,102 +659,138 @@ private struct ShareImportBanner: View {
 }
 
 private struct SeriesCard: View {
+    @Environment(\.modelContext) private var modelContext
+
     let series: SeriesRecord
     let seasons: [SeasonRecord]
     let personal: PersonalRecord?
+    let accessibilityIdentifier: String
+    let onSelect: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            CoverView(urlString: series.coverURL, title: series.title)
-                .frame(width: 92, height: 128)
-                .fixedSize()
-                .accessibilityIdentifier("series-card-cover")
-                .accessibilityLabel("\(series.title)封面")
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: onSelect) {
+                HStack(alignment: .top, spacing: 12) {
+                    CoverView(urlString: series.coverURL, title: series.title)
+                        .frame(width: 92, height: 128)
+                        .fixedSize()
+                        .accessibilityIdentifier("series-card-cover")
+                        .accessibilityLabel("\(series.title)封面")
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(series.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.leading)
-                    .accessibilityIdentifier("series-card-title")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(series.title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                            .accessibilityIdentifier("series-card-title")
 
-                FixedWorkMetricGrid(metrics: [
-                    WorkMetric(
-                        id: "series-card-official-rating",
-                        label: "官方",
-                        value: series.officialRating.map { String(format: "%.1f", $0) } ?? "暂无评分",
-                        tint: .orange,
-                        symbol: "star.fill"
-                    ),
-                    WorkMetric(
-                        id: "series-card-personal-rating",
-                        label: "我的",
-                        value: personal?.myRating.map { String(format: "%.1f", $0) } ?? "未评分",
-                        tint: .blue,
-                        symbol: "person.fill"
-                    ),
-                    WorkMetric(
-                        id: "series-card-heat",
-                        label: "热度",
-                        value: compactHeatText,
-                        tint: .pink,
-                        symbol: "flame.fill"
-                    ),
-                    WorkMetric(
-                        id: "series-card-season-count",
-                        label: "季数",
-                        value: seasons.isEmpty ? "待录入" : "\(seasons.count)季",
-                        tint: .teal,
-                        symbol: "square.stack.3d.up.fill"
-                    )
-                ])
+                        FixedWorkMetricGrid(metrics: [
+                            WorkMetric(
+                                id: "series-card-official-rating",
+                                label: "官方",
+                                value: series.officialRating.map { String(format: "%.1f", $0) } ?? "暂无评分",
+                                tint: .orange,
+                                symbol: "star.fill"
+                            ),
+                            WorkMetric(
+                                id: "series-card-personal-rating",
+                                label: "我的",
+                                value: personal?.myRating.map { String(format: "%.1f", $0) } ?? "未评分",
+                                tint: .blue,
+                                symbol: "person.fill"
+                            ),
+                            WorkMetric(
+                                id: "series-card-heat",
+                                label: "热度",
+                                value: compactHeatText,
+                                tint: .pink,
+                                symbol: "flame.fill"
+                            ),
+                            WorkMetric(
+                                id: "series-card-season-count",
+                                label: "季数",
+                                value: seasons.isEmpty ? "待录入" : "\(seasons.count)季",
+                                tint: .teal,
+                                symbol: "square.stack.3d.up.fill"
+                            )
+                        ])
 
-                TagFlowLayout(horizontalSpacing: 4, verticalSpacing: 4) {
-                    CompactInfoPill(
-                        text: completionStatusText,
-                        systemImage: completionStatusSymbol,
-                        tint: completionStatusTint
-                    )
-                    .accessibilityIdentifier("series-card-completion-status")
+                        TagFlowLayout(horizontalSpacing: 4, verticalSpacing: 4) {
+                            CompactInfoPill(
+                                text: completionStatusText,
+                                systemImage: completionStatusSymbol,
+                                tint: completionStatusTint
+                            )
+                            .accessibilityIdentifier("series-card-completion-status")
 
-                    CompactInfoPill(
-                        text: shelfState.title,
-                        systemImage: shelfState.systemImage,
-                        tint: shelfStateTint
-                    )
-                    .accessibilityIdentifier("series-card-shelf-state")
+                            CompactInfoPill(
+                                text: shelfState.title,
+                                systemImage: shelfState.systemImage,
+                                tint: shelfStateTint
+                            )
+                            .accessibilityIdentifier("series-card-shelf-state")
 
-                    if personal?.followsUpdates == true {
-                        CompactInfoPill(
-                            text: "追更",
-                            systemImage: "bell.badge.fill",
-                            tint: .indigo
-                        )
-                        .accessibilityIdentifier("series-card-follow-updates")
+                            if personal?.followsUpdates == true {
+                                CompactInfoPill(
+                                    text: "追更",
+                                    systemImage: "bell.badge.fill",
+                                    tint: .indigo
+                                )
+                                .accessibilityIdentifier("series-card-follow-updates")
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                            if tags.isEmpty {
+                                TagPill(text: "标签待读取")
+                            } else {
+                                ForEach(tags, id: \.self) { tag in
+                                    TagPill(text: tag)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: 52, alignment: .topLeading)
+                        .clipped()
                     }
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
+                    .layoutPriority(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-                TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
-                    if tags.isEmpty {
-                        TagPill(text: "标签待读取")
-                    } else {
-                        ForEach(tags, id: \.self) { tag in
-                            TagPill(text: tag)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: 52, alignment: .topLeading)
-                .clipped()
-
+                .padding(12)
             }
-            .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
-            .layoutPriority(1)
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(accessibilityIdentifier)
+
+            if let nextSeasonDate = personal?.nextSeasonDate {
+                Button {
+                    personal?.nextSeasonDate = nil
+                    personal?.updatedAt = .now
+                    try? modelContext.save()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "calendar")
+                        Text(AppDateText.monthDay(nextSeasonDate))
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.indigo)
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: AppLayout.minimumControlHeight)
+                    .background(.indigo.opacity(0.1), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("series-card-next-season-date")
+                .accessibilityLabel("取消预约日期，\(AppDateText.monthDay(nextSeasonDate))")
+                .padding(.leading, 104)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
@@ -922,13 +955,6 @@ struct TagFlowLayout: Layout {
             rowHeight = max(rowHeight, size.height)
         }
     }
-}
-
-func tagValues(_ value: String) -> [String] {
-    value
-        .components(separatedBy: CharacterSet(charactersIn: ",，、|丨·/"))
-        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
 }
 
 private final class CoverImageLoader: ObservableObject {
@@ -1107,8 +1133,10 @@ private struct StatsView: View {
     ])
     private var series: [SeriesRecord]
     @Query private var personalRecords: [PersonalRecord]
+    @Query private var episodes: [EpisodeRecord]
     @Query(sort: \OfficialSnapshot.capturedAt, order: .reverse)
     private var snapshots: [OfficialSnapshot]
+    @State private var tagStatisticsPeriod: TagStatisticsPeriod = .all
 
     private var completedCount: Int {
         series.filter { $0.completionStatus == SeriesCompletionStatus.completed.rawValue }.count
@@ -1127,12 +1155,134 @@ private struct StatsView: View {
         return date.formatted(date: .abbreviated, time: .shortened)
     }
 
+    private var tagStatistics: TagStatisticsSummary {
+        TagStatistics.summary(series: series, episodes: episodes, period: tagStatisticsPeriod)
+    }
+
+    private var displayedTagSlices: [TagStatisticsSlice] {
+        let slices = tagStatistics.slices
+        guard slices.count > 6 else { return slices }
+
+        let leading = Array(slices.prefix(5))
+        let otherProportion = slices.dropFirst(5).reduce(0) { $0 + $1.proportion }
+        return leading + [TagStatisticsSlice(tag: "其他", proportion: otherProportion)]
+    }
+
+    private var tagChartColors: [Color] {
+        displayedTagSlices.map { slice in
+            guard slice.tag != "其他",
+                  let index = tagStatistics.slices.firstIndex(where: { $0.tag == slice.tag }) else {
+                return Self.tagPalette[5]
+            }
+            return Self.tagPalette[index % Self.tagPalette.count]
+        }
+    }
+
+    private static let tagPalette: [Color] = [
+        .blue, .orange, .green, .pink, .purple, .teal, .cyan, .yellow
+    ]
+
+    private var tagStatisticsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("观看类型")
+                .font(.headline)
+
+            Picker("统计周期", selection: $tagStatisticsPeriod) {
+                ForEach(TagStatisticsPeriod.allCases) { period in
+                    Text(period.title).tag(period)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("tag-statistics-period")
+
+            if tagStatistics.workCount == 0 {
+                HStack(spacing: 16) {
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.18), lineWidth: 12)
+                        .frame(width: 96, height: 96)
+                    Text("暂无观看记录")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+            } else {
+                HStack(alignment: .center, spacing: 12) {
+                    ZStack {
+                        Chart(displayedTagSlices) { slice in
+                            SectorMark(
+                                angle: .value("占比", slice.proportion),
+                                innerRadius: .ratio(0.62),
+                                outerRadius: .ratio(0.96),
+                                angularInset: 1.5
+                            )
+                            .foregroundStyle(by: .value("标签", slice.tag))
+                        }
+                        .chartLegend(.hidden)
+                        .chartForegroundStyleScale(
+                            domain: displayedTagSlices.map(\.tag),
+                            range: tagChartColors
+                        )
+                        .accessibilityIdentifier("tag-distribution-chart")
+
+                        VStack(spacing: 1) {
+                            Text("\(tagStatistics.workCount)")
+                                .font(.headline.monospacedDigit())
+                            Text("部")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .allowsHitTesting(false)
+                    }
+                    .frame(width: 112, height: 112)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("本周期观看作品 \(tagStatistics.workCount) 部")
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(displayedTagSlices) { slice in
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(color(for: slice))
+                                    .frame(width: 8, height: 8)
+                                Text(slice.tag)
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(String(format: "%.1f%%", slice.proportion * 100))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("tag-distribution-\(slice.tag)")
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+            }
+        }
+        .padding(14)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityIdentifier("tag-statistics-section")
+    }
+
+    private func color(for slice: TagStatisticsSlice) -> Color {
+        guard slice.tag != "其他",
+              let index = tagStatistics.slices.firstIndex(where: { $0.tag == slice.tag }) else {
+            return Self.tagPalette[5]
+        }
+        return Self.tagPalette[index % Self.tagPalette.count]
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("总览")
                         .font(.title2.weight(.bold))
+
+                    tagStatisticsSection
 
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                         ForEach(LibraryFilter.allCases) { filter in
@@ -1299,18 +1449,16 @@ private struct FilteredSeriesView: View {
                 )
             } else {
                 List(filteredSeries) { item in
-                    Button {
-                        selectedSeriesID = item.sourceSeriesID
-                        isShowingSeries = true
-                    } label: {
-                        SeriesCard(
-                            series: item,
-                            seasons: seasons.filter { $0.sourceSeriesID == item.sourceSeriesID },
-                            personal: personalRecords.first { $0.sourceSeriesID == item.sourceSeriesID }
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("filtered-series-\(item.sourceSeriesID)")
+                    SeriesCard(
+                        series: item,
+                        seasons: seasons.filter { $0.sourceSeriesID == item.sourceSeriesID },
+                        personal: personalRecords.first { $0.sourceSeriesID == item.sourceSeriesID },
+                        accessibilityIdentifier: "filtered-series-\(item.sourceSeriesID)",
+                        onSelect: {
+                            selectedSeriesID = item.sourceSeriesID
+                            isShowingSeries = true
+                        }
+                    )
                     .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
@@ -1400,6 +1548,7 @@ private struct AddSeriesView: View {
     @State private var completionStatus = SeriesCompletionStatus.unknown.rawValue
     @State private var shelfState = "unstarted"
     @State private var followsUpdates = false
+    @State private var nextSeasonDate: Date?
     @State private var includeFirstSeason = false
     @State private var firstSeasonNumber = 1
     @State private var firstSeasonEpisodeCount = 0
@@ -1527,7 +1676,8 @@ private struct AddSeriesView: View {
                         .accessibilityIdentifier("add-personal-rating")
 
                     TextField("我的评价（可选）", text: $myReview, axis: .vertical)
-                        .lineLimit(3...6)
+                        .lineLimit(1...)
+                        .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("add-personal-review")
 
                     Picker("完结状态", selection: $completionStatus) {
@@ -1545,6 +1695,15 @@ private struct AddSeriesView: View {
                     }
 
                     Toggle("追更 / 预约", isOn: $followsUpdates)
+                        .onChange(of: followsUpdates) { _, isFollowing in
+                            if !isFollowing { nextSeasonDate = nil }
+                        }
+                    if followsUpdates {
+                        OptionalDatePickerRow(
+                            date: $nextSeasonDate,
+                            identifier: "add-next-season-date-picker"
+                        )
+                    }
 
                     Toggle("手动添加季", isOn: $includeFirstSeason)
                         .accessibilityIdentifier("manual-season-toggle")
@@ -1723,6 +1882,7 @@ private struct AddSeriesView: View {
                     personal.localShelfState = shelfState
                     personal.followsUpdates = followsUpdates
                     personal.followedAt = followsUpdates ? .now : nil
+                    personal.nextSeasonDate = followsUpdates ? nextSeasonDate : nil
                 }
                 if let personalRating { personal.myRating = RatingScale.normalized(personalRating) }
                 if !myReview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1734,6 +1894,7 @@ private struct AddSeriesView: View {
                 personal.localShelfState = shelfState
                 personal.followsUpdates = followsUpdates
                 personal.followedAt = followsUpdates ? .now : nil
+                personal.nextSeasonDate = followsUpdates ? nextSeasonDate : nil
                 personal.myRating = personalRating.map(RatingScale.normalized)
                 personal.review = myReview.trimmingCharacters(in: .whitespacesAndNewlines)
                 modelContext.insert(personal)
