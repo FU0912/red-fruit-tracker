@@ -334,17 +334,10 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(proportions["未分类"] ?? 0, 1.0 / 3.0, accuracy: 0.0001)
         XCTAssertEqual(summary.slices.reduce(0) { $0 + $1.proportion }, 1, accuracy: 0.0001)
 
-        let quarter = TagStatistics.summary(
-            series: [first, second, third, untagged, old],
-            episodes: episodes,
-            period: .quarter,
-            now: now,
-            calendar: calendar
-        )
         let year = TagStatistics.summary(
             series: [first, second, third, untagged, old],
             episodes: episodes,
-            period: .year,
+            period: .year(2026),
             now: now,
             calendar: calendar
         )
@@ -355,9 +348,85 @@ final class LibraryModelTests: XCTestCase {
             now: now,
             calendar: calendar
         )
-        XCTAssertEqual(quarter.workCount, 4)
         XCTAssertEqual(year.workCount, 4)
         XCTAssertEqual(all.workCount, 5)
+    }
+
+    func testTagStatisticsIncludesShelfWorksWithoutEpisodeProgress() {
+        let first = SeriesRecord(sourceSeriesID: "first", title: "第一部", tagsText: "穿越,校园")
+        let second = SeriesRecord(sourceSeriesID: "second", title: "第二部", tagsText: "穿越")
+
+        let summary = TagStatistics.summary(series: [first, second], episodes: [], period: .all)
+        let proportions = Dictionary(uniqueKeysWithValues: summary.slices.map { ($0.tag, $0.proportion) })
+
+        XCTAssertEqual(summary.workCount, 2)
+        XCTAssertEqual(proportions["穿越"] ?? 0, 0.75, accuracy: 0.0001)
+        XCTAssertEqual(proportions["校园"] ?? 0, 0.25, accuracy: 0.0001)
+    }
+
+    func testYearlyTagStatisticsUsesSelectedCalendarYear() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 5))!
+        let record = SeriesRecord(sourceSeriesID: "series-1", title: "测试作品", tagsText: "穿越")
+        let episodes = [
+            EpisodeRecord(
+                sourceVid: "2025",
+                sourceSeriesID: "series-1",
+                seasonNumber: 1,
+                episodeNumber: 1,
+                isWatched: true,
+                watchedAt: calendar.date(from: DateComponents(year: 2025, month: 6, day: 1))
+            ),
+            EpisodeRecord(
+                sourceVid: "2024",
+                sourceSeriesID: "series-1",
+                seasonNumber: 1,
+                episodeNumber: 2,
+                isWatched: true,
+                watchedAt: calendar.date(from: DateComponents(year: 2024, month: 6, day: 1))
+            )
+        ]
+
+        let summary = TagStatistics.summary(
+            series: [record],
+            episodes: episodes,
+            period: .year(2025),
+            now: now,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(summary.workCount, 1)
+    }
+
+    func testMonthlyTagStatisticsUsesFollowDateInsteadOfReviewEditDateForLegacyWork() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 5))!
+        let addedEarlier = calendar.date(from: DateComponents(year: 2025, month: 8, day: 10))!
+        let followedThisMonth = calendar.date(from: DateComponents(year: 2026, month: 11, day: 2))!
+        let series = SeriesRecord(
+            sourceSeriesID: "series-1",
+            title: "测试作品",
+            tagsText: "校园",
+            createdAt: addedEarlier,
+            updatedAt: now
+        )
+        let personal = PersonalRecord(sourceSeriesID: "series-1")
+        personal.followedAt = followedThisMonth
+        personal.updatedAt = addedEarlier
+
+        let summary = TagStatistics.summary(
+            series: [series],
+            episodes: [],
+            personalRecords: [personal],
+            period: .month,
+            now: now,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(summary.workCount, 1)
+        XCTAssertEqual(summary.slices.map(\.tag), ["校园"])
     }
 
     @MainActor

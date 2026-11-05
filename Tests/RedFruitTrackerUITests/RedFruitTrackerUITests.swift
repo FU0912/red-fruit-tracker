@@ -220,9 +220,21 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(dateRow.waitForExistence(timeout: 5))
         dateRow.tap()
         XCTAssertTrue(app.navigationBars["预约下一季"].waitForExistence(timeout: 3))
-        let saveDate = app.buttons["完成"]
-        XCTAssertTrue(saveDate.exists)
-        saveDate.tap()
+
+        let targetDate = upcomingFifthDay()
+        let currentComponents = Calendar.current.dateComponents([.year, .month], from: Date())
+        let targetComponents = Calendar.current.dateComponents([.year, .month, .day], from: targetDate)
+        if currentComponents.year != targetComponents.year || currentComponents.month != targetComponents.month {
+            app.buttons["appointment-next-month"].tap()
+        }
+        let dayIdentifier = String(
+            format: "appointment-day-%04d-%02d-%02d",
+            targetComponents.year!,
+            targetComponents.month!,
+            targetComponents.day!
+        )
+        app.buttons[dayIdentifier].tap()
+        XCTAssertEqual(dateRow.value as? String, "\(targetComponents.month!)月\(targetComponents.day!)日")
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
         let appointment = app.buttons["series-card-next-season-date"]
@@ -243,5 +255,87 @@ final class RedFruitTrackerUITests: XCTestCase {
         let periodControl = app.segmentedControls.firstMatch
         XCTAssertTrue(periodControl.waitForExistence(timeout: 5))
         XCTAssertTrue(periodControl.buttons["本月"].exists)
+        XCTAssertTrue(periodControl.buttons["按年"].exists)
+        XCTAssertFalse(periodControl.buttons["本季度"].exists)
+        let yearMenu = app.buttons["tag-statistics-year-menu"]
+        XCTAssertTrue(yearMenu.exists)
+        periodControl.buttons["按年"].tap()
+        yearMenu.tap()
+        let currentYear = Calendar.current.component(.year, from: Date())
+        let currentYearOption = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "\(currentYear)年")
+        ).firstMatch
+        XCTAssertTrue(currentYearOption.waitForExistence(timeout: 3))
+        currentYearOption.tap()
+        XCTAssertEqual(yearMenu.value as? String, "\(currentYear)年")
+    }
+
+    func testAppointmentDateSelectionCommitsImmediatelyAndRemainsAvailableWithoutFollowToggle() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-testing-fixture"]
+        app.launch()
+
+        let card = app.buttons["series-card-ui-fixture-series"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        card.tap()
+
+        let followToggle = app.switches["follow-updates-toggle"]
+        XCTAssertTrue(followToggle.waitForExistence(timeout: 5))
+        if (followToggle.value as? String) == "1" {
+            followToggle.tap()
+        }
+
+        let dateRow = app.buttons["next-season-date-picker"]
+        XCTAssertTrue(dateRow.waitForExistence(timeout: 3))
+        dateRow.tap()
+        XCTAssertTrue(app.navigationBars["预约下一季"].waitForExistence(timeout: 3))
+
+        let targetDate = upcomingFifthDay()
+        let currentComponents = Calendar.current.dateComponents([.year, .month], from: Date())
+        let targetComponents = Calendar.current.dateComponents([.year, .month, .day], from: targetDate)
+        if currentComponents.year != targetComponents.year || currentComponents.month != targetComponents.month {
+            app.buttons["appointment-next-month"].tap()
+        }
+
+        let dayIdentifier = String(
+            format: "appointment-day-%04d-%02d-%02d",
+            targetComponents.year!,
+            targetComponents.month!,
+            targetComponents.day!
+        )
+        let targetDay = app.buttons[dayIdentifier]
+        XCTAssertTrue(targetDay.waitForExistence(timeout: 3))
+        targetDay.tap()
+
+        XCTAssertFalse(app.navigationBars["预约下一季"].waitForExistence(timeout: 1))
+        XCTAssertEqual(dateRow.value as? String, "\(targetComponents.month!)月\(targetComponents.day!)日")
+    }
+
+    func testReviewEditorStartsAtFiveLines() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-testing-fixture"]
+        app.launch()
+
+        let card = app.buttons["series-card-ui-fixture-series"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        card.tap()
+
+        let review = app.textFields["personal-review-input"]
+        XCTAssertTrue(review.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(review.frame.height, 110)
+    }
+
+    private func upcomingFifthDay() -> Date {
+        let calendar = Calendar.current
+        let now = Date()
+        let currentFifth = calendar.date(
+            byAdding: .day,
+            value: 4,
+            to: calendar.dateInterval(of: .month, for: now)!.start
+        )!
+        if calendar.component(.day, from: now) <= 5 {
+            return currentFifth
+        }
+        return calendar.date(byAdding: .month, value: 1, to: currentFifth)!
     }
 }

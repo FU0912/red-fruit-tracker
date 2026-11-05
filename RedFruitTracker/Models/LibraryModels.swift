@@ -136,20 +136,24 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     }
 }
 
-enum TagStatisticsPeriod: String, CaseIterable, Identifiable {
+enum TagStatisticsPeriod: Hashable, Identifiable {
     case all
     case month
-    case year
-    case quarter
+    case year(Int)
 
-    var id: String { rawValue }
+    var id: String {
+        switch self {
+        case .all: return "all"
+        case .month: return "month"
+        case .year(let year): return "year-\(year)"
+        }
+    }
 
     var title: String {
         switch self {
         case .all: return "全部"
         case .month: return "本月"
-        case .year: return "近一年"
-        case .quarter: return "本季度"
+        case .year(_): return "按年"
         }
     }
 
@@ -157,21 +161,14 @@ enum TagStatisticsPeriod: String, CaseIterable, Identifiable {
         guard self != .all else { return true }
         guard let date else { return false }
 
-        let interval: DateInterval?
         switch self {
         case .all:
-            interval = nil
+            return true
         case .month:
-            interval = calendar.dateInterval(of: .month, for: now)
-        case .year:
-            interval = DateInterval(
-                start: calendar.date(byAdding: .year, value: -1, to: now) ?? now,
-                end: now
-            )
-        case .quarter:
-            interval = calendar.dateInterval(of: .quarter, for: now)
+            return calendar.dateInterval(of: .month, for: now)?.contains(date) == true
+        case .year(let selectedYear):
+            return calendar.component(.year, from: date) == selectedYear
         }
-        return interval?.contains(date) == true
     }
 }
 
@@ -191,30 +188,32 @@ enum TagStatistics {
     static func summary(
         series: [SeriesRecord],
         episodes: [EpisodeRecord],
+        personalRecords: [PersonalRecord] = [],
         period: TagStatisticsPeriod,
         now: Date = .now,
         calendar: Calendar = .current
     ) -> TagStatisticsSummary {
-        let seriesByID = Dictionary(
-            series.map { ($0.sourceSeriesID, $0) },
+        let watchedDatesBySeries = Dictionary(grouping: episodes.filter { $0.isWatched }, by: \.sourceSeriesID)
+            .mapValues { $0.compactMap(\.watchedAt) }
+        let personalBySeries = Dictionary(
+            personalRecords.map { ($0.sourceSeriesID, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let watchedSeriesIDs = Set(episodes.compactMap { episode -> String? in
-            guard episode.isWatched,
-                  period.includes(episode.watchedAt, now: now, calendar: calendar),
-                  seriesByID[episode.sourceSeriesID] != nil else {
-                return nil
+        let includedSeries = series.filter { record in
+            guard period != .all else { return true }
+            if let watchedDates = watchedDatesBySeries[record.sourceSeriesID], !watchedDates.isEmpty {
+                return watchedDates.contains { period.includes($0, now: now, calendar: calendar) }
             }
-            return episode.sourceSeriesID
-        })
+            let fallbackDate = personalBySeries[record.sourceSeriesID]?.followedAt ?? record.createdAt
+            return period.includes(fallbackDate, now: now, calendar: calendar)
+        }
 
-        guard !watchedSeriesIDs.isEmpty else {
+        guard !includedSeries.isEmpty else {
             return TagStatisticsSummary(workCount: 0, slices: [])
         }
 
         var contributions: [String: Double] = [:]
-        for seriesID in watchedSeriesIDs {
-            guard let record = seriesByID[seriesID] else { continue }
+        for record in includedSeries {
             let tags = Array(Set(tagValues(record.tagsText))).sorted()
             let categories = tags.isEmpty ? ["未分类"] : tags
             let contribution = 1 / Double(categories.count)
@@ -230,7 +229,7 @@ enum TagStatistics {
                 if $0.proportion == $1.proportion { return $0.tag.localizedStandardCompare($1.tag) == .orderedAscending }
                 return $0.proportion > $1.proportion
             }
-        return TagStatisticsSummary(workCount: watchedSeriesIDs.count, slices: slices)
+        return TagStatisticsSummary(workCount: includedSeries.count, slices: slices)
     }
 }
 

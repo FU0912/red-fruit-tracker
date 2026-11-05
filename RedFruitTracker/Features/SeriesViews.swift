@@ -399,15 +399,12 @@ struct SeriesDetailView: View {
                         .tint(DetailTheme.accent)
                         .frame(minHeight: 52)
                         .accessibilityIdentifier("follow-updates-toggle")
-                    if personalRecord.followsUpdates {
-                        Divider().overlay(.white.opacity(0.12))
-                        OptionalDatePickerRow(
-                            date: nextSeasonDateBinding(for: personalRecord),
-                            usesDarkAppearance: true
-                        )
-                        .accessibilityIdentifier("next-season-date-picker")
-                        .padding(.horizontal, AppLayout.pageInset)
-                    }
+                    Divider().overlay(.white.opacity(0.12))
+                    OptionalDatePickerRow(
+                        date: nextSeasonDateBinding(for: personalRecord),
+                        usesDarkAppearance: true
+                    )
+                    .accessibilityIdentifier("next-season-date-picker")
                 }
                 .font(.body)
                 .foregroundStyle(.white)
@@ -498,7 +495,6 @@ struct SeriesDetailView: View {
             set: { value in
                 personal.followsUpdates = value
                 personal.followedAt = value ? (personal.followedAt ?? .now) : nil
-                if !value { personal.nextSeasonDate = nil }
                 personal.updatedAt = .now
                 savePersonalChanges()
             }
@@ -1472,8 +1468,14 @@ private struct ReviewEditor: View {
     }
 
     var body: some View {
-        TextField(placeholder, text: $draftBuffer.draft, axis: .vertical)
-            .lineLimit(1...)
+        TextField(
+            "",
+            text: $draftBuffer.draft,
+            prompt: Text(placeholder).foregroundColor(usesDarkAppearance ? Color.white.opacity(0.76) : Color.secondary),
+            axis: .vertical
+        )
+            .font(.body)
+            .lineLimit(5...)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -1540,7 +1542,13 @@ private struct RatingScorePicker: View {
             Label("评分", systemImage: "number")
                 .font(.subheadline.weight(.semibold))
             Spacer(minLength: 8)
-            TextField("未评分", text: $draft)
+            TextField(
+                "",
+                text: $draft,
+                prompt: Text("未评分").foregroundColor(usesDarkAppearance ? Color.white.opacity(0.76) : Color.secondary)
+            )
+                .font(.body.weight(.semibold))
+                .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()

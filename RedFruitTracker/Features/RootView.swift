@@ -1133,10 +1133,12 @@ private struct StatsView: View {
     ])
     private var series: [SeriesRecord]
     @Query private var personalRecords: [PersonalRecord]
-    @Query private var episodes: [EpisodeRecord]
+    @Query(filter: #Predicate<EpisodeRecord> { $0.isWatched })
+    private var episodes: [EpisodeRecord]
     @Query(sort: \OfficialSnapshot.capturedAt, order: .reverse)
     private var snapshots: [OfficialSnapshot]
     @State private var tagStatisticsPeriod: TagStatisticsPeriod = .all
+    @State private var selectedStatisticsYear = Calendar.current.component(.year, from: .now)
 
     private var completedCount: Int {
         series.filter { $0.completionStatus == SeriesCompletionStatus.completed.rawValue }.count
@@ -1155,12 +1157,36 @@ private struct StatsView: View {
         return date.formatted(date: .abbreviated, time: .shortened)
     }
 
-    private var tagStatistics: TagStatisticsSummary {
-        TagStatistics.summary(series: series, episodes: episodes, period: tagStatisticsPeriod)
+    private var statisticsYearOptions: [Int] {
+        let calendar = Calendar.current
+        let currentYear = calendar.component(.year, from: .now)
+        let dates = series.map(\.createdAt)
+            + personalRecords.compactMap(\.followedAt)
+            + episodes.compactMap(\.watchedAt)
+        return Set(dates.map { calendar.component(.year, from: $0) })
+            .union([currentYear])
+            .sorted(by: >)
     }
 
-    private var displayedTagSlices: [TagStatisticsSlice] {
-        let slices = tagStatistics.slices
+    private var tagStatisticsSelection: Binding<TagStatisticsPeriod> {
+        Binding(
+            get: {
+                if case .year(_) = tagStatisticsPeriod {
+                    return .year(selectedStatisticsYear)
+                }
+                return tagStatisticsPeriod
+            },
+            set: { value in
+                if case .year(_) = value {
+                    tagStatisticsPeriod = .year(selectedStatisticsYear)
+                } else {
+                    tagStatisticsPeriod = value
+                }
+            }
+        )
+    }
+
+    private static func displayedTagSlices(from slices: [TagStatisticsSlice]) -> [TagStatisticsSlice] {
         guard slices.count > 6 else { return slices }
 
         let leading = Array(slices.prefix(5))
@@ -1168,39 +1194,66 @@ private struct StatsView: View {
         return leading + [TagStatisticsSlice(tag: "其他", proportion: otherProportion)]
     }
 
-    private var tagChartColors: [Color] {
-        displayedTagSlices.map { slice in
-            guard slice.tag != "其他",
-                  let index = tagStatistics.slices.firstIndex(where: { $0.tag == slice.tag }) else {
-                return Self.tagPalette[5]
-            }
-            return Self.tagPalette[index % Self.tagPalette.count]
-        }
-    }
-
     private static let tagPalette: [Color] = [
         .blue, .orange, .green, .pink, .purple, .teal, .cyan, .yellow
     ]
 
-    private var tagStatisticsSection: some View {
+    private func tagStatisticsSection(
+        summary: TagStatisticsSummary,
+        displayedSlices: [TagStatisticsSlice],
+        yearOptions: [Int]
+    ) -> some View {
+        let chartColors = displayedSlices.map { slice in
+            guard slice.tag != "其他",
+                  let index = summary.slices.firstIndex(where: { $0.tag == slice.tag }) else {
+                return Self.tagPalette[5]
+            }
+            return Self.tagPalette[index % Self.tagPalette.count]
+        }
+
         VStack(alignment: .leading, spacing: 12) {
             Text("观看类型")
                 .font(.headline)
 
-            Picker("统计周期", selection: $tagStatisticsPeriod) {
-                ForEach(TagStatisticsPeriod.allCases) { period in
-                    Text(period.title).tag(period)
+            HStack(spacing: 8) {
+                Picker("统计周期", selection: tagStatisticsSelection) {
+                    Text("全部").tag(TagStatisticsPeriod.all)
+                    Text("本月").tag(TagStatisticsPeriod.month)
+                    Text("按年").tag(TagStatisticsPeriod.year(selectedStatisticsYear))
                 }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("tag-statistics-period")
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("tag-statistics-period")
 
-            if tagStatistics.workCount == 0 {
+                Menu {
+                    ForEach(yearOptions, id: \.self) { year in
+                        Button {
+                            selectedStatisticsYear = year
+                            tagStatisticsPeriod = .year(year)
+                        } label: {
+                            if selectedStatisticsYear == year {
+                                Label("\(year)年", systemImage: "checkmark")
+                            } else {
+                                Text("\(year)年")
+                            }
+                        }
+                    }
+                } label: {
+                    Label("\(selectedStatisticsYear)年", systemImage: "chevron.down")
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                .accessibilityIdentifier("tag-statistics-year-menu")
+                .accessibilityLabel("统计年份")
+                .accessibilityValue("\(selectedStatisticsYear)年")
+            }
+
+            if summary.workCount == 0 {
                 HStack(spacing: 16) {
                     Circle()
                         .stroke(Color.secondary.opacity(0.18), lineWidth: 12)
                         .frame(width: 96, height: 96)
-                    Text("暂无观看记录")
+                    Text("当前周期暂无作品")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
@@ -1209,7 +1262,7 @@ private struct StatsView: View {
             } else {
                 HStack(alignment: .center, spacing: 12) {
                     ZStack {
-                        Chart(displayedTagSlices) { slice in
+                        Chart(displayedSlices) { slice in
                             SectorMark(
                                 angle: .value("占比", slice.proportion),
                                 innerRadius: .ratio(0.62),
@@ -1220,13 +1273,13 @@ private struct StatsView: View {
                         }
                         .chartLegend(.hidden)
                         .chartForegroundStyleScale(
-                            domain: displayedTagSlices.map(\.tag),
-                            range: tagChartColors
+                            domain: displayedSlices.map(\.tag),
+                            range: chartColors
                         )
                         .accessibilityIdentifier("tag-distribution-chart")
 
                         VStack(spacing: 1) {
-                            Text("\(tagStatistics.workCount)")
+                            Text("\(summary.workCount)")
                                 .font(.headline.monospacedDigit())
                             Text("部")
                                 .font(.caption2)
@@ -1236,13 +1289,13 @@ private struct StatsView: View {
                     }
                     .frame(width: 112, height: 112)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("本周期观看作品 \(tagStatistics.workCount) 部")
+                    .accessibilityLabel("本周期作品 \(summary.workCount) 部")
 
                     VStack(alignment: .leading, spacing: 8) {
-                        ForEach(displayedTagSlices) { slice in
+                        ForEach(displayedSlices) { slice in
                             HStack(spacing: 6) {
                                 Circle()
-                                    .fill(color(for: slice))
+                                    .fill(color(for: slice, summary: summary))
                                     .frame(width: 8, height: 8)
                                 Text(slice.tag)
                                     .font(.caption)
@@ -1267,22 +1320,35 @@ private struct StatsView: View {
         .accessibilityIdentifier("tag-statistics-section")
     }
 
-    private func color(for slice: TagStatisticsSlice) -> Color {
+    private func color(for slice: TagStatisticsSlice, summary: TagStatisticsSummary) -> Color {
         guard slice.tag != "其他",
-              let index = tagStatistics.slices.firstIndex(where: { $0.tag == slice.tag }) else {
+              let index = summary.slices.firstIndex(where: { $0.tag == slice.tag }) else {
             return Self.tagPalette[5]
         }
         return Self.tagPalette[index % Self.tagPalette.count]
     }
 
     var body: some View {
+        let summary = TagStatistics.summary(
+            series: series,
+            episodes: episodes,
+            personalRecords: personalRecords,
+            period: tagStatisticsPeriod
+        )
+        let displayedSlices = Self.displayedTagSlices(from: summary.slices)
+        let yearOptions = statisticsYearOptions
+
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("总览")
                         .font(.title2.weight(.bold))
 
-                    tagStatisticsSection
+                    tagStatisticsSection(
+                        summary: summary,
+                        displayedSlices: displayedSlices,
+                        yearOptions: yearOptions
+                    )
 
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                         ForEach(LibraryFilter.allCases) { filter in
@@ -1695,15 +1761,10 @@ private struct AddSeriesView: View {
                     }
 
                     Toggle("追更 / 预约", isOn: $followsUpdates)
-                        .onChange(of: followsUpdates) { _, isFollowing in
-                            if !isFollowing { nextSeasonDate = nil }
-                        }
-                    if followsUpdates {
-                        OptionalDatePickerRow(
-                            date: $nextSeasonDate,
-                            identifier: "add-next-season-date-picker"
-                        )
-                    }
+                    OptionalDatePickerRow(
+                        date: $nextSeasonDate,
+                        identifier: "add-next-season-date-picker"
+                    )
 
                     Toggle("手动添加季", isOn: $includeFirstSeason)
                         .accessibilityIdentifier("manual-season-toggle")
@@ -1882,7 +1943,7 @@ private struct AddSeriesView: View {
                     personal.localShelfState = shelfState
                     personal.followsUpdates = followsUpdates
                     personal.followedAt = followsUpdates ? .now : nil
-                    personal.nextSeasonDate = followsUpdates ? nextSeasonDate : nil
+                    personal.nextSeasonDate = nextSeasonDate
                 }
                 if let personalRating { personal.myRating = RatingScale.normalized(personalRating) }
                 if !myReview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1894,7 +1955,7 @@ private struct AddSeriesView: View {
                 personal.localShelfState = shelfState
                 personal.followsUpdates = followsUpdates
                 personal.followedAt = followsUpdates ? .now : nil
-                personal.nextSeasonDate = followsUpdates ? nextSeasonDate : nil
+                personal.nextSeasonDate = nextSeasonDate
                 personal.myRating = personalRating.map(RatingScale.normalized)
                 personal.review = myReview.trimmingCharacters(in: .whitespacesAndNewlines)
                 modelContext.insert(personal)
