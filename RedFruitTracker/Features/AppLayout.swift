@@ -67,6 +67,8 @@ struct OptionalDatePickerRow: View {
 }
 
 private struct AppointmentCalendarSheet: View {
+    private static let accent = Color(red: 0.30, green: 0.58, blue: 0.96)
+
     @Binding var date: Date?
     let usesDarkAppearance: Bool
 
@@ -137,7 +139,7 @@ private struct AppointmentCalendarSheet: View {
                     .accessibilityIdentifier("appointment-next-month")
                 }
                 .buttonStyle(.plain)
-                .tint(usesDarkAppearance ? DetailTheme.accent : Color.accentColor)
+                .tint(usesDarkAppearance ? Self.accent : Color.accentColor)
 
                 LazyVGrid(columns: columns, spacing: 4) {
                     ForEach(weekdaySymbols.indices, id: \.self) { index in
@@ -179,7 +181,7 @@ private struct AppointmentCalendarSheet: View {
                     }
                 }
             }
-            .tint(usesDarkAppearance ? DetailTheme.accent : Color.accentColor)
+            .tint(usesDarkAppearance ? Self.accent : Color.accentColor)
             .preferredColorScheme(usesDarkAppearance ? .dark : nil)
         }
     }
@@ -207,7 +209,7 @@ private struct AppointmentCalendarSheet: View {
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .background {
                     if isSelected {
-                        Circle().fill(usesDarkAppearance ? DetailTheme.accent : Color.accentColor)
+                        Circle().fill(usesDarkAppearance ? Self.accent : Color.accentColor)
                     }
                 }
                 .contentShape(Circle())
