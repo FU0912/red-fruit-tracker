@@ -1214,7 +1214,6 @@ private struct StatsView: View {
         return VStack(alignment: .leading, spacing: 12) {
             Text("观看类型")
                 .font(.headline)
-                .accessibilityIdentifier("tag-statistics-section")
 
             HStack(spacing: 8) {
                 Picker("统计周期", selection: tagStatisticsSelection) {
@@ -1278,6 +1277,7 @@ private struct StatsView: View {
                             range: chartColors
                         )
                         .accessibilityIdentifier("tag-distribution-chart")
+                        .accessibilityElement(children: .ignore)
                         .accessibilityLabel("观看类型标签分布")
 
                         VStack(spacing: 1) {
