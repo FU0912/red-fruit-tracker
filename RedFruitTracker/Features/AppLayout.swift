@@ -21,17 +21,20 @@ struct OptionalDatePickerRow: View {
     @Binding private var date: Date?
     private let identifier: String
     private let usesDarkAppearance: Bool
+    private let nextSeasonNumber: Int?
 
     @State private var isShowingPicker = false
 
     init(
         date: Binding<Date?>,
         identifier: String = "next-season-date-picker",
-        usesDarkAppearance: Bool = false
+        usesDarkAppearance: Bool = false,
+        nextSeasonNumber: Int? = nil
     ) {
         _date = date
         self.identifier = identifier
         self.usesDarkAppearance = usesDarkAppearance
+        self.nextSeasonNumber = nextSeasonNumber
     }
 
     var body: some View {
@@ -39,7 +42,8 @@ struct OptionalDatePickerRow: View {
             isShowingPicker = true
         } label: {
             HStack(spacing: 8) {
-                Text("下一季预约日期")
+                Text(nextSeasonNumber.map { "第\($0)季待上线" } ?? "下一季预约日期")
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer(minLength: 8)
                 Text(date.map(AppDateText.monthDay) ?? "选择日期")
                     .foregroundStyle(valueColor)
@@ -53,9 +57,20 @@ struct OptionalDatePickerRow: View {
         .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
         .accessibilityIdentifier(identifier)
         .accessibilityValue(date.map(AppDateText.monthDay) ?? "未选择")
-        .sheet(isPresented: $isShowingPicker) {
-            AppointmentCalendarSheet(date: $date, usesDarkAppearance: usesDarkAppearance)
-                .presentationDetents([.large])
+        .fullScreenCover(isPresented: $isShowingPicker) {
+            ZStack {
+                Color.black.opacity(0.42)
+                    .ignoresSafeArea()
+                    .onTapGesture { isShowingPicker = false }
+
+                AppointmentCalendarSheet(date: $date, usesDarkAppearance: usesDarkAppearance)
+                    .frame(maxWidth: 360, maxHeight: 560)
+                    .background(usesDarkAppearance ? Color(uiColor: .secondarySystemBackground) : Color(uiColor: .systemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .shadow(color: .black.opacity(0.24), radius: 24, y: 10)
+                    .padding(20)
+            }
+            .presentationBackground(.clear)
         }
     }
 

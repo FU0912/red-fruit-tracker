@@ -250,8 +250,15 @@ final class RedFruitTrackerUITests: XCTestCase {
         let appointment = app.buttons["series-card-next-season-date"]
         XCTAssertTrue(appointment.waitForExistence(timeout: 3))
         appointment.tap()
+        XCTAssertTrue(dateRow.waitForExistence(timeout: 3))
+        dateRow.tap()
+        XCTAssertTrue(app.buttons["appointment-confirm"].waitForExistence(timeout: 3))
+        let clearDate = app.buttons["清除日期"]
+        XCTAssertTrue(clearDate.waitForExistence(timeout: 3))
+        clearDate.tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(card.exists)
         XCTAssertFalse(appointment.waitForExistence(timeout: 1))
-        XCTAssertTrue(card.exists, "Clearing the date must not open the detail page.")
     }
 
     func testStatisticsShowsWatchedWorkTagDistribution() {

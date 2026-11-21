@@ -5,6 +5,11 @@ import SwiftData
 import SwiftUI
 import UIKit
 
+extension Notification.Name {
+    static let searchLibraryTag = Notification.Name("RedFruitTracker.searchLibraryTag")
+    static let applyLibraryTagSearch = Notification.Name("RedFruitTracker.applyLibraryTagSearch")
+}
+
 struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
 
@@ -13,9 +18,6 @@ struct RootView: View {
     @State private var pendingShareURL: URL?
     @State private var presentedShareURL: URL?
     @State private var pendingShareRetryToken = 0
-    @State private var pendingClipboardURL: URL?
-    @State private var isShowingClipboardPrompt = false
-    @AppStorage("redFruitTracker.lastHandledClipboardChangeCount") private var handledClipboardChangeCount = -1
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -45,13 +47,11 @@ struct RootView: View {
         .task {
             refreshPendingShare()
             schedulePendingShareRetry()
-            detectClipboardShare()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 refreshPendingShare()
                 schedulePendingShareRetry()
-                detectClipboardShare()
             }
         }
         .onOpenURL { callbackURL in
@@ -61,23 +61,10 @@ struct RootView: View {
             refreshPendingShare()
             schedulePendingShareRetry()
         }
-        .confirmationDialog(
-            "发现剪贴板中的红果漫剧链接",
-            isPresented: $isShowingClipboardPrompt,
-            titleVisibility: .visible
-        ) {
-            Button("导入这部漫剧") {
-                guard let pendingClipboardURL else { return }
-                ShareInbox.enqueue(pendingClipboardURL)
-                pendingShareURL = pendingClipboardURL
-                presentedShareURL = pendingClipboardURL
-                isShowingAdd = true
-            }
-            Button("暂不导入", role: .cancel) {
-                pendingClipboardURL = nil
-            }
-        } message: {
-            Text(pendingClipboardURL?.host ?? "剪贴板中有一条红果分享链接")
+        .onReceive(NotificationCenter.default.publisher(for: .searchLibraryTag)) { notification in
+            guard let tag = notification.object as? String else { return }
+            selectedTab = 0
+            NotificationCenter.default.post(name: .applyLibraryTagSearch, object: tag)
         }
     }
 
@@ -106,21 +93,6 @@ struct RootView: View {
             isShowingAdd = true
         }
 
-    }
-
-    private func detectClipboardShare() {
-        let pasteboard = UIPasteboard.general
-        let changeCount = pasteboard.changeCount
-        guard !ProcessInfo.processInfo.arguments.contains("--ui-testing"),
-              pendingShareURL == nil,
-              !isShowingAdd,
-              changeCount != handledClipboardChangeCount,
-              let text = pasteboard.string,
-              let url = ClipboardShareDetector.redFruitURL(in: text) else { return }
-
-        handledClipboardChangeCount = changeCount
-        pendingClipboardURL = url
-        isShowingClipboardPrompt = true
     }
 
     private func schedulePendingShareRetry() {
@@ -302,6 +274,11 @@ private struct LibraryView: View {
                 clearLegacyRatingTrend()
                 RecentSeriesWidgetSnapshot.refresh(series: series)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .applyLibraryTagSearch)) { notification in
+                guard let tag = notification.object as? String else { return }
+                searchText = "#\(tag)"
+                selectedSeries = nil
+            }
         }
     }
 
@@ -376,6 +353,15 @@ private struct LibraryView: View {
     @MainActor
     private func refreshAllMetadata(showNotice: Bool) async {
         guard !isRefreshingAll else { return }
+        let taskToCancel = refreshTask
+        let backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "RedFruitTracker.BatchRefresh") {
+            taskToCancel?.cancel()
+        }
+        defer {
+            if backgroundTaskID != .invalid {
+                UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            }
+        }
         isRefreshingAll = true
         isStoppingRefresh = false
         defer { isRefreshingAll = false; isStoppingRefresh = false }
@@ -413,6 +399,7 @@ private struct LibraryView: View {
                 + "个人评分、点评、观看状态和书架顺序均保留。"
         }
         RecentSeriesWidgetSnapshot.refresh(series: series)
+        BackgroundMetadataRefresh.scheduleNextRun()
     }
 
     private func applyPublicMetadata(_ metadata: PublicSeriesMetadata, to item: SeriesRecord) async {
@@ -512,6 +499,10 @@ private struct LibraryView: View {
 }
 
 private struct LibraryHeader: View {
+    @AppStorage("redFruitTracker.backgroundRefreshInProgress") private var backgroundRefreshInProgress = false
+    @AppStorage("redFruitTracker.backgroundRefreshProgress") private var backgroundRefreshProgress = ""
+    @AppStorage("redFruitTracker.backgroundRefreshTotal") private var backgroundRefreshTotal = 0
+    @AppStorage("redFruitTracker.backgroundRefreshCompleted") private var backgroundRefreshCompleted = 0
     @Binding var searchText: String
     let isRefreshing: Bool
     let progress: BatchRefreshProgress
@@ -561,6 +552,31 @@ private struct LibraryHeader: View {
                 }
                 .font(.subheadline)
 
+            }
+
+            if !backgroundRefreshProgress.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(
+                        backgroundRefreshInProgress ? "后台资料更新中" : "后台资料更新",
+                        systemImage: backgroundRefreshInProgress ? "arrow.triangle.2.circlepath" : "clock.arrow.circlepath"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                    if backgroundRefreshInProgress {
+                        ProgressView(
+                            value: Double(backgroundRefreshCompleted),
+                            total: Double(max(backgroundRefreshTotal, 1))
+                        )
+                        .accessibilityIdentifier("background-refresh-progress")
+                    }
+
+                    Text(backgroundRefreshProgress)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("background-refresh-status")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             HStack(spacing: 10) {
@@ -659,8 +675,6 @@ private struct ShareImportBanner: View {
 }
 
 private struct SeriesCard: View {
-    @Environment(\.modelContext) private var modelContext
-
     let series: SeriesRecord
     let seasons: [SeasonRecord]
     let personal: PersonalRecord?
@@ -711,7 +725,7 @@ private struct SeriesCard: View {
                             WorkMetric(
                                 id: "series-card-season-count",
                                 label: "季数",
-                                value: seasons.isEmpty ? "待录入" : "\(seasons.count)季",
+                                    value: "\(series.manualSeasonCount ?? seasons.count)季",
                                 tint: .teal,
                                 symbol: "square.stack.3d.up.fill"
                             )
@@ -766,15 +780,13 @@ private struct SeriesCard: View {
 
             if let nextSeasonDate = personal?.nextSeasonDate {
                 Button {
-                    personal?.nextSeasonDate = nil
-                    personal?.updatedAt = .now
-                    try? modelContext.save()
+                    onSelect()
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "calendar")
+                        Text("第 \((series.manualSeasonCount ?? seasons.count) + 1) 季待上线")
+                        Text("·")
                         Text(AppDateText.monthDay(nextSeasonDate))
-                        Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
                     }
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.indigo)
@@ -784,7 +796,7 @@ private struct SeriesCard: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("series-card-next-season-date")
-                .accessibilityLabel("取消预约日期，\(AppDateText.monthDay(nextSeasonDate))")
+                .accessibilityLabel("第 \((series.manualSeasonCount ?? seasons.count) + 1) 季待上线，\(AppDateText.monthDay(nextSeasonDate))，点按编辑")
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
             }
@@ -1136,6 +1148,9 @@ private struct StatsView: View {
     private var episodes: [EpisodeRecord]
     @Query(sort: \OfficialSnapshot.capturedAt, order: .reverse)
     private var snapshots: [OfficialSnapshot]
+    @Query(sort: \UpdateNotificationRecord.scheduledAt, order: .reverse)
+    private var updateNotifications: [UpdateNotificationRecord]
+    @State private var isShowingNotifications = false
     @State private var tagStatisticsPeriod: TagStatisticsPeriod = .all
     @State private var selectedStatisticsYear = Calendar.current.component(.year, from: .now)
     @State private var tagStatisticsYearOptions = [Calendar.current.component(.year, from: .now)]
@@ -1429,6 +1444,21 @@ private struct StatsView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("统计")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        isShowingNotifications = true
+                    } label: {
+                        Image(systemName: updateNotifications.contains(where: { !$0.isRead }) ? "bell.badge.fill" : "bell")
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("更新提醒")
+                    .accessibilityIdentifier("update-notifications-button")
+                }
+            }
+            .sheet(isPresented: $isShowingNotifications) {
+                UpdateNotificationListView()
+            }
         }
         .task(id: request) {
             isLoadingTagStatistics = true
@@ -1455,7 +1485,106 @@ private struct StatsView: View {
         }
     }
 
-    private func count(for filter: LibraryFilter) -> Int {
+}
+
+private struct UpdateNotificationListView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+
+    @Query(sort: \UpdateNotificationRecord.scheduledAt, order: .reverse)
+    private var notifications: [UpdateNotificationRecord]
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if notifications.isEmpty {
+                    ContentUnavailableView(
+                        "暂无提醒",
+                        systemImage: "bell.slash",
+                        description: Text("为作品设置预约日期后，提醒会显示在这里")
+                    )
+                } else {
+                    List(notifications) { item in
+                        Button {
+                            item.isRead = true
+                            try? modelContext.save()
+                        } label: {
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: item.isRead ? "bell" : "bell.badge.fill")
+                                    .foregroundStyle(item.isRead ? .secondary : .orange)
+                                    .frame(width: 24)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.title)
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
+                                    Text("第 \(nextSeasonNumber(for: item)) 季待上线 · \(AppDateText.monthDay(item.scheduledAt))")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button {
+                                item.isRead = true
+                                try? modelContext.save()
+                            } label: {
+                                Label("已读", systemImage: "checkmark")
+                            }
+                            .tint(.blue)
+
+                            Button(role: .destructive) {
+                                let sourceID = item.sourceSeriesID
+                                let descriptor = FetchDescriptor<PersonalRecord>(
+                                    predicate: #Predicate<PersonalRecord> { $0.sourceSeriesID == sourceID }
+                                )
+                                if let personal = (try? modelContext.fetch(descriptor))?.first {
+                                    personal.nextSeasonDate = nil
+                                    personal.updatedAt = .now
+                                }
+                                UpdateNotificationService.cancelAppointment(seriesID: item.sourceSeriesID)
+                                modelContext.delete(item)
+                                try? modelContext.save()
+                            } label: {
+                                Label("删除", systemImage: "trash")
+                            }
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                }
+            }
+            .navigationTitle("更新提醒")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func nextSeasonNumber(for notification: UpdateNotificationRecord) -> Int {
+        let sourceID = notification.sourceSeriesID
+        let seriesDescriptor = FetchDescriptor<SeriesRecord>(
+            predicate: #Predicate<SeriesRecord> { $0.sourceSeriesID == sourceID }
+        )
+        if let count = (try? modelContext.fetch(seriesDescriptor))?.first?.manualSeasonCount {
+            return count + 1
+        }
+        let descriptor = FetchDescriptor<SeasonRecord>(
+            predicate: #Predicate<SeasonRecord> { season in
+                season.sourceSeriesID == sourceID
+            }
+        )
+        let seasons = (try? modelContext.fetch(descriptor)) ?? []
+        return (seasons.map(\.seasonNumber).max() ?? 0) + 1
+    }
+}
+
+private extension StatsView {
+    func count(for filter: LibraryFilter) -> Int {
         switch filter {
         case .all:
             return series.count
@@ -1793,7 +1922,7 @@ private struct AddSeriesView: View {
                         Text("弃剧").tag("dropped")
                     }
 
-                    Toggle("追更 / 预约", isOn: $followsUpdates)
+                    Toggle("追更", isOn: $followsUpdates)
                     OptionalDatePickerRow(
                         date: $nextSeasonDate,
                         identifier: "add-next-season-date-picker"
@@ -1974,8 +2103,11 @@ private struct AddSeriesView: View {
             if let personal = personalRecords.first(where: { $0.sourceSeriesID == sourceID }) {
                 if record == nil {
                     personal.localShelfState = shelfState
+                    personal.viewingStatusChangedAt = shelfState == ShelfState.unstarted.rawValue ? nil : .now
                     personal.followsUpdates = followsUpdates
                     personal.followedAt = followsUpdates ? .now : nil
+                    personal.nextSeasonDate = nextSeasonDate
+                } else if let nextSeasonDate {
                     personal.nextSeasonDate = nextSeasonDate
                 }
                 if let personalRating { personal.myRating = RatingScale.normalized(personalRating) }
@@ -1986,12 +2118,47 @@ private struct AddSeriesView: View {
             } else {
                 let personal = PersonalRecord(sourceSeriesID: sourceID)
                 personal.localShelfState = shelfState
+                personal.viewingStatusChangedAt = shelfState == ShelfState.unstarted.rawValue ? nil : .now
                 personal.followsUpdates = followsUpdates
                 personal.followedAt = followsUpdates ? .now : nil
                 personal.nextSeasonDate = nextSeasonDate
                 personal.myRating = personalRating.map(RatingScale.normalized)
                 personal.review = myReview.trimmingCharacters(in: .whitespacesAndNewlines)
                 modelContext.insert(personal)
+            }
+
+            if let nextSeasonDate {
+                let notificationDescriptor = FetchDescriptor<UpdateNotificationRecord>(
+                    predicate: #Predicate<UpdateNotificationRecord> { $0.sourceSeriesID == sourceID }
+                )
+                let existingNotification = try modelContext.fetch(notificationDescriptor).first
+                let dateChanged = existingNotification.map {
+                    !Calendar.current.isDate($0.scheduledAt, inSameDayAs: nextSeasonDate)
+                } ?? true
+                let notification = existingNotification ?? UpdateNotificationRecord(
+                    sourceSeriesID: sourceID,
+                    title: cleanTitle,
+                    scheduledAt: nextSeasonDate
+                )
+                if existingNotification == nil { modelContext.insert(notification) }
+                notification.title = cleanTitle
+                notification.scheduledAt = nextSeasonDate
+                if dateChanged { notification.isRead = false }
+                Task {
+                    await UpdateNotificationService.scheduleAppointment(
+                        seriesID: sourceID,
+                        title: cleanTitle,
+                        date: nextSeasonDate
+                    )
+                }
+            } else if record == nil {
+                let notificationDescriptor = FetchDescriptor<UpdateNotificationRecord>(
+                    predicate: #Predicate<UpdateNotificationRecord> { $0.sourceSeriesID == sourceID }
+                )
+                if let existingNotification = try modelContext.fetch(notificationDescriptor).first {
+                    modelContext.delete(existingNotification)
+                    UpdateNotificationService.cancelAppointment(seriesID: sourceID)
+                }
             }
 
             let seasonDescriptor = FetchDescriptor<SeasonRecord>(

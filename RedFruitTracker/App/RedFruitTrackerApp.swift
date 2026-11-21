@@ -14,7 +14,8 @@ struct RedFruitTrackerApp: App {
             EpisodeRecord.self,
             PersonalRecord.self,
             OfficialSnapshot.self,
-            ImportInboxItem.self
+            ImportInboxItem.self,
+            UpdateNotificationRecord.self
         ])
         let configuration = ModelConfiguration(
             schema: schema,
@@ -24,6 +25,9 @@ struct RedFruitTrackerApp: App {
         do {
             let container = try ModelContainer(for: schema, configurations: [configuration])
             modelContainer = container
+            if !arguments.contains("--ui-testing") {
+                BackgroundMetadataRefresh.register(container: container)
+            }
             if !arguments.contains("--ui-testing") {
                 Self.migrateLegacyRatings(in: container.mainContext)
             }

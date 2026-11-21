@@ -304,11 +304,16 @@ final class LibraryModelTests: XCTestCase {
         let thisMonth = calendar.date(from: DateComponents(year: 2026, month: 11, day: 2))!
         let lastMonth = calendar.date(from: DateComponents(year: 2026, month: 10, day: 31))!
 
-        let first = SeriesRecord(sourceSeriesID: "first", title: "第一部", tagsText: "穿越,校园")
-        let second = SeriesRecord(sourceSeriesID: "second", title: "第二部", tagsText: "穿越")
-        let third = SeriesRecord(sourceSeriesID: "third", title: "第三部", tagsText: "校园")
-        let untagged = SeriesRecord(sourceSeriesID: "untagged", title: "未分类作品")
-        let old = SeriesRecord(sourceSeriesID: "old", title: "旧作品", tagsText: "都市")
+        let first = SeriesRecord(sourceSeriesID: "first", title: "第一部", tagsText: "穿越,校园", createdAt: lastMonth)
+        let second = SeriesRecord(sourceSeriesID: "second", title: "第二部", tagsText: "穿越", createdAt: lastMonth)
+        let third = SeriesRecord(sourceSeriesID: "third", title: "第三部", tagsText: "校园", createdAt: lastMonth)
+        let untagged = SeriesRecord(sourceSeriesID: "untagged", title: "未分类作品", createdAt: lastMonth)
+        let old = SeriesRecord(
+            sourceSeriesID: "old",
+            title: "旧作品",
+            tagsText: "都市",
+            createdAt: lastMonth.addingTimeInterval(-366 * 86_400)
+        )
         let episodes = [
             EpisodeRecord(sourceVid: "first-1", sourceSeriesID: "first", seasonNumber: 1, episodeNumber: 1, isWatched: true, watchedAt: thisMonth),
             EpisodeRecord(sourceVid: "first-2", sourceSeriesID: "first", seasonNumber: 1, episodeNumber: 2, isWatched: true, watchedAt: thisMonth.addingTimeInterval(86_400)),
@@ -364,6 +369,87 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(proportions["校园"] ?? 0, 0.25, accuracy: 0.0001)
     }
 
+    func testMonthlyTagStatisticsUsesViewingStatusChangeWhenEpisodesAreNotTracked() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 21, hour: 12))!
+        let addedEarlier = calendar.date(from: DateComponents(year: 2025, month: 8, day: 10))!
+        let startedThisMonth = calendar.date(from: DateComponents(year: 2026, month: 11, day: 9))!
+        let series = SeriesRecord(
+            sourceSeriesID: "series-1",
+            title: "校园漫剧",
+            tagsText: "校园,恋爱",
+            createdAt: addedEarlier
+        )
+        let personal = PersonalRecord(sourceSeriesID: "series-1")
+        personal.localShelfState = ShelfState.watching.rawValue
+        personal.viewingStatusChangedAt = startedThisMonth
+
+        let summary = TagStatistics.summary(
+            series: [series],
+            episodes: [],
+            personalRecords: [personal],
+            period: .month,
+            now: now,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(summary.workCount, 1)
+        XCTAssertEqual(Set(summary.slices.map(\.tag)), Set(["校园", "恋爱"]))
+    }
+
+    func testMonthlyTagStatisticsUsesStatusChangeAlongsideOlderEpisodeHistory() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 21, hour: 12))!
+        let oldEpisodeDate = calendar.date(from: DateComponents(year: 2025, month: 6, day: 10))!
+        let statusChangeDate = calendar.date(from: DateComponents(year: 2026, month: 11, day: 9))!
+        let series = SeriesRecord(
+            sourceSeriesID: "series-1",
+            title: "有旧进度的漫剧",
+            tagsText: "都市,恋爱",
+            createdAt: oldEpisodeDate
+        )
+        let episode = EpisodeRecord(
+            sourceVid: "series-1#s1#e1",
+            sourceSeriesID: "series-1",
+            seasonNumber: 1,
+            episodeNumber: 1,
+            isWatched: true,
+            watchedAt: oldEpisodeDate
+        )
+        let personal = PersonalRecord(sourceSeriesID: "series-1")
+        personal.localShelfState = ShelfState.watching.rawValue
+        personal.viewingStatusChangedAt = statusChangeDate
+
+        let summary = TagStatistics.summary(
+            series: [series],
+            episodes: [episode],
+            personalRecords: [personal],
+            period: .month,
+            now: now,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(summary.workCount, 1)
+        XCTAssertEqual(Set(summary.slices.map(\.tag)), Set(["都市", "恋爱"]))
+    }
+
+    func testBackgroundMetadataRefreshSchedulesAtNextFourAM() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let beforeDawn = calendar.date(from: DateComponents(year: 2026, month: 11, day: 21, hour: 3, minute: 30))!
+        let afterDawn = calendar.date(from: DateComponents(year: 2026, month: 11, day: 21, hour: 4, minute: 30))!
+
+        let sameDayRun = BackgroundMetadataRefresh.nextRun(after: beforeDawn, calendar: calendar)
+        let nextDayRun = BackgroundMetadataRefresh.nextRun(after: afterDawn, calendar: calendar)
+
+        XCTAssertEqual(calendar.component(.hour, from: sameDayRun), 4)
+        XCTAssertEqual(calendar.component(.day, from: sameDayRun), 21)
+        XCTAssertEqual(calendar.component(.hour, from: nextDayRun), 4)
+        XCTAssertEqual(calendar.component(.day, from: nextDayRun), 22)
+    }
+
     func testTagStatisticsIncludesTwoHundredShelfWorksWithoutEpisodeProgress() {
         let records = (0..<200).map { index in
             SeriesRecord(
@@ -413,6 +499,31 @@ final class LibraryModelTests: XCTestCase {
         )
 
         XCTAssertEqual(summary.workCount, 1)
+    }
+
+    func testTagStatisticsYearOptionsIncludesViewingStatusChangeYear() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 21))!
+        let oldCreationDate = calendar.date(from: DateComponents(year: 2024, month: 6, day: 1))!
+        let statusChangeDate = calendar.date(from: DateComponents(year: 2025, month: 3, day: 1))!
+        let series = SeriesRecord(
+            sourceSeriesID: "series-1",
+            title: "测试作品",
+            tagsText: "都市",
+            createdAt: oldCreationDate
+        )
+        let personal = PersonalRecord(sourceSeriesID: "series-1")
+        personal.viewingStatusChangedAt = statusChangeDate
+        let input = TagStatistics.input(series: [series], episodes: [], personalRecords: [personal])
+
+        let years = TagStatistics.yearOptions(
+            in: input,
+            currentYear: calendar.component(.year, from: now),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(years, [2026, 2025, 2024])
     }
 
     func testMonthlyTagStatisticsUsesFollowDateInsteadOfReviewEditDateForLegacyWork() {

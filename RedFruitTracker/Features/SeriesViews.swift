@@ -19,14 +19,11 @@ struct SeriesDetailView: View {
     @Query
     private var personalRecords: [PersonalRecord]
 
-    @State private var isShowingEdit = false
-    @State private var isShowingAddSeason = false
-    @State private var isRefreshing = false
     @State private var isIntroExpanded = false
     @State private var notice: String?
     @State private var personalSaveError: String?
-    @State private var titleCopyFeedback = false
     @State private var pendingBrowserFallbackURL: URL?
+    @State private var reviewFocusGeneration = 0
 
     init(series: SeriesRecord) {
         self.series = series
@@ -61,19 +58,28 @@ struct SeriesDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: AppLayout.sectionSpacing) {
-                detailHeader
-                introSection
-                personalSection
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: AppLayout.sectionSpacing) {
+                    detailHeader
+                    introSection
+                    personalSection {
+                        reviewFocusGeneration += 1
+                    }
+                }
+                .padding(.horizontal, AppLayout.pageInset)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, AppLayout.pageInset)
-            .padding(.top, 12)
-            .padding(.bottom, 24)
-        }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.interactively)
         .background(DetailTheme.background.ignoresSafeArea())
+        .onChange(of: reviewFocusGeneration) { _, _ in
+            Task { @MainActor in
+                await Task.yield()
+                proxy.scrollTo("personal-review-input", anchor: .center)
+            }
+        }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
@@ -81,36 +87,6 @@ struct SeriesDetailView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("更新公开资料", systemImage: "arrow.clockwise") {
-                        refreshMetadata(showNotice: true)
-                    }
-                    .disabled(isRefreshing || redFruitURL == nil)
-                    Button("编辑作品", systemImage: "pencil") {
-                        isShowingEdit = true
-                    }
-                    Button("添加 / 查找其他季", systemImage: "plus") {
-                        isShowingAddSeason = true
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.title3.weight(.semibold))
-                        .frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("更多操作")
-            }
-        }
-        .sheet(isPresented: $isShowingEdit) {
-            EditSeriesView(series: series)
-        }
-        .sheet(isPresented: $isShowingAddSeason) {
-            AddSeasonView(
-                seriesID: series.sourceSeriesID,
-                suggestedNumber: (seasons.map(\.seasonNumber).max() ?? 0) + 1
-            )
-        }
         .alert("提示", isPresented: Binding(
             get: { notice != nil },
             set: { if !$0 { notice = nil } }
@@ -133,10 +109,14 @@ struct SeriesDetailView: View {
         }
         .task {
             ensurePersonalRecord()
+            if let personalRecord, let date = personalRecord.nextSeasonDate {
+                updateAppointmentNotification(for: personalRecord, date: date)
+            }
         }
         .onDisappear { flushPersonalChanges() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { flushPersonalChanges() }
+        }
         }
     }
 
@@ -157,16 +137,6 @@ struct SeriesDetailView: View {
                                     .lineLimit(4)
                                     .fixedSize(horizontal: false, vertical: true)
                                     .accessibilityIdentifier("series-detail-title")
-                                Image(systemName: titleCopyFeedback ? "checkmark" : "doc.on.doc")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.white.opacity(0.72))
-                            }
-
-                            if titleCopyFeedback {
-                                Text("已复制")
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.68))
-                                    .accessibilityIdentifier("series-title-copied")
                             }
                         }
                         .frame(maxWidth: .infinity, minHeight: AppLayout.minimumControlHeight, alignment: .leading)
@@ -193,17 +163,6 @@ struct SeriesDetailView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(DetailTheme.accent)
                 .accessibilityIdentifier("open-red-fruit-button")
-            }
-
-            if isRefreshing {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("正在后台更新公开资料")
-                }
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.62))
-                .accessibilityIdentifier("metadata-refreshing")
             }
 
         }
@@ -238,7 +197,7 @@ struct SeriesDetailView: View {
                 WorkMetric(
                     id: "detail-season-count",
                     label: "季数",
-                    value: seasons.isEmpty ? "待录入" : "\(seasons.count)季",
+                    value: "\(series.manualSeasonCount ?? seasons.count)季",
                     tint: .teal,
                     symbol: "square.stack.3d.up.fill"
                 )
@@ -260,7 +219,7 @@ struct SeriesDetailView: View {
                 .accessibilityIdentifier("detail-shelf-state")
 
                 if personalRecord?.followsUpdates == true {
-                    DetailPill(text: "追更 / 预约", systemImage: "bell.badge.fill", tint: .indigo)
+                    DetailPill(text: "追更", systemImage: "bell.badge.fill", tint: .indigo)
                         .accessibilityIdentifier("detail-follow-updates")
                 }
             }
@@ -271,7 +230,14 @@ struct SeriesDetailView: View {
                     DetailTagPill(text: "暂无标签")
                 } else {
                     ForEach(detailTags, id: \.self) { tag in
-                        DetailTagPill(text: tag)
+                        Button {
+                            NotificationCenter.default.post(name: .searchLibraryTag, object: tag)
+                        } label: {
+                            DetailTagPill(text: tag)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("搜索标签：\(tag)")
+                        .accessibilityIdentifier("detail-tag-\(tag)")
                     }
                 }
             }
@@ -364,7 +330,7 @@ struct SeriesDetailView: View {
         }
     }
 
-    private var personalSection: some View {
+    private func personalSection(onReviewInteraction: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionTitle(title: "我的评分与点评", symbol: "number.circle")
                 .foregroundStyle(.white)
@@ -395,16 +361,29 @@ struct SeriesDetailView: View {
                     }
                     .frame(minHeight: 48)
                     Divider().overlay(.white.opacity(0.12))
-                    Toggle("追更 / 预约", isOn: followUpdatesBinding(for: personalRecord))
+                    Toggle("追更", isOn: followUpdatesBinding(for: personalRecord))
                         .tint(DetailTheme.accent)
                         .frame(minHeight: 52)
                         .accessibilityIdentifier("follow-updates-toggle")
                     Divider().overlay(.white.opacity(0.12))
                     OptionalDatePickerRow(
                         date: nextSeasonDateBinding(for: personalRecord),
-                        usesDarkAppearance: true
+                        usesDarkAppearance: true,
+                        nextSeasonNumber: (series.manualSeasonCount ?? (seasons.map(\.seasonNumber).max() ?? 0)) + 1
                     )
                     .accessibilityIdentifier("next-season-date-picker")
+                    Divider().overlay(.white.opacity(0.12))
+                    Stepper(value: manualSeasonCountBinding, in: 0...99) {
+                        HStack {
+                            Text("总季数")
+                            Spacer(minLength: 8)
+                            Text("\(manualSeasonCount)季")
+                                .monospacedDigit()
+                                .foregroundStyle(.white.opacity(0.84))
+                        }
+                    }
+                    .frame(minHeight: 52)
+                    .accessibilityIdentifier("manual-season-count-stepper")
                 }
                 .font(.body)
                 .foregroundStyle(.white)
@@ -421,10 +400,12 @@ struct SeriesDetailView: View {
                     placeholder: "写下整部漫剧的感受",
                     usesDarkAppearance: true,
                     accessibilityIdentifier: "personal-review-input",
+                    onInteraction: onReviewInteraction,
                     onCommit: { value in
                         commitPersonalReview(value, for: personalRecord)
                     }
                 )
+                .id("personal-review-input")
 
                 if let personalSaveError {
                     VStack(alignment: .leading, spacing: 8) {
@@ -445,10 +426,6 @@ struct SeriesDetailView: View {
 
     private func copySeriesTitle() {
         UIPasteboard.general.string = series.title
-        titleCopyFeedback = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-            titleCopyFeedback = false
-        }
     }
 
     private var redFruitURL: URL? {
@@ -483,6 +460,7 @@ struct SeriesDetailView: View {
             get: { personal.localShelfState },
             set: { value in
                 personal.localShelfState = value
+                personal.viewingStatusChangedAt = .now
                 personal.updatedAt = .now
                 savePersonalChanges()
             }
@@ -501,6 +479,21 @@ struct SeriesDetailView: View {
         )
     }
 
+    private var manualSeasonCount: Int {
+        series.manualSeasonCount ?? seasons.count
+    }
+
+    private var manualSeasonCountBinding: Binding<Int> {
+        Binding(
+            get: { manualSeasonCount },
+            set: { value in
+                series.manualSeasonCount = value
+                series.updatedAt = .now
+                savePersonalChanges()
+            }
+        )
+    }
+
     private func nextSeasonDateBinding(for personal: PersonalRecord) -> Binding<Date?> {
         Binding(
             get: { personal.nextSeasonDate },
@@ -508,8 +501,48 @@ struct SeriesDetailView: View {
                 personal.nextSeasonDate = value
                 personal.updatedAt = .now
                 savePersonalChanges()
+                updateAppointmentNotification(for: personal, date: value)
             }
         )
+    }
+
+    private func updateAppointmentNotification(for personal: PersonalRecord, date: Date?) {
+        let sourceID = personal.sourceSeriesID
+        let descriptor = FetchDescriptor<UpdateNotificationRecord>(
+            predicate: #Predicate<UpdateNotificationRecord> { record in
+                record.sourceSeriesID == sourceID
+            }
+        )
+        let existing = (try? modelContext.fetch(descriptor))?.first
+
+        guard let date else {
+            if let existing { modelContext.delete(existing) }
+            UpdateNotificationService.cancelAppointment(seriesID: sourceID)
+            try? modelContext.save()
+            return
+        }
+
+        if let existing, Calendar.current.isDate(existing.scheduledAt, inSameDayAs: date) {
+            return
+        }
+
+        let notification = existing ?? UpdateNotificationRecord(
+            sourceSeriesID: personal.sourceSeriesID,
+            title: series.title,
+            scheduledAt: date
+        )
+        if existing == nil { modelContext.insert(notification) }
+        notification.title = series.title
+        notification.scheduledAt = date
+        notification.isRead = false
+        try? modelContext.save()
+        Task {
+            await UpdateNotificationService.scheduleAppointment(
+                seriesID: sourceID,
+                title: series.title,
+                date: date
+            )
+        }
     }
 
     private var completionStatusBinding: Binding<String> {
@@ -548,119 +581,6 @@ struct SeriesDetailView: View {
         }
     }
 
-    private func refreshMetadata(showNotice: Bool) {
-        guard !isRefreshing else { return }
-        guard let url = redFruitURL else {
-            if showNotice {
-                notice = "这部作品没有网页链接，无法更新公开资料。"
-            }
-            return
-        }
-
-        isRefreshing = true
-        Task {
-            do {
-                let metadata = try await PublicMetadataService.shared.fetch(from: url)
-                let existingCoverOrientation: CoverImageOrientation?
-                if let existingCover = series.coverURL {
-                    existingCoverOrientation = await CoverImageProbe.orientation(urlString: existingCover)
-                } else {
-                    existingCoverOrientation = nil
-                }
-                await MainActor.run {
-                    if let title = metadata.title, !title.isEmpty {
-                        if series.title.isEmpty {
-                            series.title = TitleNormalizer.seriesTitle(title) ?? title
-                        }
-                    }
-                    if let coverURL = metadata.coverURL?.nilIfBlank,
-                       series.coverURL == nil || CoverURLSelector.shouldReplaceExisting(series.coverURL) {
-                        series.coverURL = coverURL
-                    } else if existingCoverOrientation == .landscape {
-                        // A previous release could persist the share page's
-                        // landscape video image. Replace or clear it only
-                        // after a successful orientation probe.
-                        series.coverURL = metadata.coverURL?.nilIfBlank
-                    }
-                    if series.intro.isEmpty, let intro = metadata.intro { series.intro = intro }
-                    if series.tagsText.isEmpty, let tagsText = metadata.tagsText { series.tagsText = tagsText }
-                    if let rating = metadata.officialRating { series.officialRating = rating }
-                    if let ratingCount = metadata.officialRatingCount { series.officialRatingCount = ratingCount }
-                    if let heatScore = metadata.officialHeatScore { series.officialHeatScore = heatScore }
-                    if let heat = metadata.officialHeatText { series.officialHeatText = heat }
-                    mergePublicSeasons(metadata.seasons)
-                    series.updatedAt = .now
-
-                    if metadata.officialHeatScore != nil
-                        || !(metadata.officialHeatText?.isEmpty ?? true)
-                        || !metadata.seasons.isEmpty {
-                        let snapshot = OfficialSnapshot(sourceSeriesID: series.sourceSeriesID)
-                        snapshot.officialHeatScore = metadata.officialHeatScore
-                        snapshot.officialHeatText = metadata.officialHeatText
-                        if !metadata.seasons.isEmpty {
-                            snapshot.seasonCount = metadata.seasons.count
-                            snapshot.episodeCount = metadata.seasons.map(\.episodeCount).reduce(0, +)
-                        }
-                        modelContext.insert(snapshot)
-                    }
-                    try? modelContext.save()
-                    isRefreshing = false
-                    if showNotice {
-                        notice = metadata.seasons.isEmpty
-                            ? "公开资料已更新，并保存了一条数据快照。"
-                            : "公开资料、季集信息已更新，并保存了一条数据快照。"
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    isRefreshing = false
-                    if showNotice {
-                        notice = "没有读取到可更新的公开资料，请检查链接或稍后重试。"
-                    }
-                }
-            }
-        }
-    }
-
-    private func mergePublicSeasons(_ metadataSeasons: [PublicSeasonMetadata]) {
-        guard !metadataSeasons.isEmpty else { return }
-
-        for metadataSeason in metadataSeasons {
-            let existing = allSeasons.first {
-                $0.sourceSeriesID == series.sourceSeriesID
-                    && $0.seasonNumber == metadataSeason.seasonNumber
-            }
-            let season = existing ?? SeasonRecord(
-                sourceSeriesID: series.sourceSeriesID,
-                seasonNumber: metadataSeason.seasonNumber
-            )
-            if existing == nil { modelContext.insert(season) }
-            season.title = metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季"
-            season.episodeCount = SeasonEpisodeCount.latest(
-                existing: season.episodeCount,
-                reported: metadataSeason.episodeCount,
-                observed: metadataSeason.episodes.count
-            )
-            season.sourceURL = metadataSeason.sourceURL ?? season.sourceURL ?? series.sourceURL
-            season.updatedAt = .now
-
-            for metadataEpisode in metadataSeason.episodes {
-                let existingEpisode = allEpisodes.first {
-                    $0.seasonNumber == metadataSeason.seasonNumber
-                        && $0.episodeNumber == metadataEpisode.episodeNumber
-                }
-                let episode = existingEpisode ?? EpisodeRecord(
-                    sourceVid: "\(series.sourceSeriesID)#s\(metadataSeason.seasonNumber)#e\(metadataEpisode.episodeNumber)",
-                    sourceSeriesID: series.sourceSeriesID,
-                    seasonNumber: metadataSeason.seasonNumber,
-                    episodeNumber: metadataEpisode.episodeNumber
-                )
-                if existingEpisode == nil { modelContext.insert(episode) }
-                if let title = metadataEpisode.title, !title.isEmpty { episode.title = title }
-                if let webURL = metadataEpisode.webURL { episode.webURL = webURL }
-            }
-        }
-    }
 }
 
 private enum DetailTheme {
@@ -1446,6 +1366,7 @@ private struct ReviewEditor: View {
     let placeholder: String
     let accessibilityIdentifier: String
     var usesDarkAppearance = false
+    var onInteraction: () -> Void = {}
     let onCommit: (String) -> Void
 
     @State private var draftBuffer: TextDraftBuffer
@@ -1457,12 +1378,14 @@ private struct ReviewEditor: View {
         placeholder: String,
         usesDarkAppearance: Bool = false,
         accessibilityIdentifier: String = "review-input",
+        onInteraction: @escaping () -> Void = {},
         onCommit: @escaping (String) -> Void
     ) {
         self.initialText = initialText
         self.placeholder = placeholder
         self.usesDarkAppearance = usesDarkAppearance
         self.accessibilityIdentifier = accessibilityIdentifier
+        self.onInteraction = onInteraction
         self.onCommit = onCommit
         _draftBuffer = State(initialValue: TextDraftBuffer(initialText))
     }
@@ -1491,6 +1414,7 @@ private struct ReviewEditor: View {
                     .strokeBorder(usesDarkAppearance ? Color.white.opacity(0.28) : Color(uiColor: .separator), lineWidth: 0.5)
             }
         .onChange(of: draftBuffer.draft) { _, _ in
+            onInteraction()
             scheduleCommit()
         }
         .onChange(of: initialText) { _, value in
@@ -1498,6 +1422,7 @@ private struct ReviewEditor: View {
             draftBuffer.reset(to: value)
         }
         .onChange(of: isFocused) { wasFocused, focused in
+            if focused { onInteraction() }
             if wasFocused && !focused { commitDraft() }
         }
         .onDisappear { commitDraft() }

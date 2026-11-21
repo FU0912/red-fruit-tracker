@@ -187,6 +187,7 @@ struct TagStatisticsEpisodeInput: Equatable, Sendable {
 struct TagStatisticsPersonalInput: Equatable, Sendable {
     let sourceSeriesID: String
     let followedAt: Date?
+    let viewingStatusChangedAt: Date?
 }
 
 struct TagStatisticsInput: Equatable, Sendable {
@@ -236,7 +237,8 @@ enum TagStatistics {
             personalRecords: personalRecords.map {
                 TagStatisticsPersonalInput(
                     sourceSeriesID: $0.sourceSeriesID,
-                    followedAt: $0.followedAt
+                    followedAt: $0.followedAt,
+                    viewingStatusChangedAt: $0.viewingStatusChangedAt
                 )
             }
         )
@@ -268,16 +270,21 @@ enum TagStatistics {
             grouping: input.episodes.filter(\.isWatched),
             by: \.sourceSeriesID
         ).mapValues { $0.compactMap(\.watchedAt) }
-        let personalBySeries = Dictionary(
-            input.personalRecords.compactMap { record in
-                record.followedAt.map { (record.sourceSeriesID, $0) }
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
+        let personalBySeries = Dictionary(grouping: input.personalRecords, by: \.sourceSeriesID)
+            .compactMapValues { records in
+                records.compactMap(\.viewingStatusChangedAt).max()
+                    ?? records.compactMap(\.followedAt).max()
+            }
         let includedSeries = input.series.filter { record in
             guard period != .all else { return true }
             if let watchedDates = watchedDatesBySeries[record.sourceSeriesID], !watchedDates.isEmpty {
-                return watchedDates.contains { period.includes($0, now: now, calendar: calendar) }
+                if watchedDates.contains({ period.includes($0, now: now, calendar: calendar) }) {
+                    return true
+                }
+                if period.includes(personalBySeries[record.sourceSeriesID], now: now, calendar: calendar) {
+                    return true
+                }
+                return period.includes(record.createdAt, now: now, calendar: calendar)
             }
             let fallbackDate = personalBySeries[record.sourceSeriesID] ?? record.createdAt
             return period.includes(fallbackDate, now: now, calendar: calendar)
@@ -314,6 +321,7 @@ enum TagStatistics {
     ) -> [Int] {
         let dates = input.series.map(\.createdAt)
             + input.personalRecords.compactMap(\.followedAt)
+            + input.personalRecords.compactMap(\.viewingStatusChangedAt)
             + input.episodes.compactMap(\.watchedAt)
         return Set(dates.map { calendar.component(.year, from: $0) })
             .union([currentYear])
@@ -511,6 +519,7 @@ final class SeriesRecord {
     var officialHeatScore: Double?
     var officialHeatText: String?
     var completionStatus: String?
+    var manualSeasonCount: Int?
     var createdAt: Date
     var updatedAt: Date
 
@@ -526,6 +535,7 @@ final class SeriesRecord {
         officialHeatScore: Double? = nil,
         officialHeatText: String? = nil,
         completionStatus: String? = nil,
+        manualSeasonCount: Int? = nil,
         createdAt: Date = .now,
         updatedAt: Date = .now
     ) {
@@ -540,6 +550,7 @@ final class SeriesRecord {
         self.officialHeatScore = officialHeatScore
         self.officialHeatText = officialHeatText
         self.completionStatus = completionStatus
+        self.manualSeasonCount = manualSeasonCount
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -622,6 +633,7 @@ final class PersonalRecord {
     /// finished while still being followed for a future season or update.
     var followsUpdates: Bool = false
     var followedAt: Date?
+    var viewingStatusChangedAt: Date?
     var nextSeasonDate: Date?
     var updatedAt: Date
 
@@ -631,6 +643,7 @@ final class PersonalRecord {
         self.localShelfState = "unstarted"
         self.followsUpdates = false
         self.followedAt = nil
+        self.viewingStatusChangedAt = nil
         self.nextSeasonDate = nil
         self.updatedAt = .now
     }
@@ -672,5 +685,30 @@ final class ImportInboxItem {
         self.originalURL = originalURL
         self.importedAt = .now
         self.status = status
+    }
+}
+
+@Model
+final class UpdateNotificationRecord {
+    @Attribute(.unique) var id: String
+    var sourceSeriesID: String
+    var title: String
+    var scheduledAt: Date
+    var isRead: Bool
+    var createdAt: Date
+
+    init(
+        sourceSeriesID: String,
+        title: String,
+        scheduledAt: Date,
+        isRead: Bool = false,
+        createdAt: Date = .now
+    ) {
+        self.id = "\(sourceSeriesID)#\(scheduledAt.timeIntervalSinceReferenceDate)"
+        self.sourceSeriesID = sourceSeriesID
+        self.title = title
+        self.scheduledAt = scheduledAt
+        self.isRead = isRead
+        self.createdAt = createdAt
     }
 }
