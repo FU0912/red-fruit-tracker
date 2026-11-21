@@ -396,6 +396,14 @@ enum CloudBackupState: Equatable {
     }
 }
 
+enum CloudBackupRuntimePolicy {
+    static let disabledMessage = "云备份未启用，本机记录正常保存"
+
+    static var isCloudKitEnabled: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "RedFruitCloudKitEnabled") as? Bool == true
+    }
+}
+
 @MainActor
 final class CloudKitBackupCoordinator: ObservableObject {
     nonisolated static let containerIdentifier = "iCloud.com.f.redfruittracker"
@@ -409,6 +417,7 @@ final class CloudKitBackupCoordinator: ObservableObject {
     @Published private(set) var state: CloudBackupState = .idle
 
     private let injectedContainer: CKContainer?
+    private let cloudKitEnabled: Bool
     private lazy var cloudContainer: CKContainer = {
         CKContainer(identifier: Self.containerIdentifier)
     }()
@@ -417,11 +426,13 @@ final class CloudKitBackupCoordinator: ObservableObject {
     private var needsAnotherSync = false
     private var lastUploadedHash: String?
 
-    init(container: CKContainer? = nil) {
+    init(container: CKContainer? = nil, cloudKitEnabled: Bool? = nil) {
         injectedContainer = container
+        self.cloudKitEnabled = cloudKitEnabled ?? CloudBackupRuntimePolicy.isCloudKitEnabled
     }
 
     func start(context: ModelContext) async {
+        guard prepareCloudKitIfEnabled() else { return }
         guard !isUITesting else { return }
         await synchronize(context: context, forceUpload: false)
     }
@@ -429,6 +440,7 @@ final class CloudKitBackupCoordinator: ObservableObject {
     /// A save is local and immediate. This queues a cloud snapshot after a
     /// short delay so multiple fields edited in one screen produce one upload.
     func scheduleAutomaticSync(context: ModelContext) {
+        guard prepareCloudKitIfEnabled() else { return }
         guard !isUITesting else { return }
         debounceTask?.cancel()
         debounceTask = Task { @MainActor [weak self] in
@@ -443,6 +455,7 @@ final class CloudKitBackupCoordinator: ObservableObject {
     }
 
     func manualSync(context: ModelContext) async {
+        guard prepareCloudKitIfEnabled() else { return }
         await synchronize(context: context, forceUpload: true)
     }
 
@@ -451,6 +464,7 @@ final class CloudKitBackupCoordinator: ObservableObject {
     }
 
     private func synchronize(context: ModelContext, forceUpload: Bool) async {
+        guard prepareCloudKitIfEnabled() else { return }
         guard !isUITesting else { return }
         guard !isSyncing else {
             needsAnotherSync = true
@@ -519,6 +533,15 @@ final class CloudKitBackupCoordinator: ObservableObject {
         } catch {
             state = state(for: error)
         }
+    }
+
+    @discardableResult
+    private func prepareCloudKitIfEnabled() -> Bool {
+        guard cloudKitEnabled else {
+            state = .unavailable(CloudBackupRuntimePolicy.disabledMessage)
+            return false
+        }
+        return true
     }
 
     private struct RemoteSnapshot {

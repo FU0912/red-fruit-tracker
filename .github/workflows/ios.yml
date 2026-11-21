@@ -115,6 +115,16 @@ jobs:
             echo "Unsigned device app was not found at $app_path"
           fi
 
+      - name: Verify unsigned package skips CloudKit startup
+        if: success()
+        run: |
+          app_path="build/RedFruitTracker.xcarchive/Products/Applications/RedFruitTracker.app"
+          cloudkit_enabled=$(/usr/libexec/PlistBuddy -c 'Print :RedFruitCloudKitEnabled' "$app_path/Info.plist")
+          if [ "$cloudkit_enabled" != "false" ]; then
+            echo "Unsigned package must keep RedFruitCloudKitEnabled=false."
+            exit 1
+          fi
+
       - name: Publish unsigned IPA prerelease
         if: success() && github.event_name == 'workflow_dispatch'
         env:

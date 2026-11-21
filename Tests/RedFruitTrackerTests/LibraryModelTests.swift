@@ -4,6 +4,23 @@ import SwiftData
 
 final class LibraryModelTests: XCTestCase {
     @MainActor
+    func testDisabledCloudBackupNeverTouchesCloudKitAndKeepsLocalData() async throws {
+        let schema = Schema([SeriesRecord.self])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = container.mainContext
+        context.insert(SeriesRecord(sourceSeriesID: "local-only", title: "本机记录"))
+        try context.save()
+
+        let coordinator = CloudKitBackupCoordinator(cloudKitEnabled: false)
+        await coordinator.start(context: context)
+        await coordinator.manualSync(context: context)
+
+        XCTAssertEqual(coordinator.state, .unavailable(CloudBackupRuntimePolicy.disabledMessage))
+        XCTAssertEqual(try context.fetch(FetchDescriptor<SeriesRecord>()).map(\.title), ["本机记录"])
+    }
+
+    @MainActor
     func testLibraryBackupArchiveRoundTripsAllLocalRecords() throws {
         let schema = Schema([
             SeriesRecord.self,
