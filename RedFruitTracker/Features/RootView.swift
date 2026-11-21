@@ -14,10 +14,12 @@ struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
 
-    @StateObject private var cloudBackup = CloudKitBackupCoordinator()
     @State private var selectedTab = 0
     @State private var isShowingAdd = false
-    @State private var cloudBackupFeedback: String?
+    @State private var fileBackupFeedback: String?
+    @State private var backupDocument: LibraryBackupFileDocument?
+    @State private var isExportingBackup = false
+    @State private var isImportingBackup = false
     @State private var pendingShareURL: URL?
     @State private var presentedShareURL: URL?
     @State private var pendingShareRetryToken = 0
@@ -27,13 +29,8 @@ struct RootView: View {
             LibraryView(
                 pendingShareURL: pendingShareURL,
                 onAdd: { isShowingAdd = true },
-                cloudBackupState: cloudBackup.state,
-                onManualCloudBackup: {
-                    Task { @MainActor in
-                        await cloudBackup.manualSync(context: modelContext)
-                        cloudBackupFeedback = cloudBackup.state.feedbackMessage
-                    }
-                }
+                onExportBackup: exportBackup,
+                onImportBackup: { isImportingBackup = true }
             )
             .tabItem {
                 Label("书架", systemImage: "books.vertical.fill")
@@ -55,21 +52,14 @@ struct RootView: View {
             }
         }
         .task {
-            await cloudBackup.start(context: modelContext)
             refreshPendingShare()
             schedulePendingShareRetry()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
-                Task { @MainActor in
-                    await cloudBackup.start(context: modelContext)
-                }
                 refreshPendingShare()
                 schedulePendingShareRetry()
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .redFruitLibraryDidSave)) { _ in
-            cloudBackup.scheduleAutomaticSync(context: modelContext)
         }
         .onOpenURL { callbackURL in
             if let sharedURL = ShareRoute.sharedURL(from: callbackURL) {
@@ -83,13 +73,76 @@ struct RootView: View {
             selectedTab = 0
             NotificationCenter.default.post(name: .applyLibraryTagSearch, object: tag)
         }
-        .alert("iCloud 云备份", isPresented: Binding(
-            get: { cloudBackupFeedback != nil },
-            set: { if !$0 { cloudBackupFeedback = nil } }
+        .fileExporter(
+            isPresented: $isExportingBackup,
+            document: backupDocument,
+            contentType: .json,
+            defaultFilename: "漫剧记录备份",
+            onCompletion: { result in
+                switch result {
+                case .success:
+                    fileBackupFeedback = "备份文件已保存。可在文件 App 中选择 iCloud Drive 保存。"
+                case .failure(let error):
+                    if (error as? CocoaError)?.code == .userCancelled { return }
+                    fileBackupFeedback = "导出失败：\(error.localizedDescription)"
+                }
+            }
+        )
+        .fileImporter(
+            isPresented: $isImportingBackup,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false,
+            onCompletion: importBackup
+        )
+        .alert("文件备份与恢复", isPresented: Binding(
+            get: { fileBackupFeedback != nil },
+            set: { if !$0 { fileBackupFeedback = nil } }
         )) {
-            Button("好", role: .cancel) { cloudBackupFeedback = nil }
+            Button("好", role: .cancel) { fileBackupFeedback = nil }
         } message: {
-            Text(cloudBackupFeedback ?? "")
+            Text(fileBackupFeedback ?? "")
+        }
+    }
+
+    @MainActor
+    private func exportBackup() {
+        do {
+            let archive = try LibraryBackupArchive.export(from: modelContext)
+            backupDocument = LibraryBackupFileDocument(data: try archive.encodedData())
+            isExportingBackup = true
+        } catch {
+            fileBackupFeedback = "生成备份失败：\(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
+    private func importBackup(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            if (error as? CocoaError)?.code != .userCancelled {
+                fileBackupFeedback = "恢复失败：\(error.localizedDescription)"
+            }
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            let didAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if didAccess { url.stopAccessingSecurityScopedResource() }
+            }
+
+            do {
+                let archive = try LibraryBackupArchive.decode(Data(contentsOf: url))
+                try archive.restore(into: modelContext)
+                do {
+                    try modelContext.saveAndNotifyCloudBackup()
+                } catch {
+                    modelContext.rollback()
+                    throw error
+                }
+                RecentSeriesWidgetSnapshot.refresh(context: modelContext)
+                fileBackupFeedback = "已恢复 \(archive.series.count) 部作品及相关记录。"
+            } catch {
+                fileBackupFeedback = "恢复失败：\(error.localizedDescription)"
+            }
         }
     }
 
@@ -159,8 +212,8 @@ private struct LibraryView: View {
 
     let pendingShareURL: URL?
     let onAdd: () -> Void
-    let cloudBackupState: CloudBackupState
-    let onManualCloudBackup: () -> Void
+    let onExportBackup: () -> Void
+    let onImportBackup: () -> Void
 
     @AppStorage("redFruitTracker.officialRatingTrendCleaned") private var didClearLegacyRatingTrend = false
     @State private var searchText = ""
@@ -199,8 +252,8 @@ private struct LibraryView: View {
                             isStopping: isStoppingRefresh,
                             onCancel: cancelRefresh,
                             onRefreshAll: refreshAllMetadata,
-                            cloudBackupState: cloudBackupState,
-                            onManualCloudBackup: onManualCloudBackup,
+                            onExportBackup: onExportBackup,
+                            onImportBackup: onImportBackup,
                             onOpenSearch: { isShowingLibrarySearch = true },
                             selectedTags: $selectedTags
                         )
@@ -215,8 +268,8 @@ private struct LibraryView: View {
                             isStopping: isStoppingRefresh,
                             onCancel: cancelRefresh,
                             onRefreshAll: refreshAllMetadata,
-                            cloudBackupState: cloudBackupState,
-                            onManualCloudBackup: onManualCloudBackup,
+                            onExportBackup: onExportBackup,
+                            onImportBackup: onImportBackup,
                             onOpenSearch: { isShowingLibrarySearch = true },
                             selectedTags: $selectedTags
                         )
@@ -562,8 +615,8 @@ private struct LibraryHeader: View {
     let isStopping: Bool
     let onCancel: () -> Void
     let onRefreshAll: () -> Void
-    let cloudBackupState: CloudBackupState
-    let onManualCloudBackup: () -> Void
+    let onExportBackup: () -> Void
+    let onImportBackup: () -> Void
     let onOpenSearch: () -> Void
     @Binding var selectedTags: Set<String>
 
@@ -574,22 +627,20 @@ private struct LibraryHeader: View {
                     .font(.system(size: 34, weight: .bold))
                     .accessibilityIdentifier("library-header-title")
                 Spacer()
-                Button(action: onManualCloudBackup) {
-                    if case .syncing = cloudBackupState {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: cloudBackupState.systemImage)
+                Menu {
+                    Button(action: onExportBackup) {
+                        Label("导出备份到文件", systemImage: "square.and.arrow.up")
                     }
+                    Button(action: onImportBackup) {
+                        Label("从文件恢复", systemImage: "square.and.arrow.down")
+                    }
+                } label: {
+                    Image(systemName: "externaldrive")
                 }
                 .frame(width: 44, height: 44)
                 .buttonStyle(.borderless)
-                .accessibilityIdentifier("cloud-backup-button")
-                .accessibilityLabel("立即同步到 iCloud")
-                .disabled({
-                    if case .syncing = cloudBackupState { return true }
-                    return false
-                }())
+                .accessibilityIdentifier("file-backup-menu")
+                .accessibilityLabel("文件备份与恢复")
 
                 Button(action: onRefreshAll) {
                     if isRefreshing {
@@ -605,11 +656,6 @@ private struct LibraryHeader: View {
                 .accessibilityLabel("更新全部公开资料")
                 .disabled(isRefreshing)
             }
-
-            Label(cloudBackupState.title, systemImage: cloudBackupState.systemImage)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("cloud-backup-status")
 
             if isRefreshing {
                 VStack(alignment: .leading, spacing: 8) {

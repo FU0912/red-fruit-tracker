@@ -127,12 +127,38 @@ final class LibraryModelTests: XCTestCase {
         let archive = try LibraryBackupArchive.export(from: source.mainContext)
 
         let destination = try ModelContainer(for: schema, configurations: [configuration])
-        archive.restore(into: destination.mainContext)
+        try archive.restore(into: destination.mainContext)
         try destination.mainContext.save()
 
         let restored = try destination.mainContext.fetch(FetchDescriptor<SeriesRecord>())
         XCTAssertEqual(restored.map(\.sourceSeriesID), ["restore-series"])
         XCTAssertEqual(restored.first?.title, "恢复作品")
+    }
+
+    @MainActor
+    func testLibraryBackupArchiveRefusesToRestoreIntoNonEmptyContainer() throws {
+        let schema = Schema([
+            SeriesRecord.self,
+            SeasonRecord.self,
+            EpisodeRecord.self,
+            PersonalRecord.self,
+            OfficialSnapshot.self,
+            ImportInboxItem.self,
+            UpdateNotificationRecord.self
+        ])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let source = try ModelContainer(for: schema, configurations: [configuration])
+        source.mainContext.insert(SeriesRecord(sourceSeriesID: "backup-series", title: "备份作品"))
+        try source.mainContext.save()
+        let archive = try LibraryBackupArchive.export(from: source.mainContext)
+
+        let destination = try ModelContainer(for: schema, configurations: [configuration])
+        destination.mainContext.insert(SeriesRecord(sourceSeriesID: "existing-series", title: "已有作品"))
+        try destination.mainContext.save()
+
+        XCTAssertThrowsError(try archive.restore(into: destination.mainContext))
+        let existing = try destination.mainContext.fetch(FetchDescriptor<SeriesRecord>())
+        XCTAssertEqual(existing.map(\.sourceSeriesID), ["existing-series"])
     }
 
     @MainActor

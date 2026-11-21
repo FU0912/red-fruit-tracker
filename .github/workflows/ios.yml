@@ -128,21 +128,21 @@ jobs:
             echo "Unsigned device app was not found at $app_path"
           fi
 
-      - name: Verify CloudKit checks signed entitlements
+      - name: Verify file backup build does not require CloudKit
         if: success()
         run: |
           app_path="build/RedFruitTracker.xcarchive/Products/Applications/RedFruitTracker.app"
           cloudkit_enabled=$(/usr/libexec/PlistBuddy -c 'Print :RedFruitCloudKitEnabled' "$app_path/Info.plist")
-          if [ "$cloudkit_enabled" != "true" ]; then
-            echo "This build must include the CloudKit flow behind its entitlement check."
+          if [ "$cloudkit_enabled" != "false" ]; then
+            echo "File-based backup must not start CloudKit."
             exit 1
           fi
-          if ! grep -q 'MachOCloudKitEntitlementReader' RedFruitTracker/Services/CloudKitBackupService.swift; then
-            echo "CloudKit startup must inspect the signed executable entitlements."
+          if grep -q 'com.apple.developer.icloud-container-identifiers' RedFruitTracker/Resources/RedFruitTracker.entitlements; then
+            echo "File-based backup must not request an iCloud container entitlement."
             exit 1
           fi
-          if grep -q 'url(forResource: "embedded", withExtension: "mobileprovision")' RedFruitTracker/Services/CloudKitBackupService.swift; then
-            echo "CloudKit startup must not require an embedded provisioning profile."
+          if ! grep -q 'fileExporter' RedFruitTracker/Features/RootView.swift || ! grep -q 'fileImporter' RedFruitTracker/Features/RootView.swift; then
+            echo "File-based backup requires native export and import entry points."
             exit 1
           fi
 

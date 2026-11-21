@@ -1,5 +1,24 @@
 # 红果漫剧观看记录App
 
+## v1.2.65 临时文件备份方案
+
+- 版本：`1.2.65`，主 App、分享扩展和 Widget build `68`。
+- 暂停 CloudKit 自动/手动同步，并从主 App 签名权限中移除 iCloud 容器要求；原 CloudKit 服务代码保留，后续可复用。
+- 书架右上角“文件备份与恢复”提供 JSON 导出和恢复。导出后可在 iOS 文件选择器中选 iCloud Drive；这是手动文件备份，不会自动同步。
+- 文件格式继续使用 `LibraryBackupArchive` schema `1`，与原 CloudKit 快照相同；以后恢复 CloudKit 时可继续读取，无需转换记录结构。
+- 为避免重复导入或覆盖，本版本只允许恢复到空书架。恢复文件包含作品、季集、评分点评、观看状态、预约、官方快照和通知。
+
+## v1.2.61 云端备份交付
+
+- 版本：`1.2.61`，主 App、分享扩展和 Widget build `64`。
+- 本地 SwiftData 仍是离线优先的快速缓存；主 App 增加 CloudKit 私有数据库快照层，记录类型为 `LibraryBackup`。
+- 所有本地保存成功后会发布同步通知，CloudKit 协调器以 800 ms 防抖自动上传，连续编辑评分/点评只合并成一次上传。
+- 书架标题栏保留手动“立即同步到 iCloud”按钮，适合卸载、换机前主动确认；同步状态会显示未同步、同步中、已同步、iCloud 不可用或失败。
+- 首次启动发现本地库为空时，会读取最新 CloudKit 快照并恢复全部七类 SwiftData 记录；云端历史快照保留，不因一次本地删除而清空唯一备份。
+- 快照 JSON 使用稳定排序和 SHA-256 去重；个人评分、点评、观看状态和创建时间都随快照保存，公开资料刷新不会覆盖个人字段。
+- 真机 CloudKit 需要 Apple Developer 侧创建并配置 `iCloud.com.f.redfruittracker` 容器、签名 entitlements 和用户登录 iCloud；本次 IPA 为无签名设备包，只能证明编译与封装，不能替代真机云同步验收。
+- IPA：`C:\Users\Administrator\Desktop\RedFruitTracker-unsigned-device-v1.2.61-build64.ipa`；SHA-256：`FFE02BB6C7464B89D8EE906DFBADE3ACF93C45D4D9C3D3A3B9B486A29D5FF46F`；大小：`1,749,035` bytes；CI Run：`44901468197`（只打包成功）。
+
 | 项目状态 | 创建日期 | 最近更新 |
 | --- | --- | --- |
 | v1.2.33 重做热度周期趋势图并恢复彩色气泡指标，待 CI/真机验收 | 2026-11-03 | 进行中 |

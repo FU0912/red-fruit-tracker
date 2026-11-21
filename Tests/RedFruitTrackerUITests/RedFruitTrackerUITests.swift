@@ -6,10 +6,8 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.buttons["library-search-field"].waitForExistence(timeout: 10))
-        let cloudStatus = app.descendants(matching: .any)
-            .matching(identifier: "cloud-backup-status")
-            .firstMatch
-        XCTAssertTrue(cloudStatus.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["file-backup-menu"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["cloud-backup-status"].exists)
         XCTAssertEqual(app.state, .runningForeground)
     }
 
@@ -63,8 +61,8 @@ final class RedFruitTrackerUITests: XCTestCase {
 
         let searchButton = app.buttons["library-search-field"]
         XCTAssertTrue(searchButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["cloud-backup-button"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.descendants(matching: .any)["cloud-backup-status"].exists)
+        XCTAssertTrue(app.buttons["file-backup-menu"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["cloud-backup-status"].exists)
         let title = app.staticTexts["library-header-title"]
         title.tap()
         let progress = app.descendants(matching: .any)["library-refresh-progress"]

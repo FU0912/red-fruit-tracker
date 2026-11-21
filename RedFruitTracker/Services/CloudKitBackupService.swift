@@ -188,6 +188,26 @@ struct UpdateNotificationBackupRecord: Codable, Equatable, Sendable {
     }
 }
 
+enum LibraryBackupArchiveError: LocalizedError {
+    case unsupportedSchemaVersion(Int)
+    case databaseNotEmpty
+    case duplicateRecords(String)
+    case missingSeriesReference(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedSchemaVersion(let version):
+            return "此备份版本暂不支持（版本 \(version)）。"
+        case .databaseNotEmpty:
+            return "当前书架已有数据。为避免重复或覆盖，文件恢复只允许在空书架中进行。"
+        case .duplicateRecords(let kind):
+            return "备份中包含重复的\(kind)记录，未导入任何数据。"
+        case .missingSeriesReference(let kind):
+            return "备份中的\(kind)找不到对应作品，文件可能不完整。"
+        }
+    }
+}
+
 struct LibraryBackupArchive: Codable, Equatable, Sendable {
     static let currentSchemaVersion = 1
 
@@ -274,11 +294,53 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
     static func decode(_ data: Data) throws -> Self {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(Self.self, from: data)
+        let archive = try decoder.decode(Self.self, from: data)
+        try archive.validate()
+        return archive
+    }
+
+    func validate() throws {
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw LibraryBackupArchiveError.unsupportedSchemaVersion(schemaVersion)
+        }
+
+        func requireUnique<Value: Hashable>(_ values: [Value], kind: String) throws {
+            guard Set(values).count == values.count else {
+                throw LibraryBackupArchiveError.duplicateRecords(kind)
+            }
+        }
+
+        try requireUnique(series.map(\.sourceSeriesID), kind: "作品")
+        try requireUnique(seasons.map(\.sourceSeasonKey), kind: "季")
+        try requireUnique(episodes.map(\.sourceVid), kind: "集")
+        try requireUnique(personalRecords.map(\.sourceSeriesID), kind: "个人记录")
+        try requireUnique(importInboxItems.map(\.originalURL), kind: "导入队列")
+        try requireUnique(updateNotifications.map(\.id), kind: "通知")
+
+        let seriesIDs = Set(series.map(\.sourceSeriesID))
+        guard seasons.allSatisfy({ seriesIDs.contains($0.sourceSeriesID) }),
+              episodes.allSatisfy({ seriesIDs.contains($0.sourceSeriesID) }),
+              personalRecords.allSatisfy({ seriesIDs.contains($0.sourceSeriesID) }),
+              officialSnapshots.allSatisfy({ seriesIDs.contains($0.sourceSeriesID) }),
+              updateNotifications.allSatisfy({ seriesIDs.contains($0.sourceSeriesID) }) else {
+            throw LibraryBackupArchiveError.missingSeriesReference("季集或个人数据")
+        }
     }
 
     @MainActor
-    func restore(into context: ModelContext) {
+    func restore(into context: ModelContext) throws {
+        try validate()
+        let hasExistingRecords = try context.fetchCount(FetchDescriptor<SeriesRecord>()) > 0
+            || context.fetchCount(FetchDescriptor<SeasonRecord>()) > 0
+            || context.fetchCount(FetchDescriptor<EpisodeRecord>()) > 0
+            || context.fetchCount(FetchDescriptor<PersonalRecord>()) > 0
+            || context.fetchCount(FetchDescriptor<OfficialSnapshot>()) > 0
+            || context.fetchCount(FetchDescriptor<ImportInboxItem>()) > 0
+            || context.fetchCount(FetchDescriptor<UpdateNotificationRecord>()) > 0
+        guard !hasExistingRecords else {
+            throw LibraryBackupArchiveError.databaseNotEmpty
+        }
+
         for value in series {
             context.insert(SeriesRecord(
                 sourceSeriesID: value.sourceSeriesID,
@@ -689,7 +751,7 @@ final class CloudKitBackupCoordinator: ObservableObject {
             if archive.recordCount == 0, let remote,
                let restoredData = try await data(for: remote) {
                 let restored = try LibraryBackupArchive.decode(restoredData)
-                restored.restore(into: context)
+                try restored.restore(into: context)
                 try context.saveAndNotifyCloudBackup()
                 state = .synced(.now)
                 return
