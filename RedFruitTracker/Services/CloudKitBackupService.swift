@@ -2,7 +2,6 @@ import CloudKit
 import Combine
 import CryptoKit
 import Foundation
-import Security
 import SwiftData
 
 extension Notification.Name {
@@ -421,21 +420,18 @@ enum CloudBackupRuntimePolicy {
     }
 
     static func hasCloudKitEntitlements(containerIdentifier: String) -> Bool {
-        guard let task = SecTaskCreateFromSelf(nil),
-              let services = SecTaskCopyValueForEntitlement(
-                task,
-                "com.apple.developer.icloud-services" as CFString,
-                nil
-              ) as? [String],
-              let containers = SecTaskCopyValueForEntitlement(
-                task,
-                "com.apple.developer.icloud-container-identifiers" as CFString,
-                nil
-              ) as? [String] else {
+        guard let profileURL = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let profile = try? Data(contentsOf: profileURL) else {
             return false
         }
 
-        return services.contains("CloudKit") && containers.contains(containerIdentifier)
+        // CMS-wrapped provisioning profiles retain these entitlement strings in their signed payload.
+        return [
+            "com.apple.developer.icloud-services",
+            "CloudKit",
+            "com.apple.developer.icloud-container-identifiers",
+            containerIdentifier
+        ].allSatisfy { profile.range(of: Data($0.utf8)) != nil }
     }
 }
 
