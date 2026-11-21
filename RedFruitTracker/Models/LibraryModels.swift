@@ -278,7 +278,7 @@ enum TagStatistics {
         let includedSeries = input.series.filter { record in
             guard period != .all else { return true }
             if let watchedDates = watchedDatesBySeries[record.sourceSeriesID], !watchedDates.isEmpty {
-                if watchedDates.contains({ period.includes($0, now: now, calendar: calendar) }) {
+                if watchedDates.contains(where: { period.includes($0, now: now, calendar: calendar) }) {
                     return true
                 }
                 if period.includes(personalBySeries[record.sourceSeriesID], now: now, calendar: calendar) {
