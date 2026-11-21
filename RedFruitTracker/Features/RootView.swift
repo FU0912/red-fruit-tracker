@@ -1258,7 +1258,7 @@ private struct StatsView: View {
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "chevron.down")
-                    Text("\(selectedStatisticsYear)年")
+                    Text(verbatim: "\(selectedStatisticsYear)年")
                 }
                 .font(.subheadline.weight(.medium))
                 .lineLimit(1)
@@ -1514,12 +1514,11 @@ private struct TagDistributionLegend: View {
                         .font(.caption)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityIdentifier("tag-distribution-\(slice.tag)")
                     Text(String(format: "%.1f%%", slice.proportion * 100))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                .accessibilityElement(children: .contain)
+                .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("tag-distribution-row-\(slice.tag)")
             }
         }

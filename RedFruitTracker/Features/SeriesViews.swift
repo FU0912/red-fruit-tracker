@@ -242,6 +242,7 @@ struct SeriesDetailView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("official-tags")
         }
         .frame(maxWidth: .infinity, alignment: .leading)

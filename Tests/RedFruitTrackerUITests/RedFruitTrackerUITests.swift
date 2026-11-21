@@ -160,7 +160,9 @@ final class RedFruitTrackerUITests: XCTestCase {
         let officialHeat = app.descendants(matching: .any)["official-heat"].firstMatch
         XCTAssertTrue(officialHeat.exists)
         XCTAssertTrue(officialHeat.label.contains("3930万"))
-        XCTAssertTrue(app.buttons["detail-tag-修仙"].exists)
+        let officialTags = app.descendants(matching: .any)["official-tags"]
+        XCTAssertTrue(officialTags.exists)
+        XCTAssertTrue(officialTags.descendants(matching: .any)["detail-tag-修仙"].exists)
         XCTAssertFalse(app.textFields["episode-progress-input"].exists)
         XCTAssertFalse(app.buttons["第1集，已看，当前"].exists)
         XCTAssertFalse(app.buttons["第1集到第100集"].exists)
@@ -268,7 +270,7 @@ final class RedFruitTrackerUITests: XCTestCase {
 
         app.tabBars.buttons["统计"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["tag-distribution-chart"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.descendants(matching: .any)["tag-distribution-穿越"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["tag-distribution-row-穿越"].waitForExistence(timeout: 5))
         let periodControl = app.segmentedControls.firstMatch
         XCTAssertTrue(periodControl.waitForExistence(timeout: 5))
         XCTAssertTrue(periodControl.buttons["本月"].exists)
@@ -282,7 +284,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         let currentYearOption = app.descendants(matching: .any)["tag-statistics-year-\(currentYear)"]
         XCTAssertTrue(currentYearOption.waitForExistence(timeout: 3))
         currentYearOption.tap()
-        XCTAssertEqual(yearMenu.value as? String, "\(currentYear)年")
+        XCTAssertEqual((yearMenu.value as? String)?.replacingOccurrences(of: ",", with: ""), "\(currentYear)年")
     }
 
     func testAppointmentDateSelectionCanBeConfirmedWithoutFollowToggle() {
