@@ -1523,6 +1523,7 @@ private struct TagDistributionLegend: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
     }
 }
 
