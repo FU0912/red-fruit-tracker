@@ -11,8 +11,10 @@ extension Notification.Name {
 }
 
 struct RootView: View {
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
 
+    @StateObject private var cloudBackup = CloudKitBackupCoordinator()
     @State private var selectedTab = 0
     @State private var isShowingAdd = false
     @State private var pendingShareURL: URL?
@@ -23,7 +25,13 @@ struct RootView: View {
         TabView(selection: $selectedTab) {
             LibraryView(
                 pendingShareURL: pendingShareURL,
-                onAdd: { isShowingAdd = true }
+                onAdd: { isShowingAdd = true },
+                cloudBackupState: cloudBackup.state,
+                onManualCloudBackup: {
+                    Task { @MainActor in
+                        await cloudBackup.manualSync(context: modelContext)
+                    }
+                }
             )
             .tabItem {
                 Label("书架", systemImage: "books.vertical.fill")
@@ -45,14 +53,21 @@ struct RootView: View {
             }
         }
         .task {
+            await cloudBackup.start(context: modelContext)
             refreshPendingShare()
             schedulePendingShareRetry()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
+                Task { @MainActor in
+                    await cloudBackup.start(context: modelContext)
+                }
                 refreshPendingShare()
                 schedulePendingShareRetry()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .redFruitLibraryDidSave)) { _ in
+            cloudBackup.scheduleAutomaticSync(context: modelContext)
         }
         .onOpenURL { callbackURL in
             if let sharedURL = ShareRoute.sharedURL(from: callbackURL) {
@@ -134,6 +149,8 @@ private struct LibraryView: View {
 
     let pendingShareURL: URL?
     let onAdd: () -> Void
+    let cloudBackupState: CloudBackupState
+    let onManualCloudBackup: () -> Void
 
     @AppStorage("redFruitTracker.officialRatingTrendCleaned") private var didClearLegacyRatingTrend = false
     @State private var searchText = ""
@@ -163,7 +180,9 @@ private struct LibraryView: View {
                             progress: refreshProgress,
                             isStopping: isStoppingRefresh,
                             onCancel: cancelRefresh,
-                            onRefreshAll: refreshAllMetadata
+                            onRefreshAll: refreshAllMetadata,
+                            cloudBackupState: cloudBackupState,
+                            onManualCloudBackup: onManualCloudBackup
                         )
                         LibraryEmptyState(isSearching: !searchText.isEmpty, onAdd: onAdd)
                     }
@@ -175,7 +194,9 @@ private struct LibraryView: View {
                             progress: refreshProgress,
                             isStopping: isStoppingRefresh,
                             onCancel: cancelRefresh,
-                            onRefreshAll: refreshAllMetadata
+                            onRefreshAll: refreshAllMetadata,
+                            cloudBackupState: cloudBackupState,
+                            onManualCloudBackup: onManualCloudBackup
                         )
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
@@ -295,7 +316,7 @@ private struct LibraryView: View {
             personal.filter { $0.sourceSeriesID == sourceID }.forEach { modelContext.delete($0) }
             snapshots.filter { $0.sourceSeriesID == sourceID }.forEach { modelContext.delete($0) }
             modelContext.delete(series)
-            try modelContext.save()
+            try modelContext.saveAndNotifyCloudBackup()
             RecentSeriesWidgetSnapshot.refresh(series: self.series.filter { $0.sourceSeriesID != sourceID })
         } catch {
             deletionErrorMessage = error.localizedDescription
@@ -314,7 +335,7 @@ private struct LibraryView: View {
                 return
             }
             legacySnapshots.forEach { $0.clearLegacyRatingTrend() }
-            try modelContext.save()
+            try modelContext.saveAndNotifyCloudBackup()
             didClearLegacyRatingTrend = true
         } catch {
             return
@@ -384,7 +405,7 @@ private struct LibraryView: View {
                 try Task.checkCancellation()
                 mergePublicSeasons(metadata.seasons, for: item)
                 insertSnapshot(for: item, metadata: metadata)
-                try modelContext.save()
+                try modelContext.saveAndNotifyCloudBackup()
                 refreshProgress.record(success: true)
             } catch {
                 if Task.isCancelled { break }
@@ -509,6 +530,8 @@ private struct LibraryHeader: View {
     let isStopping: Bool
     let onCancel: () -> Void
     let onRefreshAll: () -> Void
+    let cloudBackupState: CloudBackupState
+    let onManualCloudBackup: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -517,6 +540,23 @@ private struct LibraryHeader: View {
                     .font(.system(size: 34, weight: .bold))
                     .accessibilityIdentifier("library-header-title")
                 Spacer()
+                Button(action: onManualCloudBackup) {
+                    if case .syncing = cloudBackupState {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: cloudBackupState.systemImage)
+                    }
+                }
+                .frame(width: 44, height: 44)
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier("cloud-backup-button")
+                .accessibilityLabel("立即同步到 iCloud")
+                .disabled({
+                    if case .syncing = cloudBackupState { return true }
+                    return false
+                }())
+
                 Button(action: onRefreshAll) {
                     if isRefreshing {
                         ProgressView()
@@ -531,6 +571,11 @@ private struct LibraryHeader: View {
                 .accessibilityLabel("更新全部公开资料")
                 .disabled(isRefreshing)
             }
+
+            Label(cloudBackupState.title, systemImage: cloudBackupState.systemImage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("cloud-backup-status")
 
             if isRefreshing {
                 VStack(alignment: .leading, spacing: 8) {
@@ -1568,7 +1613,7 @@ private struct UpdateNotificationListView: View {
     private func notificationRow(_ item: UpdateNotificationRecord) -> some View {
         Button {
             item.isRead = true
-            try? modelContext.save()
+            try? modelContext.saveAndNotifyCloudBackup()
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: item.isRead ? "bell" : "bell.badge.fill")
@@ -1590,7 +1635,7 @@ private struct UpdateNotificationListView: View {
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button {
                 item.isRead = true
-                try? modelContext.save()
+                try? modelContext.saveAndNotifyCloudBackup()
             } label: {
                 Label("已读", systemImage: "checkmark")
             }
@@ -1607,7 +1652,7 @@ private struct UpdateNotificationListView: View {
                 }
                 UpdateNotificationService.cancelAppointment(seriesID: sourceID)
                 modelContext.delete(item)
-                try? modelContext.save()
+                try? modelContext.saveAndNotifyCloudBackup()
             } label: {
                 Label("删除", systemImage: "trash")
             }
@@ -2283,7 +2328,7 @@ private struct AddSeriesView: View {
                 modelContext.insert(snapshot)
             }
 
-            try modelContext.save()
+            try modelContext.saveAndNotifyCloudBackup()
             RecentSeriesWidgetSnapshot.refresh(context: modelContext)
             onSaved()
             dismiss()

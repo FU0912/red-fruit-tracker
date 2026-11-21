@@ -3,6 +3,133 @@ import SwiftData
 @testable import RedFruitTracker
 
 final class LibraryModelTests: XCTestCase {
+    @MainActor
+    func testLibraryBackupArchiveRoundTripsAllLocalRecords() throws {
+        let schema = Schema([
+            SeriesRecord.self,
+            SeasonRecord.self,
+            EpisodeRecord.self,
+            PersonalRecord.self,
+            OfficialSnapshot.self,
+            ImportInboxItem.self,
+            UpdateNotificationRecord.self
+        ])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = container.mainContext
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+
+        let series = SeriesRecord(
+            sourceSeriesID: "backup-series",
+            title: "备份作品",
+            sourceURL: "https://example.com/series",
+            coverURL: "https://example.com/poster.jpg",
+            intro: "简介",
+            tagsText: "穿越,校园",
+            officialRating: 8.8,
+            officialHeatText: "3600万",
+            completionStatus: SeriesCompletionStatus.ongoing.rawValue,
+            createdAt: date,
+            updatedAt: date
+        )
+        let season = SeasonRecord(
+            sourceSeriesID: series.sourceSeriesID,
+            seasonNumber: 1,
+            title: "第1季",
+            episodeCount: 12,
+            sourceURL: series.sourceURL,
+            myRating: 8.5,
+            review: "节奏不错"
+        )
+        season.updatedAt = date
+        let episode = EpisodeRecord(
+            sourceVid: "backup-series#s1#e1",
+            sourceSeriesID: series.sourceSeriesID,
+            seasonNumber: 1,
+            episodeNumber: 1,
+            title: "第1集",
+            webURL: "https://example.com/episode/1",
+            isWatched: true,
+            watchedAt: date
+        )
+        let personal = PersonalRecord(sourceSeriesID: series.sourceSeriesID)
+        personal.currentSeasonNumber = 1
+        personal.currentEpisodeNumber = 1
+        personal.myRating = 9.1
+        personal.review = "我的点评"
+        personal.localShelfState = ShelfState.watching.rawValue
+        personal.followsUpdates = true
+        personal.followedAt = date
+        personal.viewingStatusChangedAt = date
+        personal.nextSeasonDate = date.addingTimeInterval(86_400)
+        personal.updatedAt = date
+        let snapshot = OfficialSnapshot(sourceSeriesID: series.sourceSeriesID, capturedAt: date)
+        snapshot.officialHeatScore = 36_000_000
+        snapshot.seasonCount = 1
+        snapshot.episodeCount = 12
+        let inbox = ImportInboxItem(originalURL: series.sourceURL!, status: "imported")
+        inbox.importedAt = date
+        let notification = UpdateNotificationRecord(
+            sourceSeriesID: series.sourceSeriesID,
+            title: series.title,
+            scheduledAt: date.addingTimeInterval(86_400),
+            isRead: true,
+            createdAt: date
+        )
+
+        context.insert(series)
+        context.insert(season)
+        context.insert(episode)
+        context.insert(personal)
+        context.insert(snapshot)
+        context.insert(inbox)
+        context.insert(notification)
+        try context.save()
+
+        let archive = try LibraryBackupArchive.export(from: context, exportedAt: date)
+        XCTAssertEqual(archive.recordCount, 7)
+        XCTAssertEqual(try LibraryBackupArchive.decode(archive.encodedData()), archive)
+    }
+
+    @MainActor
+    func testLibraryBackupArchiveRestoresIntoEmptyContainer() throws {
+        let schema = Schema([
+            SeriesRecord.self,
+            SeasonRecord.self,
+            EpisodeRecord.self,
+            PersonalRecord.self,
+            OfficialSnapshot.self,
+            ImportInboxItem.self,
+            UpdateNotificationRecord.self
+        ])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let source = try ModelContainer(for: schema, configurations: [configuration])
+        let sourceSeries = SeriesRecord(sourceSeriesID: "restore-series", title: "恢复作品")
+        source.mainContext.insert(sourceSeries)
+        try source.mainContext.save()
+        let archive = try LibraryBackupArchive.export(from: source.mainContext)
+
+        let destination = try ModelContainer(for: schema, configurations: [configuration])
+        archive.restore(into: destination.mainContext)
+        try destination.mainContext.save()
+
+        let restored = try destination.mainContext.fetch(FetchDescriptor<SeriesRecord>())
+        XCTAssertEqual(restored.map(\.sourceSeriesID), ["restore-series"])
+        XCTAssertEqual(restored.first?.title, "恢复作品")
+    }
+
+    @MainActor
+    func testEmptyLibraryBackupArchiveHasNoRecords() throws {
+        let schema = Schema([SeriesRecord.self])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+
+        let archive = try LibraryBackupArchive.export(from: container.mainContext)
+
+        XCTAssertEqual(archive.recordCount, 0)
+        XCTAssertTrue(archive.series.isEmpty)
+    }
+
     func testTextDraftBufferDoesNotCommitEveryKeystroke() {
         var buffer = TextDraftBuffer("初始点评")
 

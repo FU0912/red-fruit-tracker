@@ -51,6 +51,8 @@ final class RedFruitTrackerUITests: XCTestCase {
 
         let searchField = app.textFields["library-search-field"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["cloud-backup-button"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["cloud-backup-status"].exists)
         let title = app.staticTexts["library-header-title"]
         title.tap()
         let progress = app.descendants(matching: .any)["library-refresh-progress"]

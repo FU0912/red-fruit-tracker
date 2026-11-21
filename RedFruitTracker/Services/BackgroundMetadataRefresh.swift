@@ -104,7 +104,7 @@ enum BackgroundMetadataRefresh {
                 let metadata = try await PublicMetadataService.shared.fetch(from: url)
                 try Task.checkCancellation()
                 apply(metadata, to: item, context: context)
-                try context.save()
+                try context.saveAndNotifyCloudBackup()
                 defaults.set(item.sourceSeriesID, forKey: cursorKey)
             } catch is CancellationError {
                 throw CancellationError()

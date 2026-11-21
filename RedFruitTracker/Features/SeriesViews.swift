@@ -519,7 +519,7 @@ struct SeriesDetailView: View {
         guard let date else {
             if let existing { modelContext.delete(existing) }
             UpdateNotificationService.cancelAppointment(seriesID: sourceID)
-            try? modelContext.save()
+            try? modelContext.saveAndNotifyCloudBackup()
             return
         }
 
@@ -536,7 +536,7 @@ struct SeriesDetailView: View {
         notification.title = series.title
         notification.scheduledAt = date
         notification.isRead = false
-        try? modelContext.save()
+        try? modelContext.saveAndNotifyCloudBackup()
         Task {
             await UpdateNotificationService.scheduleAppointment(
                 seriesID: sourceID,
@@ -575,7 +575,7 @@ struct SeriesDetailView: View {
 
     private func savePersonalChanges() {
         do {
-            try modelContext.save()
+            try modelContext.saveAndNotifyCloudBackup()
             personalSaveError = nil
         } catch {
             personalSaveError = "自动保存未完成，内容仍保留在当前页面，请重试。"
@@ -758,7 +758,7 @@ private struct EpisodeProgressControl: View {
                 }
                 personalRecord.updatedAt = .now
             }
-            try? modelContext.save()
+            try? modelContext.saveAndNotifyCloudBackup()
             return
         }
 
@@ -784,7 +784,7 @@ private struct EpisodeProgressControl: View {
         }
         personal.updatedAt = .now
         season.updatedAt = .now
-        try? modelContext.save()
+        try? modelContext.saveAndNotifyCloudBackup()
     }
 
     private func makePersonalRecord() -> PersonalRecord {
@@ -855,7 +855,7 @@ private struct EditSeriesView: View {
                         series.intro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
                         series.completionStatus = completionStatus
                         series.updatedAt = .now
-                        try? modelContext.save()
+                        try? modelContext.saveAndNotifyCloudBackup()
                         dismiss()
                     }
                     .fontWeight(.semibold)
@@ -1012,7 +1012,7 @@ private struct AddSeasonView: View {
                     if let webURL = metadataEpisode.webURL { episode.webURL = webURL }
                 }
             }
-            try modelContext.save()
+            try modelContext.saveAndNotifyCloudBackup()
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
@@ -1191,7 +1191,7 @@ struct SeasonDetailView: View {
         seasonSaveTask?.cancel()
         seasonSaveTask = nil
         do {
-            try modelContext.save()
+            try modelContext.saveAndNotifyCloudBackup()
             seasonSaveError = nil
         } catch {
             seasonSaveError = "自动保存未完成，请重试。"
@@ -1277,7 +1277,7 @@ private struct AddEpisodeView: View {
                 season.episodeCount = max(season.episodeCount, episodeNumber)
                 season.updatedAt = .now
             }
-            try modelContext.save()
+            try modelContext.saveAndNotifyCloudBackup()
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
@@ -1324,7 +1324,7 @@ private struct EditSeasonView: View {
                         season.episodeCount = episodeCount
                         season.sourceURL = URLExtractor.firstURL(in: sourceURL)?.absoluteString ?? sourceURL.nilIfBlank
                         season.updatedAt = .now
-                        try? modelContext.save()
+                        try? modelContext.saveAndNotifyCloudBackup()
                         dismiss()
                     }
                     .fontWeight(.semibold)

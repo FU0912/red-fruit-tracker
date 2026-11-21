@@ -47,7 +47,7 @@ struct RedFruitTrackerApp: App {
                 )
                 container.mainContext.insert(older)
                 container.mainContext.insert(newer)
-                try? container.mainContext.save()
+                try? container.mainContext.saveAndNotifyCloudBackup()
             }
         } catch {
             fatalError("Unable to create the local model container: \(error)")
@@ -71,7 +71,7 @@ struct RedFruitTrackerApp: App {
                     season.myRating = RatingScale.fromLegacyFiveStar(rating)
                 }
             }
-            try context.save()
+            try context.saveAndNotifyCloudBackup()
             UserDefaults.standard.set(true, forKey: key)
         } catch {
             // Retry on the next launch if the store is temporarily unavailable.
@@ -142,7 +142,7 @@ struct RedFruitTrackerApp: App {
             ))
         }
 
-        try? context.save()
+        try? context.saveAndNotifyCloudBackup()
     }
 
     var body: some Scene {
