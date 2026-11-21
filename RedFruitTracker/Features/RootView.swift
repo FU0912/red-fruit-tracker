@@ -1222,124 +1222,97 @@ private struct StatsView: View {
             Text("观看类型")
                 .font(.headline)
 
-            HStack(spacing: 8) {
-                Picker("统计周期", selection: tagStatisticsSelection) {
-                    Text("全部").tag(TagStatisticsPeriod.all)
-                    Text("本月").tag(TagStatisticsPeriod.month)
-                    Text("按年").tag(TagStatisticsPeriod.year(selectedStatisticsYear))
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("tag-statistics-period")
-
-                Menu {
-                    ForEach(yearOptions, id: \.self) { year in
-                        Button {
-                            selectedStatisticsYear = year
-                            tagStatisticsPeriod = .year(year)
-                        } label: {
-                            if selectedStatisticsYear == year {
-                                Label(Text(verbatim: "\(year)年"), systemImage: "checkmark")
-                            } else {
-                                Text(verbatim: "\(year)年")
-                            }
-                        }
-                        .accessibilityIdentifier("tag-statistics-year-\(year)")
-                    }
-                } label: {
-                    Label(Text(verbatim: "\(selectedStatisticsYear)年"), systemImage: "chevron.down")
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-                .accessibilityIdentifier("tag-statistics-year-menu")
-                .accessibilityLabel("统计年份")
-                .accessibilityValue("\(selectedStatisticsYear)年")
-            }
-
-            if isLoading {
-                HStack(spacing: 16) {
-                    Circle()
-                        .stroke(Color.secondary.opacity(0.18), lineWidth: 12)
-                        .frame(width: 96, height: 96)
-                    ProgressView()
-                    Text("正在整理观看类型")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
-                .accessibilityIdentifier("tag-distribution-loading")
-            } else if summary.workCount == 0 {
-                HStack(spacing: 16) {
-                    Circle()
-                        .stroke(Color.secondary.opacity(0.18), lineWidth: 12)
-                        .frame(width: 96, height: 96)
-                    Text("当前周期暂无作品")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
-            } else {
-                HStack(alignment: .center, spacing: 12) {
-                    ZStack {
-                        Chart(displayedSlices) { slice in
-                            SectorMark(
-                                angle: .value("占比", slice.proportion),
-                                innerRadius: .ratio(0.62),
-                                outerRadius: .ratio(0.96),
-                                angularInset: 1.5
-                            )
-                            .foregroundStyle(by: .value("标签", slice.tag))
-                        }
-                        .chartLegend(.hidden)
-                        .chartForegroundStyleScale(
-                            domain: displayedSlices.map(\.tag),
-                            range: chartColors
-                        )
-                        .accessibilityIdentifier("tag-distribution-chart")
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("观看类型标签分布")
-
-                        VStack(spacing: 1) {
-                            Text("\(summary.workCount)")
-                                .font(.headline.monospacedDigit())
-                                .accessibilityIdentifier("tag-distribution-work-count")
-                            Text("部")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        .allowsHitTesting(false)
-                    }
-                    .frame(width: 112, height: 112)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(displayedSlices) { slice in
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(color(for: slice, summary: summary))
-                                    .frame(width: 8, height: 8)
-                                Text(slice.tag)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .accessibilityIdentifier("tag-distribution-\(slice.tag)")
-                                Text(String(format: "%.1f%%", slice.proportion * 100))
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
-                            .accessibilityElement(children: .contain)
-                            .accessibilityIdentifier("tag-distribution-row-\(slice.tag)")
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
-            }
+            tagStatisticsControls(yearOptions: yearOptions)
+            tagDistributionBody(
+                summary: summary,
+                displayedSlices: displayedSlices,
+                chartColors: chartColors,
+                isLoading: isLoading
+            )
         }
         .padding(14)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func tagStatisticsControls(yearOptions: [Int]) -> some View {
+        HStack(spacing: 8) {
+            Picker("统计周期", selection: tagStatisticsSelection) {
+                Text("全部").tag(TagStatisticsPeriod.all)
+                Text("本月").tag(TagStatisticsPeriod.month)
+                Text("按年").tag(TagStatisticsPeriod.year(selectedStatisticsYear))
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("tag-statistics-period")
+
+            Menu {
+                ForEach(yearOptions, id: \.self) { year in
+                    Button {
+                        selectedStatisticsYear = year
+                        tagStatisticsPeriod = .year(year)
+                    } label: {
+                        Text(verbatim: "\(year)年")
+                    }
+                    .accessibilityIdentifier("tag-statistics-year-\(year)")
+                }
+            } label: {
+                Label(Text(verbatim: "\(selectedStatisticsYear)年"), systemImage: "chevron.down")
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .accessibilityIdentifier("tag-statistics-year-menu")
+            .accessibilityLabel("统计年份")
+            .accessibilityValue("\(selectedStatisticsYear)年")
+        }
+    }
+
+    @ViewBuilder
+    private func tagDistributionBody(
+        summary: TagStatisticsSummary,
+        displayedSlices: [TagStatisticsSlice],
+        chartColors: [Color],
+        isLoading: Bool
+    ) -> some View {
+        if isLoading {
+            HStack(spacing: 16) {
+                distributionPlaceholder
+                ProgressView()
+                Text("正在整理观看类型")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+            .accessibilityIdentifier("tag-distribution-loading")
+        } else if summary.workCount == 0 {
+            HStack(spacing: 16) {
+                distributionPlaceholder
+                Text("当前周期暂无作品")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+        } else {
+            HStack(alignment: .center, spacing: 12) {
+                TagDistributionDonut(
+                    summary: summary,
+                    slices: displayedSlices,
+                    colors: chartColors
+                )
+                TagDistributionLegend(slices: displayedSlices) { slice in
+                    color(for: slice, summary: summary)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+        }
+    }
+
+    private var distributionPlaceholder: some View {
+        Circle()
+            .stroke(Color.secondary.opacity(0.18), lineWidth: 12)
+            .frame(width: 96, height: 96)
     }
 
     private func color(for slice: TagStatisticsSlice, summary: TagStatisticsSummary) -> Color {
@@ -1487,6 +1460,70 @@ private struct StatsView: View {
 
 }
 
+private struct TagDistributionDonut: View {
+    let summary: TagStatisticsSummary
+    let slices: [TagStatisticsSlice]
+    let colors: [Color]
+
+    var body: some View {
+        ZStack {
+            Chart(slices) { slice in
+                SectorMark(
+                    angle: .value("占比", slice.proportion),
+                    innerRadius: .ratio(0.62),
+                    outerRadius: .ratio(0.96),
+                    angularInset: 1.5
+                )
+                .foregroundStyle(by: .value("标签", slice.tag))
+            }
+            .chartLegend(.hidden)
+            .chartForegroundStyleScale(domain: slices.map(\.tag), range: colors)
+            .accessibilityIdentifier("tag-distribution-chart")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("观看类型标签分布")
+
+            VStack(spacing: 1) {
+                Text("\(summary.workCount)")
+                    .font(.headline.monospacedDigit())
+                    .accessibilityIdentifier("tag-distribution-work-count")
+                Text("部")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .allowsHitTesting(false)
+        }
+        .frame(width: 112, height: 112)
+    }
+}
+
+private struct TagDistributionLegend: View {
+    let slices: [TagStatisticsSlice]
+    let color: (TagStatisticsSlice) -> Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(slices) { slice in
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(color(slice))
+                        .frame(width: 8, height: 8)
+                    Text(slice.tag)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("tag-distribution-\(slice.tag)")
+                    Text(String(format: "%.1f%%", slice.proportion * 100))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("tag-distribution-row-\(slice.tag)")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct UpdateNotificationListView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -1496,71 +1533,80 @@ private struct UpdateNotificationListView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if notifications.isEmpty {
-                    ContentUnavailableView(
-                        "暂无提醒",
-                        systemImage: "bell.slash",
-                        description: Text("为作品设置预约日期后，提醒会显示在这里")
-                    )
-                } else {
-                    List(notifications) { item in
-                        Button {
-                            item.isRead = true
-                            try? modelContext.save()
-                        } label: {
-                            HStack(alignment: .top, spacing: 12) {
-                                Image(systemName: item.isRead ? "bell" : "bell.badge.fill")
-                                    .foregroundStyle(item.isRead ? .secondary : .orange)
-                                    .frame(width: 24)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.title)
-                                        .font(.headline)
-                                        .foregroundStyle(.primary)
-                                    Text("第 \(nextSeasonNumber(for: item)) 季待上线 · \(AppDateText.monthDay(item.scheduledAt))")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button {
-                                item.isRead = true
-                                try? modelContext.save()
-                            } label: {
-                                Label("已读", systemImage: "checkmark")
-                            }
-                            .tint(.blue)
-
-                            Button(role: .destructive) {
-                                let sourceID = item.sourceSeriesID
-                                let descriptor = FetchDescriptor<PersonalRecord>(
-                                    predicate: #Predicate<PersonalRecord> { $0.sourceSeriesID == sourceID }
-                                )
-                                if let personal = (try? modelContext.fetch(descriptor))?.first {
-                                    personal.nextSeasonDate = nil
-                                    personal.updatedAt = .now
-                                }
-                                UpdateNotificationService.cancelAppointment(seriesID: item.sourceSeriesID)
-                                modelContext.delete(item)
-                                try? modelContext.save()
-                            } label: {
-                                Label("删除", systemImage: "trash")
-                            }
-                        }
-                    }
-                    .listStyle(.insetGrouped)
-                }
-            }
+            notificationContent
             .navigationTitle("更新提醒")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var notificationContent: some View {
+        if notifications.isEmpty {
+            ContentUnavailableView(
+                "暂无提醒",
+                systemImage: "bell.slash",
+                description: Text("为作品设置预约日期后，提醒会显示在这里")
+            )
+        } else {
+            List {
+                ForEach(notifications) { item in
+                    notificationRow(item)
+                }
+            }
+            .listStyle(.insetGrouped)
+        }
+    }
+
+    private func notificationRow(_ item: UpdateNotificationRecord) -> some View {
+        Button {
+            item.isRead = true
+            try? modelContext.save()
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: item.isRead ? "bell" : "bell.badge.fill")
+                    .foregroundStyle(item.isRead ? .secondary : .orange)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text("第 \(nextSeasonNumber(for: item)) 季待上线 · \(AppDateText.monthDay(item.scheduledAt))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button {
+                item.isRead = true
+                try? modelContext.save()
+            } label: {
+                Label("已读", systemImage: "checkmark")
+            }
+            .tint(.blue)
+
+            Button(role: .destructive) {
+                let sourceID = item.sourceSeriesID
+                let descriptor = FetchDescriptor<PersonalRecord>(
+                    predicate: #Predicate<PersonalRecord> { $0.sourceSeriesID == sourceID }
+                )
+                if let personal = (try? modelContext.fetch(descriptor))?.first {
+                    personal.nextSeasonDate = nil
+                    personal.updatedAt = .now
+                }
+                UpdateNotificationService.cancelAppointment(seriesID: sourceID)
+                modelContext.delete(item)
+                try? modelContext.save()
+            } label: {
+                Label("删除", systemImage: "trash")
             }
         }
     }
