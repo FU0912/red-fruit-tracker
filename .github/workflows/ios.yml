@@ -128,7 +128,7 @@ jobs:
             echo "Unsigned device app was not found at $app_path"
           fi
 
-      - name: Verify CloudKit requires the signed container entitlement
+      - name: Verify CloudKit checks signed entitlements
         if: success()
         run: |
           app_path="build/RedFruitTracker.xcarchive/Products/Applications/RedFruitTracker.app"
@@ -137,8 +137,12 @@ jobs:
             echo "This build must include the CloudKit flow behind its entitlement check."
             exit 1
           fi
-          if ! grep -q 'hasCloudKitEntitlements' RedFruitTracker/Services/CloudKitBackupService.swift; then
-            echo "CloudKit startup must check the signed container entitlement first."
+          if ! grep -q 'MachOCloudKitEntitlementReader' RedFruitTracker/Services/CloudKitBackupService.swift; then
+            echo "CloudKit startup must inspect the signed executable entitlements."
+            exit 1
+          fi
+          if grep -q 'url(forResource: "embedded", withExtension: "mobileprovision")' RedFruitTracker/Services/CloudKitBackupService.swift; then
+            echo "CloudKit startup must not require an embedded provisioning profile."
             exit 1
           fi
 

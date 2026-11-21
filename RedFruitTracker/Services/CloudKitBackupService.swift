@@ -420,18 +420,180 @@ enum CloudBackupRuntimePolicy {
     }
 
     static func hasCloudKitEntitlements(containerIdentifier: String) -> Bool {
-        guard let profileURL = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
-              let profile = try? Data(contentsOf: profileURL) else {
-            return false
+        guard let executableURL = Bundle.main.executableURL,
+              let executable = try? Data(contentsOf: executableURL) else { return false }
+
+        return MachOCloudKitEntitlementReader.contains(
+            containerIdentifier: containerIdentifier,
+            in: executable
+        )
+    }
+}
+
+private enum MachOCloudKitEntitlementReader {
+    private enum ByteOrder {
+        case little
+        case big
+    }
+
+    private static let codeSignatureCommand: UInt32 = 0x1d
+    private static let embeddedSignatureMagic: UInt32 = 0xfade0cc0
+    private static let embeddedEntitlementsMagic: UInt32 = 0xfade7171
+    private static let entitlementsSlot: UInt32 = 5
+
+    static func contains(containerIdentifier: String, in executable: Data) -> Bool {
+        for slice in slices(in: executable) {
+            guard let signature = signatureData(in: slice) else { continue }
+            if let entitlements = entitlements(in: signature) {
+                let services = entitlements["com.apple.developer.icloud-services"] as? [String] ?? []
+                let containers = entitlements["com.apple.developer.icloud-container-identifiers"] as? [String] ?? []
+                return services.contains("CloudKit") && containers.contains(containerIdentifier)
+            }
+
+            // Some signers emit DER entitlements without the XML entitlement slot.
+            let requiredValues = [
+                "com.apple.developer.icloud-services",
+                "CloudKit",
+                "com.apple.developer.icloud-container-identifiers",
+                containerIdentifier
+            ]
+            if requiredValues.allSatisfy({ signature.range(of: Data($0.utf8)) != nil }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func slices(in data: Data) -> [Data] {
+        guard let magic = readUInt32(data, at: 0, order: .big) else { return [] }
+        let fatOrder: ByteOrder
+        let is64Bit: Bool
+        switch magic {
+        case 0xcafebabe:
+            fatOrder = .big
+            is64Bit = false
+        case 0xbebafeca:
+            fatOrder = .little
+            is64Bit = false
+        case 0xcafebabf:
+            fatOrder = .big
+            is64Bit = true
+        case 0xbfbafeca:
+            fatOrder = .little
+            is64Bit = true
+        default:
+            return [data]
         }
 
-        // CMS-wrapped provisioning profiles retain these entitlement strings in their signed payload.
-        return [
-            "com.apple.developer.icloud-services",
-            "CloudKit",
-            "com.apple.developer.icloud-container-identifiers",
-            containerIdentifier
-        ].allSatisfy { profile.range(of: Data($0.utf8)) != nil }
+        guard let count = readUInt32(data, at: 4, order: fatOrder), count <= 32 else { return [] }
+        let entrySize = is64Bit ? 32 : 20
+        return (0..<Int(count)).compactMap { index in
+            let entry = 8 + index * entrySize
+            let offset: UInt64?
+            let size: UInt64?
+            if is64Bit {
+                offset = readUInt64(data, at: entry + 8, order: fatOrder)
+                size = readUInt64(data, at: entry + 16, order: fatOrder)
+            } else {
+                offset = readUInt32(data, at: entry + 8, order: fatOrder).map(UInt64.init)
+                size = readUInt32(data, at: entry + 12, order: fatOrder).map(UInt64.init)
+            }
+            guard let offset, let size,
+                  offset <= UInt64(data.count),
+                  size <= UInt64(data.count) - offset else { return nil }
+            return data.subdata(in: Int(offset)..<Int(offset + size))
+        }
+    }
+
+    private static func signatureData(in slice: Data) -> Data? {
+        guard let magic = readUInt32(slice, at: 0, order: .big) else { return nil }
+        let order: ByteOrder
+        let headerSize: Int
+        switch magic {
+        case 0xfeedface:
+            order = .big
+            headerSize = 28
+        case 0xcefaedfe:
+            order = .little
+            headerSize = 28
+        case 0xfeedfacf:
+            order = .big
+            headerSize = 32
+        case 0xcffaedfe:
+            order = .little
+            headerSize = 32
+        default:
+            return nil
+        }
+
+        guard let commandCount = readUInt32(slice, at: 16, order: order), commandCount <= 65535 else { return nil }
+        var commandOffset = headerSize
+        for _ in 0..<Int(commandCount) {
+            guard let command = readUInt32(slice, at: commandOffset, order: order),
+                  let commandSize = readUInt32(slice, at: commandOffset + 4, order: order),
+                  commandSize >= 8,
+                  commandOffset + Int(commandSize) <= slice.count else { return nil }
+
+            if command == codeSignatureCommand, commandSize >= 16,
+               let dataOffset = readUInt32(slice, at: commandOffset + 8, order: order),
+               let dataSize = readUInt32(slice, at: commandOffset + 12, order: order),
+               Int(dataOffset) <= slice.count,
+               Int(dataSize) <= slice.count - Int(dataOffset) {
+                return slice.subdata(in: Int(dataOffset)..<Int(dataOffset + dataSize))
+            }
+            commandOffset += Int(commandSize)
+        }
+        return nil
+    }
+
+    private static func entitlements(in signature: Data) -> [String: Any]? {
+        guard readUInt32(signature, at: 0, order: .big) == embeddedSignatureMagic,
+              let signatureLength = readUInt32(signature, at: 4, order: .big),
+              let count = readUInt32(signature, at: 8, order: .big),
+              count <= 128 else { return nil }
+
+        for index in 0..<Int(count) {
+            let entry = 12 + index * 8
+            guard readUInt32(signature, at: entry, order: .big) == entitlementsSlot,
+                  let blobOffset = readUInt32(signature, at: entry + 4, order: .big),
+                  readUInt32(signature, at: Int(blobOffset), order: .big) == embeddedEntitlementsMagic,
+                  let blobLength = readUInt32(signature, at: Int(blobOffset) + 4, order: .big),
+                  blobLength >= 8,
+                  blobOffset <= signatureLength,
+                  blobLength <= signatureLength - blobOffset,
+                  Int(blobOffset + blobLength) <= signature.count else { continue }
+
+            let plistData = signature.subdata(in: Int(blobOffset + 8)..<Int(blobOffset + blobLength))
+            if let plistObject = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil),
+               let plist = plistObject as? [String: Any] {
+                return plist
+            }
+        }
+        return nil
+    }
+
+    private static func readUInt32(_ data: Data, at offset: Int, order: ByteOrder) -> UInt32? {
+        guard offset >= 0, offset <= data.count - 4 else { return nil }
+        let bytes = data[offset..<(offset + 4)]
+        guard let first = bytes.first else { return nil }
+        let values = Array(bytes)
+        switch order {
+        case .big:
+            return UInt32(values[0]) << 24 | UInt32(values[1]) << 16 | UInt32(values[2]) << 8 | UInt32(values[3])
+        case .little:
+            return UInt32(values[3]) << 24 | UInt32(values[2]) << 16 | UInt32(values[1]) << 8 | UInt32(first)
+        }
+    }
+
+    private static func readUInt64(_ data: Data, at offset: Int, order: ByteOrder) -> UInt64? {
+        guard offset >= 0, offset <= data.count - 8 else { return nil }
+        let values = Array(data[offset..<(offset + 8)])
+        switch order {
+        case .big:
+            return values.reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+        case .little:
+            return values.reversed().reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+        }
     }
 }
 
