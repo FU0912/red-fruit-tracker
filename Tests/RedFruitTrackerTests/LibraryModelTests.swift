@@ -136,7 +136,7 @@ final class LibraryModelTests: XCTestCase {
     }
 
     @MainActor
-    func testLibraryBackupArchiveRefusesToRestoreIntoNonEmptyContainer() throws {
+    func testLibraryBackupArchiveRestoresWhenOnlyOrphanedRecordsRemain() throws {
         let schema = Schema([
             SeriesRecord.self,
             SeasonRecord.self,
@@ -149,16 +149,40 @@ final class LibraryModelTests: XCTestCase {
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let source = try ModelContainer(for: schema, configurations: [configuration])
         source.mainContext.insert(SeriesRecord(sourceSeriesID: "backup-series", title: "备份作品"))
+        source.mainContext.insert(ImportInboxItem(originalURL: "shared-import-url", status: "imported"))
+        source.mainContext.insert(UpdateNotificationRecord(
+            sourceSeriesID: "backup-series",
+            title: "备份作品",
+            scheduledAt: Date(timeIntervalSince1970: 1_700_000_000)
+        ))
         try source.mainContext.save()
         let archive = try LibraryBackupArchive.export(from: source.mainContext)
 
         let destination = try ModelContainer(for: schema, configurations: [configuration])
-        destination.mainContext.insert(SeriesRecord(sourceSeriesID: "existing-series", title: "已有作品"))
+        destination.mainContext.insert(ImportInboxItem(originalURL: "shared-import-url", status: "pending"))
+        destination.mainContext.insert(ImportInboxItem(originalURL: "orphaned-import-url", status: "failed"))
+        destination.mainContext.insert(UpdateNotificationRecord(
+            sourceSeriesID: "backup-series",
+            title: "旧通知",
+            scheduledAt: Date(timeIntervalSince1970: 1_700_000_000)
+        ))
+        destination.mainContext.insert(UpdateNotificationRecord(
+            sourceSeriesID: "deleted-series",
+            title: "已删除作品",
+            scheduledAt: Date(timeIntervalSince1970: 1_700_000_100)
+        ))
         try destination.mainContext.save()
 
-        XCTAssertThrowsError(try archive.restore(into: destination.mainContext))
-        let existing = try destination.mainContext.fetch(FetchDescriptor<SeriesRecord>())
-        XCTAssertEqual(existing.map(\.sourceSeriesID), ["existing-series"])
+        try archive.restore(into: destination.mainContext)
+        try destination.mainContext.save()
+
+        let restored = try destination.mainContext.fetch(FetchDescriptor<SeriesRecord>())
+        let inboxItems = try destination.mainContext.fetch(FetchDescriptor<ImportInboxItem>())
+        let notifications = try destination.mainContext.fetch(FetchDescriptor<UpdateNotificationRecord>())
+        XCTAssertEqual(restored.map(\.sourceSeriesID), ["backup-series"])
+        XCTAssertEqual(Set(inboxItems.map(\.originalURL)), Set(["shared-import-url", "orphaned-import-url"]))
+        XCTAssertEqual(Set(notifications.map(\.sourceSeriesID)), Set(["backup-series", "deleted-series"]))
+        XCTAssertEqual(notifications.first(where: { $0.sourceSeriesID == "backup-series" })?.title, "旧通知")
     }
 
     @MainActor

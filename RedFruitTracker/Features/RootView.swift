@@ -123,7 +123,10 @@ struct RootView: View {
                 fileBackupFeedback = "恢复失败：\(error.localizedDescription)"
             }
         case .success(let urls):
-            guard let url = urls.first else { return }
+            guard let url = urls.first else {
+                fileBackupFeedback = "没有收到所选备份文件，请重新选择 JSON 备份。"
+                return
+            }
             let didAccess = url.startAccessingSecurityScopedResource()
             defer {
                 if didAccess { url.stopAccessingSecurityScopedResource() }

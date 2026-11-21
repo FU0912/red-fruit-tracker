@@ -330,14 +330,12 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
     @MainActor
     func restore(into context: ModelContext) throws {
         try validate()
-        let hasExistingRecords = try context.fetchCount(FetchDescriptor<SeriesRecord>()) > 0
+        let hasExistingLibraryRecords = try context.fetchCount(FetchDescriptor<SeriesRecord>()) > 0
             || context.fetchCount(FetchDescriptor<SeasonRecord>()) > 0
             || context.fetchCount(FetchDescriptor<EpisodeRecord>()) > 0
             || context.fetchCount(FetchDescriptor<PersonalRecord>()) > 0
             || context.fetchCount(FetchDescriptor<OfficialSnapshot>()) > 0
-            || context.fetchCount(FetchDescriptor<ImportInboxItem>()) > 0
-            || context.fetchCount(FetchDescriptor<UpdateNotificationRecord>()) > 0
-        guard !hasExistingRecords else {
+        guard !hasExistingLibraryRecords else {
             throw LibraryBackupArchiveError.databaseNotEmpty
         }
 
@@ -411,13 +409,15 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             record.episodeCount = value.episodeCount
             context.insert(record)
         }
-        for value in importInboxItems {
+        let existingInboxURLs = Set(try context.fetch(FetchDescriptor<ImportInboxItem>()).map(\.originalURL))
+        for value in importInboxItems where !existingInboxURLs.contains(value.originalURL) {
             let record = ImportInboxItem(originalURL: value.originalURL, status: value.status)
             record.importedAt = value.importedAt
             record.failureMessage = value.failureMessage
             context.insert(record)
         }
-        for value in updateNotifications {
+        let existingNotificationIDs = Set(try context.fetch(FetchDescriptor<UpdateNotificationRecord>()).map(\.id))
+        for value in updateNotifications where !existingNotificationIDs.contains(value.id) {
             let record = UpdateNotificationRecord(
                 sourceSeriesID: value.sourceSeriesID,
                 title: value.title,
