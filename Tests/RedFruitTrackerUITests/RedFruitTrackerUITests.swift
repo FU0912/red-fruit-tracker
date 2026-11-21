@@ -6,7 +6,9 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.textFields["library-search-field"].waitForExistence(timeout: 10))
-        let cloudStatus = app.descendants(matching: .any)["cloud-backup-status"]
+        let cloudStatus = app.descendants(matching: .any)
+            .matching(identifier: "cloud-backup-status")
+            .firstMatch
         XCTAssertTrue(cloudStatus.waitForExistence(timeout: 5))
         XCTAssertTrue(cloudStatus.label.contains("云备份未启用"))
     }
