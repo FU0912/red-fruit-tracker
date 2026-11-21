@@ -1256,10 +1256,13 @@ private struct StatsView: View {
                     .accessibilityIdentifier("tag-statistics-year-\(year)")
                 }
             } label: {
-                Label(Text(verbatim: "\(selectedStatisticsYear)年"), systemImage: "chevron.down")
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.down")
+                    Text("\(selectedStatisticsYear)年")
+                }
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
             }
             .accessibilityIdentifier("tag-statistics-year-menu")
             .accessibilityLabel("统计年份")
@@ -1569,7 +1572,7 @@ private struct UpdateNotificationListView: View {
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: item.isRead ? "bell" : "bell.badge.fill")
-                    .foregroundStyle(item.isRead ? .secondary : .orange)
+                    .foregroundStyle(item.isRead ? Color.secondary : Color.orange)
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.title)
