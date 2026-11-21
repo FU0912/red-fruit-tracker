@@ -128,13 +128,17 @@ jobs:
             echo "Unsigned device app was not found at $app_path"
           fi
 
-      - name: Verify unsigned package skips CloudKit startup
+      - name: Verify CloudKit requires the signed container entitlement
         if: success()
         run: |
           app_path="build/RedFruitTracker.xcarchive/Products/Applications/RedFruitTracker.app"
           cloudkit_enabled=$(/usr/libexec/PlistBuddy -c 'Print :RedFruitCloudKitEnabled' "$app_path/Info.plist")
-          if [ "$cloudkit_enabled" != "false" ]; then
-            echo "Unsigned package must keep RedFruitCloudKitEnabled=false."
+          if [ "$cloudkit_enabled" != "true" ]; then
+            echo "This build must include the CloudKit flow behind its entitlement check."
+            exit 1
+          fi
+          if ! grep -q 'hasCloudKitEntitlements' RedFruitTracker/Services/CloudKitBackupService.swift; then
+            echo "CloudKit startup must check the signed container entitlement first."
             exit 1
           fi
 

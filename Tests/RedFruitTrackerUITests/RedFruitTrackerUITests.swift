@@ -5,7 +5,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        XCTAssertTrue(app.textFields["library-search-field"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["library-search-field"].waitForExistence(timeout: 10))
         let cloudStatus = app.descendants(matching: .any)
             .matching(identifier: "cloud-backup-status")
             .firstMatch
@@ -33,7 +33,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textFields["library-search-field"].exists)
+        XCTAssertTrue(app.buttons["library-search-field"].exists)
         XCTAssertTrue(app.staticTexts["还没有记录"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["添加作品"].firstMatch.exists)
 
@@ -61,8 +61,8 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launchArguments = ["--ui-testing", "--ui-testing-fixture", "--ui-testing-refresh"]
         app.launch()
 
-        let searchField = app.textFields["library-search-field"]
-        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        let searchButton = app.buttons["library-search-field"]
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["cloud-backup-button"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["cloud-backup-status"].exists)
         let title = app.staticTexts["library-header-title"]
@@ -70,8 +70,10 @@ final class RedFruitTrackerUITests: XCTestCase {
         let progress = app.descendants(matching: .any)["library-refresh-progress"]
         XCTAssertFalse(progress.exists)
 
-        searchField.tap()
+        searchButton.tap()
+        XCTAssertTrue(app.navigationBars["搜索作品"].waitForExistence(timeout: 5))
         XCTAssertFalse(progress.exists)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
 
         let refreshButton = app.buttons["library-refresh-button"]
         XCTAssertTrue(refreshButton.waitForExistence(timeout: 5))
@@ -89,7 +91,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textFields["library-search-field"].exists)
+        XCTAssertTrue(app.buttons["library-search-field"].exists)
         XCTAssertFalse(app.navigationBars["漫剧记录"].exists)
 
         let title = app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch
@@ -108,7 +110,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(libraryList.exists)
         libraryList.swipeUp()
         XCTAssertFalse(app.staticTexts["library-header-title"].isHittable)
-        XCTAssertFalse(app.textFields["library-search-field"].isHittable)
+        XCTAssertFalse(app.buttons["library-search-field"].isHittable)
         libraryList.swipeDown()
         XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
 
@@ -213,7 +215,7 @@ final class RedFruitTrackerUITests: XCTestCase {
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textFields["library-search-field"].exists)
+        XCTAssertTrue(app.buttons["library-search-field"].exists)
         XCTAssertFalse(app.navigationBars["漫剧记录"].exists)
         XCTAssertTrue(app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch.exists)
 

@@ -17,6 +17,7 @@ struct RootView: View {
     @StateObject private var cloudBackup = CloudKitBackupCoordinator()
     @State private var selectedTab = 0
     @State private var isShowingAdd = false
+    @State private var cloudBackupFeedback: String?
     @State private var pendingShareURL: URL?
     @State private var presentedShareURL: URL?
     @State private var pendingShareRetryToken = 0
@@ -30,6 +31,7 @@ struct RootView: View {
                 onManualCloudBackup: {
                     Task { @MainActor in
                         await cloudBackup.manualSync(context: modelContext)
+                        cloudBackupFeedback = cloudBackup.state.feedbackMessage
                     }
                 }
             )
@@ -80,6 +82,14 @@ struct RootView: View {
             guard let tag = notification.object as? String else { return }
             selectedTab = 0
             NotificationCenter.default.post(name: .applyLibraryTagSearch, object: tag)
+        }
+        .alert("iCloud 云备份", isPresented: Binding(
+            get: { cloudBackupFeedback != nil },
+            set: { if !$0 { cloudBackupFeedback = nil } }
+        )) {
+            Button("好", role: .cancel) { cloudBackupFeedback = nil }
+        } message: {
+            Text(cloudBackupFeedback ?? "")
         }
     }
 
@@ -154,6 +164,8 @@ private struct LibraryView: View {
 
     @AppStorage("redFruitTracker.officialRatingTrendCleaned") private var didClearLegacyRatingTrend = false
     @State private var searchText = ""
+    @State private var selectedTags = Set<String>()
+    @State private var isShowingLibrarySearch = false
     @State private var isRefreshingAll = false
     @State private var refreshProgress = BatchRefreshProgress(total: 0)
     @State private var refreshTask: Task<Void, Never>?
@@ -165,8 +177,14 @@ private struct LibraryView: View {
 
     private var visibleSeries: [SeriesRecord] {
         series.filter {
-            LibrarySearch.matches(title: $0.title, tags: $0.tagsText, intro: $0.intro, query: searchText)
+            let matchesText = LibrarySearch.matches(title: $0.title, tags: $0.tagsText, intro: $0.intro, query: searchText)
+            let matchesTags = selectedTags.isEmpty || !selectedTags.isDisjoint(with: tagValues($0.tagsText))
+            return matchesText && matchesTags
         }
+    }
+
+    private var allTags: [String] {
+        Array(Set(series.flatMap { tagValues($0.tagsText) })).sorted()
     }
 
     var body: some View {
@@ -182,9 +200,11 @@ private struct LibraryView: View {
                             onCancel: cancelRefresh,
                             onRefreshAll: refreshAllMetadata,
                             cloudBackupState: cloudBackupState,
-                            onManualCloudBackup: onManualCloudBackup
+                            onManualCloudBackup: onManualCloudBackup,
+                            onOpenSearch: { isShowingLibrarySearch = true },
+                            selectedTags: $selectedTags
                         )
-                        LibraryEmptyState(isSearching: !searchText.isEmpty, onAdd: onAdd)
+                        LibraryEmptyState(isSearching: !searchText.isEmpty || !selectedTags.isEmpty, onAdd: onAdd)
                     }
                 } else {
                     List {
@@ -196,7 +216,9 @@ private struct LibraryView: View {
                             onCancel: cancelRefresh,
                             onRefreshAll: refreshAllMetadata,
                             cloudBackupState: cloudBackupState,
-                            onManualCloudBackup: onManualCloudBackup
+                            onManualCloudBackup: onManualCloudBackup,
+                            onOpenSearch: { isShowingLibrarySearch = true },
+                            selectedTags: $selectedTags
                         )
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
@@ -257,6 +279,14 @@ private struct LibraryView: View {
             .navigationDestination(item: $selectedSeries) { series in
                 SeriesDetailView(series: series)
             }
+            .navigationDestination(isPresented: $isShowingLibrarySearch) {
+                LibraryTagSearchView(
+                    searchText: $searchText,
+                    tags: allTags,
+                    selectedTags: $selectedTags,
+                    matchingCount: visibleSeries.count
+                )
+            }
             .alert("删除这部漫剧？", isPresented: Binding(
                 get: { seriesToDelete != nil },
                 set: { if !$0 { seriesToDelete = nil } }
@@ -297,8 +327,10 @@ private struct LibraryView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .applyLibraryTagSearch)) { notification in
                 guard let tag = notification.object as? String else { return }
-                searchText = "#\(tag)"
+                searchText = ""
+                selectedTags = [tag]
                 selectedSeries = nil
+                isShowingLibrarySearch = false
             }
         }
     }
@@ -532,6 +564,8 @@ private struct LibraryHeader: View {
     let onRefreshAll: () -> Void
     let cloudBackupState: CloudBackupState
     let onManualCloudBackup: () -> Void
+    let onOpenSearch: () -> Void
+    @Binding var selectedTags: Set<String>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -624,24 +658,34 @@ private struct LibraryHeader: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button(action: onOpenSearch) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        Text(searchText.isEmpty ? "搜索作品名、简介或标签" : searchText)
+                            .foregroundStyle(searchText.isEmpty ? Color.secondary : Color.primary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("library-search-field")
+                .accessibilityLabel("搜索作品名、简介或标签")
 
-                TextField("搜索作品名、简介或 #标签", text: $searchText)
-                    .textInputAutocapitalization(.never)
-                    .accessibilityIdentifier("library-search-field")
-
-                if !searchText.isEmpty {
+                if !searchText.isEmpty || !selectedTags.isEmpty {
                     Button {
                         searchText = ""
+                        selectedTags.removeAll()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("清除搜索")
+                    .accessibilityLabel("清除搜索和标签筛选")
                 }
             }
             .padding(.horizontal, 14)

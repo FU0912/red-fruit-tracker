@@ -2,6 +2,7 @@ import CloudKit
 import Combine
 import CryptoKit
 import Foundation
+import Security
 import SwiftData
 
 extension Notification.Name {
@@ -394,13 +395,47 @@ enum CloudBackupState: Equatable {
         case .unavailable, .failed: return "exclamationmark.icloud"
         }
     }
+
+    var feedbackMessage: String {
+        switch self {
+        case .idle:
+            return "尚未完成 iCloud 备份。"
+        case .syncing:
+            return "正在同步到 iCloud。"
+        case .synced(let date):
+            return "备份完成，时间：\(date.formatted(date: .omitted, time: .shortened))。"
+        case .unavailable(let message):
+            return message
+        case .failed(let message):
+            return "云备份失败：\(message)"
+        }
+    }
 }
 
 enum CloudBackupRuntimePolicy {
-    static let disabledMessage = "云备份未启用，本机记录正常保存"
+    static let disabledMessage = "云备份未启用，本机记录正常保存。"
+    static let missingEntitlementMessage = "当前安装签名没有 iCloud 容器权限；请使用已启用 CloudKit 的签名配置重新签名。记录仍保存在本机。"
 
     static var isCloudKitEnabled: Bool {
         Bundle.main.object(forInfoDictionaryKey: "RedFruitCloudKitEnabled") as? Bool == true
+    }
+
+    static func hasCloudKitEntitlements(containerIdentifier: String) -> Bool {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let services = SecTaskCopyValueForEntitlement(
+                task,
+                "com.apple.developer.icloud-services" as CFString,
+                nil
+              ) as? [String],
+              let containers = SecTaskCopyValueForEntitlement(
+                task,
+                "com.apple.developer.icloud-container-identifiers" as CFString,
+                nil
+              ) as? [String] else {
+            return false
+        }
+
+        return services.contains("CloudKit") && containers.contains(containerIdentifier)
     }
 }
 
@@ -541,6 +576,12 @@ final class CloudKitBackupCoordinator: ObservableObject {
             state = .unavailable(CloudBackupRuntimePolicy.disabledMessage)
             return false
         }
+        guard injectedContainer != nil || CloudBackupRuntimePolicy.hasCloudKitEntitlements(
+            containerIdentifier: Self.containerIdentifier
+        ) else {
+            state = .unavailable(CloudBackupRuntimePolicy.missingEntitlementMessage)
+            return false
+        }
         return true
     }
 
@@ -587,6 +628,8 @@ final class CloudKitBackupCoordinator: ObservableObject {
         switch cloudError.code {
         case .notAuthenticated:
             return .unavailable("请登录 iCloud")
+        case .permissionFailure, .badContainer:
+            return .unavailable("当前签名没有访问此 iCloud 容器的权限；请检查 Apple Developer 中的 CloudKit 容器和签名描述文件。记录仍保存在本机。")
         case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited,
              .zoneBusy, .operationCancelled:
             return .unavailable("网络暂不可用，数据已保存在本机")
