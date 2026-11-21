@@ -71,7 +71,7 @@ jobs:
           if [ "${{ inputs.startup_compat_only }}" = "true" ]; then
             test_selection=(
               "-only-testing:RedFruitTrackerTests"
-              "-only-testing:RedFruitTrackerUITests/testUnsignedBuildStaysOpenWithoutCloudKitEntitlement"
+              "-only-testing:RedFruitTrackerUITests/RedFruitTrackerUITests/testUnsignedBuildStaysOpenWithoutCloudKitEntitlement"
             )
           fi
           set -o pipefail
