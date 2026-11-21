@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      startup_compat_only:
+        description: Run all unit tests plus the unsigned-startup UI regression
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -62,6 +67,13 @@ jobs:
             exit 1
           fi
           echo "Using simulator: $device_id"
+          test_selection=()
+          if [ "${{ inputs.startup_compat_only }}" = "true" ]; then
+            test_selection=(
+              "-only-testing:RedFruitTrackerTests"
+              "-only-testing:RedFruitTrackerUITests/testUnsignedBuildStaysOpenWithoutCloudKitEntitlement"
+            )
+          fi
           set -o pipefail
           test_status=0
           xcodebuild test \
@@ -70,6 +82,7 @@ jobs:
             -destination "platform=iOS Simulator,id=$device_id" \
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO \
+            "${test_selection[@]}" \
             | tee xcodebuild-test.log || test_status=$?
           xcrun simctl io "$device_id" screenshot artifacts/simulator-final.png || true
           exit $test_status
