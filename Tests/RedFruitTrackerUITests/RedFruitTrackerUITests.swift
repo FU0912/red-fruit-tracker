@@ -160,14 +160,14 @@ final class RedFruitTrackerUITests: XCTestCase {
         let officialHeat = app.descendants(matching: .any)["official-heat"].firstMatch
         XCTAssertTrue(officialHeat.exists)
         XCTAssertTrue(officialHeat.label.contains("3930万"))
-        XCTAssertTrue(app.staticTexts["修仙"].exists)
+        XCTAssertTrue(app.buttons["detail-tag-修仙"].exists)
         XCTAssertFalse(app.textFields["episode-progress-input"].exists)
         XCTAssertFalse(app.buttons["第1集，已看，当前"].exists)
         XCTAssertFalse(app.buttons["第1集到第100集"].exists)
         XCTAssertFalse(app.buttons["第101集到第189集"].exists)
 
         let detailCover = app.descendants(matching: .any)["series-detail-cover"].firstMatch
-        let detailTitle = app.staticTexts["series-detail-title"].firstMatch
+        let detailTitle = app.buttons["copy-series-title"].firstMatch
         XCTAssertTrue(detailCover.exists)
         XCTAssertTrue(detailTitle.exists)
         XCTAssertLessThanOrEqual(detailCover.frame.width, 140)
@@ -268,14 +268,14 @@ final class RedFruitTrackerUITests: XCTestCase {
 
         app.tabBars.buttons["统计"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["tag-distribution-chart"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["tag-distribution-穿越"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["tag-distribution-穿越"].waitForExistence(timeout: 5))
         let periodControl = app.segmentedControls.firstMatch
         XCTAssertTrue(periodControl.waitForExistence(timeout: 5))
         XCTAssertTrue(periodControl.buttons["本月"].exists)
         XCTAssertTrue(periodControl.buttons["按年"].exists)
         XCTAssertFalse(periodControl.buttons["本季度"].exists)
-        let yearMenu = app.popUpButtons["tag-statistics-year-menu"]
-        XCTAssertTrue(yearMenu.exists)
+        let yearMenu = app.descendants(matching: .any)["tag-statistics-year-menu"]
+        XCTAssertTrue(yearMenu.waitForExistence(timeout: 5))
         periodControl.buttons["按年"].tap()
         yearMenu.tap()
         let currentYear = Calendar.current.component(.year, from: Date())
