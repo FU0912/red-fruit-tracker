@@ -398,7 +398,7 @@ enum CloudBackupState: Equatable {
 
 @MainActor
 final class CloudKitBackupCoordinator: ObservableObject {
-    static let containerIdentifier = "iCloud.com.f.redfruittracker"
+    nonisolated static let containerIdentifier = "iCloud.com.f.redfruittracker"
     private static let recordType = "LibraryBackup"
     private static let archiveField = "archive"
     private static let hashField = "archiveSHA256"
@@ -408,14 +408,17 @@ final class CloudKitBackupCoordinator: ObservableObject {
 
     @Published private(set) var state: CloudBackupState = .idle
 
-    private let container: CKContainer
+    private let injectedContainer: CKContainer?
+    private lazy var cloudContainer: CKContainer = {
+        CKContainer(identifier: Self.containerIdentifier)
+    }()
     private var debounceTask: Task<Void, Never>?
     private var isSyncing = false
     private var needsAnotherSync = false
     private var lastUploadedHash: String?
 
-    init(container: CKContainer = CKContainer(identifier: CloudKitBackupCoordinator.containerIdentifier)) {
-        self.container = container
+    init(container: CKContainer? = nil) {
+        injectedContainer = container
     }
 
     func start(context: ModelContext) async {
@@ -465,6 +468,7 @@ final class CloudKitBackupCoordinator: ObservableObject {
         }
 
         do {
+            let container = injectedContainer ?? cloudContainer
             let account = try await container.accountStatus()
             guard account == .available else {
                 state = .unavailable(accountMessage(for: account))
@@ -547,6 +551,8 @@ final class CloudKitBackupCoordinator: ObservableObject {
         case .noAccount: return "请登录 iCloud"
         case .restricted: return "iCloud 受限制"
         case .couldNotDetermine: return "iCloud 状态未知"
+        case .available: return "iCloud 可用"
+        case .temporarilyUnavailable: return "iCloud 暂不可用"
         @unknown default: return "iCloud 暂不可用"
         }
     }
