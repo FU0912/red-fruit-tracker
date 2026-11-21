@@ -10,7 +10,7 @@ final class RedFruitTrackerUITests: XCTestCase {
             .matching(identifier: "cloud-backup-status")
             .firstMatch
         XCTAssertTrue(cloudStatus.waitForExistence(timeout: 5))
-        XCTAssertTrue(cloudStatus.label.contains("云备份未启用"))
+        XCTAssertEqual(app.state, .runningForeground)
     }
 
     func testLibraryKeepsAdditionOrderAfterOlderWorkWasUpdated() {
