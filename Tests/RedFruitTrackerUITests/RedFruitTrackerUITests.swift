@@ -1,6 +1,16 @@
 import XCTest
 
 final class RedFruitTrackerUITests: XCTestCase {
+    func testUnsignedBuildStaysOpenWithoutCloudKitEntitlement() {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.textFields["library-search-field"].waitForExistence(timeout: 10))
+        let cloudStatus = app.descendants(matching: .any)["cloud-backup-status"]
+        XCTAssertTrue(cloudStatus.waitForExistence(timeout: 5))
+        XCTAssertTrue(cloudStatus.label.contains("云备份未启用"))
+    }
+
     func testLibraryKeepsAdditionOrderAfterOlderWorkWasUpdated() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-testing-order"]
