@@ -1712,6 +1712,8 @@ private struct TagStatisticsRankingView: View {
                 }
                 .padding(AppLayout.pageInset)
             }
+        }
+    }
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .navigationTitle("观看类型排行")
         .navigationBarTitleDisplayMode(.inline)
