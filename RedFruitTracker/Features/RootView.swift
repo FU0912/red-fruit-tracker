@@ -21,6 +21,7 @@ struct RootView: View {
     @State private var backupDocument: LibraryBackupFileDocument?
     @State private var isExportingBackup = false
     @State private var isImportingBackup = false
+    @State private var clipboardFeedback: String?
     @State private var pendingShareURL: URL?
     @State private var presentedShareURL: URL?
     @State private var pendingShareRetryToken = 0
@@ -31,6 +32,7 @@ struct RootView: View {
             LibraryView(
                 pendingShareURL: pendingShareURL,
                 onAdd: { isShowingAdd = true },
+                onImportFromClipboard: importClipboardShare,
                 onExportBackup: exportBackup,
                 onImportBackup: { isImportingBackup = true }
             )
@@ -115,6 +117,14 @@ struct RootView: View {
         } message: {
             Text(fileBackupFeedback ?? "")
         }
+        .alert("剪贴板导入", isPresented: Binding(
+            get: { clipboardFeedback != nil },
+            set: { if !$0 { clipboardFeedback = nil } }
+        )) {
+            Button("好", role: .cancel) { clipboardFeedback = nil }
+        } message: {
+            Text(clipboardFeedback ?? "")
+        }
     }
 
     @MainActor
@@ -126,6 +136,19 @@ struct RootView: View {
         } catch {
             fileBackupFeedback = "生成备份失败：\(error.localizedDescription)"
         }
+    }
+
+    @MainActor
+    private func importClipboardShare() {
+        guard let text = UIPasteboard.general.string,
+              let url = ClipboardShareDetector.redFruitURL(in: text) else {
+            clipboardFeedback = "剪贴板中没有可识别的红果漫剧链接。"
+            return
+        }
+
+        pendingShareURL = url
+        presentedShareURL = nil
+        isShowingAdd = true
     }
 
     @MainActor
@@ -224,6 +247,7 @@ private struct LibraryView: View {
 
     let pendingShareURL: URL?
     let onAdd: () -> Void
+    let onImportFromClipboard: () -> Void
     let onExportBackup: () -> Void
     let onImportBackup: () -> Void
 
@@ -346,6 +370,9 @@ private struct LibraryView: View {
                     .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
                     .accessibilityIdentifier("add-series-button")
                     .accessibilityLabel("添加作品")
+                    .onLongPressGesture(minimumDuration: 0.35, maximumDistance: 20) {
+                        onImportFromClipboard()
+                    }
                     .padding(.trailing, 18)
                     .padding(.bottom, 16)
                 }
