@@ -141,8 +141,8 @@ jobs:
             echo "File-based backup must not request an iCloud container entitlement."
             exit 1
           fi
-          if ! grep -q 'fileExporter' RedFruitTracker/Features/RootView.swift || ! grep -q 'fileImporter' RedFruitTracker/Features/RootView.swift; then
-            echo "File-based backup requires native export and import entry points."
+          if ! grep -q 'fileExporter' RedFruitTracker/Features/RootView.swift || ! grep -q 'BackupDocumentPicker' RedFruitTracker/Features/RootView.swift; then
+            echo "File-based backup requires native export and document picker entry points."
             exit 1
           fi
 
