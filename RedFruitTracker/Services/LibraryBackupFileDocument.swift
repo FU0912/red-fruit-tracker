@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 struct LibraryBackupFileDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.json] }
     static var writableContentTypes: [UTType] { [.json] }
-    static var writableContentTypes: [UTType] { [.json] }
 
     let data: Data
 
