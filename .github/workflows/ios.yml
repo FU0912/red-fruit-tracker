@@ -82,7 +82,7 @@ jobs:
             -destination "platform=iOS Simulator,id=$device_id" \
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO \
-            "${test_selection[@]}" \
+            "${test_selection[@]-}" \
             | tee xcodebuild-test.log || test_status=$?
           xcrun simctl io "$device_id" screenshot artifacts/simulator-final.png || true
           exit $test_status
