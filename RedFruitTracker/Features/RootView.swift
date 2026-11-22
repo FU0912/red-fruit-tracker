@@ -241,10 +241,12 @@ private struct LibraryView: View {
     @State private var deletionErrorMessage: String?
 
     private var visibleSeries: [SeriesRecord] {
-        series.filter {
-            let matchesText = LibrarySearch.matches(title: $0.title, tags: $0.tagsText, intro: $0.intro, query: searchText)
+        series.filter { item in
+            let matchesText = LibrarySearch.matches(title: item.title, tags: item.tagsText, intro: item.intro, query: searchText)
             let matchesTags = selectedTags.isEmpty || selectedTags.allSatisfy { selectedTag in
-                tagValues($0.tagsText).contains { $0.localizedCaseInsensitiveCompare(selectedTag) == .orderedSame }
+                tagValues(item.tagsText).contains { availableTag in
+                    availableTag.localizedCaseInsensitiveCompare(selectedTag) == .orderedSame
+                }
             }
             return matchesText && matchesTags
         }
