@@ -1296,6 +1296,7 @@ private struct StatsView: View {
     @State private var tagStatisticsYearOptions = [Calendar.current.component(.year, from: .now)]
     @State private var tagStatisticsSummary = TagStatisticsSummary(workCount: 0, slices: [])
     @State private var isLoadingTagStatistics = true
+    @State private var selectedFilter: LibraryFilter?
 
     private var completedCount: Int {
         series.filter { $0.completionStatus == SeriesCompletionStatus.completed.rawValue }.count
@@ -1514,8 +1515,8 @@ private struct StatsView: View {
 
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                         ForEach(LibraryFilter.allCases) { filter in
-                            NavigationLink {
-                                FilteredSeriesView(filter: filter)
+                            Button {
+                                selectedFilter = filter
                             } label: {
                                 StatTile(
                                     title: filter.title,
@@ -1525,7 +1526,6 @@ private struct StatsView: View {
                                 .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
                             .accessibilityIdentifier("stats-filter-\(filter.rawValue)")
                         }
                     }
@@ -1583,6 +1583,9 @@ private struct StatsView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(item: $selectedFilter) { filter in
+                FilteredSeriesView(filter: filter)
+            }
             .fullScreenCover(isPresented: $isShowingNotifications) {
                 UpdateNotificationListView()
             }
