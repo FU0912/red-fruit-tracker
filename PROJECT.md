@@ -1,5 +1,11 @@
 # 红果漫剧观看记录App
 
+## v1.2.69 原生文档选择器回调修正
+
+- 版本：`1.2.69`，主 App、分享扩展和 Widget build `72`。
+- 文件恢复不再使用 SwiftUI `.fileImporter`，改用原生 `UIDocumentPickerViewController` 的 delegate 回调接收 URL；选择器仍接受通用文件类型，JSON/schema 校验仍在应用内完成。
+- 这次改动针对文件在系统列表中可见但点击无选中、应用收不到回调的情况，导出格式和本地备份结构不变。
+
 ## v1.2.68 文件选择器根类型修正
 
 - 版本：`1.2.68`，主 App、分享扩展和 Widget build `71`。

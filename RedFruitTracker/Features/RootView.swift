@@ -88,15 +88,14 @@ struct RootView: View {
                 }
             }
         )
-        .fileImporter(
-            isPresented: $isImportingBackup,
-            // Providers can report the same .json as public.json, public.data,
-            // or a provider-specific type. Use the universal item type so the
-            // Files picker can select it; archive validation happens afterward.
-            allowedContentTypes: [.item],
-            allowsMultipleSelection: false,
-            onCompletion: importBackup
-        )
+        .sheet(isPresented: $isImportingBackup) {
+            BackupDocumentPicker { result in
+                Task { @MainActor in
+                    isImportingBackup = false
+                    importBackup(result)
+                }
+            }
+        }
         .alert("文件备份与恢复", isPresented: Binding(
             get: { fileBackupFeedback != nil },
             set: { if !$0 { fileBackupFeedback = nil } }
@@ -119,17 +118,13 @@ struct RootView: View {
     }
 
     @MainActor
-    private func importBackup(_ result: Result<[URL], Error>) {
+    private func importBackup(_ result: Result<URL, Error>) {
         switch result {
         case .failure(let error):
             if (error as? CocoaError)?.code != .userCancelled {
                 fileBackupFeedback = "恢复失败：\(error.localizedDescription)"
             }
-        case .success(let urls):
-            guard let url = urls.first else {
-                fileBackupFeedback = "没有收到所选备份文件，请重新选择 JSON 备份。"
-                return
-            }
+        case .success(let url):
             let didAccess = url.startAccessingSecurityScopedResource()
             defer {
                 if didAccess { url.stopAccessingSecurityScopedResource() }
