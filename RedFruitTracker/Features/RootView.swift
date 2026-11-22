@@ -1690,7 +1690,7 @@ private struct UpdateNotificationListView: View {
                 .accessibilityIdentifier("update-notification-segment")
                 notificationContent
             }
-            .navigationTitle("更新提醒")
+            .navigationTitle("我的预约")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -1748,6 +1748,7 @@ private struct UpdateNotificationListView: View {
     }
 
     private func notificationRow(_ item: UpdateNotificationRecord) -> some View {
+        let work = series.first { $0.sourceSeriesID == item.sourceSeriesID }
         Button {
             if editMode == .active {
                 if selectedIDs.contains(item.id) {
@@ -1763,34 +1764,49 @@ private struct UpdateNotificationListView: View {
             }
         } label: {
             HStack(alignment: .top, spacing: 12) {
-                if editMode == .active {
-                    Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(selectedIDs.contains(item.id) ? Color.accentColor : Color.secondary)
-                        .font(.title3)
-                } else {
-                    CoverView(
-                        urlString: series.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.coverURL,
-                        title: item.title,
-                        width: 58,
-                        height: 82
-                    )
-                }
+                CoverView(urlString: work?.coverURL, title: item.title, width: 66, height: 94)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.title)
                         .font(.headline)
                         .foregroundStyle(.primary)
+                        .lineLimit(2)
                     Text("第 \(nextSeasonNumber(for: item)) 季")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text(notificationTags(for: work))
+                        if let heat = work?.officialHeatText?.trimmingCharacters(in: .whitespacesAndNewlines), !heat.isEmpty {
+                            Text("·")
+                            Text(heat.replacingOccurrences(of: "热度", with: ""))
+                        }
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                     Text(AppDateText.monthDay(item.scheduledAt))
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tint)
+                    if let intro = work?.intro.trimmingCharacters(in: .whitespacesAndNewlines), !intro.isEmpty {
+                        Text(intro)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
                 Spacer(minLength: 0)
+                if editMode == .active {
+                    Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(selectedIDs.contains(item.id) ? Color.accentColor : Color.secondary)
+                        .font(.title3)
+                        .frame(width: 28, height: 44)
+                }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 10, leading: AppLayout.pageInset, bottom: 10, trailing: AppLayout.pageInset))
+        .listRowSeparator(.hidden)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if selectedSegment == 0 {
                 Button {
@@ -1808,6 +1824,11 @@ private struct UpdateNotificationListView: View {
                 Label("删除", systemImage: "trash")
             }
         }
+    }
+
+    private func notificationTags(for work: SeriesRecord?) -> String {
+        guard let work else { return "" }
+        return tagValues(work.tagsText).prefix(2).joined(separator: " · ")
     }
 
     private func markSelectedAsRead() {
@@ -2036,6 +2057,7 @@ private struct AddSeriesView: View {
     @State private var detectedTitle: String
     @State private var coverURLText = ""
     @State private var tagsText = ""
+    @State private var relatedIPKeyText = ""
     @State private var intro = ""
     @State private var officialRatingText = ""
     @State private var officialRatingCount: Int?
@@ -2158,6 +2180,8 @@ private struct AddSeriesView: View {
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                     TextField("标签，例如 修仙,爽剧", text: $tagsText)
+                    TextField("同 IP 关联名（可选）", text: $relatedIPKeyText)
+                        .textInputAutocapitalization(.never)
                     TextField("简介", text: $intro, axis: .vertical)
                         .lineLimit(3...6)
                 }
@@ -2355,6 +2379,9 @@ private struct AddSeriesView: View {
             }
             if target.tagsText.isEmpty {
                 target.tagsText = tagsText.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if let relatedIPKey = relatedIPKeyText.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank {
+                target.relatedIPKey = relatedIPKey
             }
             if let rating = Double(officialRatingText) { target.officialRating = rating }
             if let officialRatingCount { target.officialRatingCount = officialRatingCount }

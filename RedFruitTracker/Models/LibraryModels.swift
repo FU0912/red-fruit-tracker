@@ -520,6 +520,10 @@ final class SeriesRecord {
     var officialHeatText: String?
     var completionStatus: String?
     var manualSeasonCount: Int?
+    /// Shared key used to group adaptations of the same IP. It is deliberately
+    /// separate from the title because different adaptations often have small
+    /// title changes while still belonging to one source IP.
+    var relatedIPKey: String?
     var createdAt: Date
     var updatedAt: Date
 
@@ -536,6 +540,7 @@ final class SeriesRecord {
         officialHeatText: String? = nil,
         completionStatus: String? = nil,
         manualSeasonCount: Int? = nil,
+        relatedIPKey: String? = nil,
         createdAt: Date = .now,
         updatedAt: Date = .now
     ) {
@@ -551,6 +556,7 @@ final class SeriesRecord {
         self.officialHeatText = officialHeatText
         self.completionStatus = completionStatus
         self.manualSeasonCount = manualSeasonCount
+        self.relatedIPKey = relatedIPKey
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

@@ -19,11 +19,15 @@ struct SeriesDetailView: View {
     @Query
     private var personalRecords: [PersonalRecord]
 
+    @Query(sort: \SeriesRecord.createdAt, order: .reverse)
+    private var allSeries: [SeriesRecord]
+
     @State private var isIntroExpanded = false
     @State private var notice: String?
     @State private var personalSaveError: String?
     @State private var pendingBrowserFallbackURL: URL?
     @State private var reviewFocusGeneration = 0
+    @State private var isShowingSeriesEdit = false
 
     init(series: SeriesRecord) {
         self.series = series
@@ -62,6 +66,7 @@ struct SeriesDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: AppLayout.sectionSpacing) {
                     detailHeader
+                    relatedWorksSection
                     introSection
                     personalSection {
                         reviewFocusGeneration += 1
@@ -87,6 +92,20 @@ struct SeriesDetailView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    isShowingSeriesEdit = true
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("编辑作品")
+                .accessibilityIdentifier("edit-series-button")
+            }
+        }
+        .sheet(isPresented: $isShowingSeriesEdit) {
+            EditSeriesView(series: series)
+        }
         .alert("提示", isPresented: Binding(
             get: { notice != nil },
             set: { if !$0 { notice = nil } }
@@ -168,6 +187,65 @@ struct SeriesDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 6)
+    }
+
+    private var relatedSeries: [SeriesRecord] {
+        guard let key = series.relatedIPKey?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else {
+            return []
+        }
+        let normalizedKey = key.lowercased()
+        return allSeries.filter {
+            $0.sourceSeriesID != series.sourceSeriesID
+                && $0.relatedIPKey?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedKey
+        }
+    }
+
+    @ViewBuilder
+    private var relatedWorksSection: some View {
+        if !relatedSeries.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("相关作品")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(relatedSeries) { related in
+                            NavigationLink {
+                                SeriesDetailView(series: related)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 7) {
+                                    ZStack(alignment: .topTrailing) {
+                                        CoverView(
+                                            urlString: related.coverURL,
+                                            title: related.title,
+                                            width: 116,
+                                            height: 164
+                                        )
+                                        Text("同 IP")
+                                            .font(.caption2.weight(.bold))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 7)
+                                            .padding(.vertical, 5)
+                                            .background(.black.opacity(0.62), in: Capsule())
+                                            .padding(7)
+                                    }
+                                    Text(related.title)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .multilineTextAlignment(.leading)
+                                        .lineLimit(2)
+                                        .frame(width: 116, alignment: .leading)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("同 IP：\(related.title)")
+                        }
+                    }
+                }
+            }
+            .accessibilityIdentifier("related-works-section")
+        }
     }
 
     private var officialMetadataSection: some View {
@@ -806,6 +884,7 @@ private struct EditSeriesView: View {
     @State private var tagsText: String
     @State private var intro: String
     @State private var completionStatus: String
+    @State private var relatedIPKey: String
 
     init(series: SeriesRecord) {
         self.series = series
@@ -815,6 +894,7 @@ private struct EditSeriesView: View {
         _tagsText = State(initialValue: series.tagsText)
         _intro = State(initialValue: series.intro)
         _completionStatus = State(initialValue: series.completionStatus ?? SeriesCompletionStatus.unknown.rawValue)
+        _relatedIPKey = State(initialValue: series.relatedIPKey ?? "")
     }
 
     var body: some View {
@@ -832,6 +912,8 @@ private struct EditSeriesView: View {
                         .lineLimit(1...3)
                     TextField("简介", text: $intro, axis: .vertical)
                         .lineLimit(4...10)
+                    TextField("同 IP 关联名（可选）", text: $relatedIPKey)
+                        .textInputAutocapitalization(.never)
 
                     Picker("完结状态", selection: $completionStatus) {
                         ForEach(SeriesCompletionStatus.allCases) { status in
@@ -854,6 +936,7 @@ private struct EditSeriesView: View {
                         series.tagsText = tagsText.trimmingCharacters(in: .whitespacesAndNewlines)
                         series.intro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
                         series.completionStatus = completionStatus
+                        series.relatedIPKey = relatedIPKey.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
                         series.updatedAt = .now
                         try? modelContext.saveAndNotifyCloudBackup()
                         dismiss()
