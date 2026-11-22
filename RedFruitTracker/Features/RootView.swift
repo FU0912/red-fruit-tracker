@@ -1749,7 +1749,7 @@ private struct UpdateNotificationListView: View {
 
     private func notificationRow(_ item: UpdateNotificationRecord) -> some View {
         let work = series.first { $0.sourceSeriesID == item.sourceSeriesID }
-        Button {
+        return Button {
             if editMode == .active {
                 if selectedIDs.contains(item.id) {
                     selectedIDs.remove(item.id)
