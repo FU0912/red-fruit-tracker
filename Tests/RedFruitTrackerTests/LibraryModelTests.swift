@@ -500,7 +500,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(ShelfState.resolve(personal.localShelfState), .finished)
         XCTAssertTrue(personal.followsUpdates)
         XCTAssertEqual(personal.followedAt, Date(timeIntervalSince1970: 123))
-        XCTAssertEqual(LibraryFilter.followed.title, "追更/预约")
+        XCTAssertEqual(LibraryFilter.followed.title, "追更")
     }
 
     func testTagStatisticsCountsEachWatchedWorkOnceAndSplitsMultipleTags() {

@@ -1288,9 +1288,6 @@ private struct StatsView: View {
     private var episodes: [EpisodeRecord]
     @Query(sort: \OfficialSnapshot.capturedAt, order: .reverse)
     private var snapshots: [OfficialSnapshot]
-    @Query(sort: \UpdateNotificationRecord.scheduledAt, order: .reverse)
-    private var updateNotifications: [UpdateNotificationRecord]
-    @State private var isShowingNotifications = false
     @State private var tagStatisticsPeriod: TagStatisticsPeriod = .all
     @State private var selectedStatisticsYear = Calendar.current.component(.year, from: .now)
     @State private var tagStatisticsYearOptions = [Calendar.current.component(.year, from: .now)]
@@ -1491,21 +1488,6 @@ private struct StatsView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    HStack {
-                        Spacer(minLength: 0)
-                        Button {
-                            isShowingNotifications = true
-                        } label: {
-                            Image(systemName: updateNotifications.contains(where: { !$0.isRead }) ? "bell.badge.fill" : "bell")
-                                .font(.title2.weight(.semibold))
-                                .frame(width: 56, height: 56)
-                        }
-                        .accessibilityLabel("更新提醒")
-                        .accessibilityIdentifier("update-notifications-button")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 2)
-
                     tagStatisticsSection(
                         summary: tagStatisticsSummary,
                         displayedSlices: displayedSlices,
@@ -1514,7 +1496,7 @@ private struct StatsView: View {
                     )
 
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        ForEach(LibraryFilter.allCases) { filter in
+                        ForEach(LibraryFilter.allCases.filter { $0 != .all }) { filter in
                             Button {
                                 selectedFilter = filter
                             } label: {
@@ -1583,11 +1565,10 @@ private struct StatsView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(item: $selectedFilter) { filter in
-                FilteredSeriesView(filter: filter)
-            }
-            .fullScreenCover(isPresented: $isShowingNotifications) {
-                UpdateNotificationListView()
+            .sheet(item: $selectedFilter) { filter in
+                NavigationStack {
+                    FilteredSeriesView(filter: filter)
+                }
             }
         }
         .task(id: request) {
@@ -2032,6 +2013,10 @@ private extension StatsView {
             return ongoingCount
         case .unknown:
             return unknownStatusCount
+        case .appointments:
+            return series.filter { item in
+                personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.nextSeasonDate != nil
+            }.count
         case .followed:
             return series.filter { item in
                 personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.followsUpdates == true
@@ -2095,6 +2080,8 @@ private struct FilteredSeriesView: View {
             case .unknown:
                 return item.completionStatus == nil
                     || item.completionStatus == SeriesCompletionStatus.unknown.rawValue
+            case .appointments:
+                return personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.nextSeasonDate != nil
             case .followed:
                 return personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.followsUpdates == true
             case .unstarted, .watching, .finished, .paused, .dropped:

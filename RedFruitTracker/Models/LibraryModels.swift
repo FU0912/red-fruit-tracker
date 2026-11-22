@@ -109,6 +109,7 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     case completed
     case ongoing
     case unknown
+    case appointments
     case followed
     case unstarted
     case watching
@@ -124,7 +125,8 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
         case .completed: return "已完结"
         case .ongoing: return "未完结"
         case .unknown: return "未选择"
-        case .followed: return "追更/预约"
+        case .appointments: return "预约"
+        case .followed: return "追更"
         case .unstarted: return "未开始"
         case .watching: return "观看中"
         case .finished: return "已看完"
@@ -139,6 +141,7 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
         case .completed: return "checkmark.seal"
         case .ongoing: return "clock"
         case .unknown: return "questionmark.circle"
+        case .appointments: return "calendar.badge.clock"
         case .followed: return "bell.badge"
         case .unstarted: return "bookmark"
         case .watching: return "play.circle"
