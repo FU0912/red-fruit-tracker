@@ -54,6 +54,13 @@ enum SeriesCompletionStatus: String, CaseIterable, Identifiable {
     }
 }
 
+enum RelatedIPGroup {
+    static func key(existingKey: String?, sourceSeriesID: String) -> String {
+        let trimmedKey = existingKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedKey.isEmpty ? "related-ip:\(sourceSeriesID)" : trimmedKey
+    }
+}
+
 enum ShelfState: String, CaseIterable, Identifiable {
     case unstarted
     case watching

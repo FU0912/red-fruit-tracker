@@ -28,6 +28,7 @@ struct SeriesDetailView: View {
     @State private var pendingBrowserFallbackURL: URL?
     @State private var reviewFocusGeneration = 0
     @State private var isShowingSeriesEdit = false
+    @State private var isShowingRelatedSeriesAdd = false
 
     init(series: SeriesRecord) {
         self.series = series
@@ -202,12 +203,27 @@ struct SeriesDetailView: View {
 
     @ViewBuilder
     private var relatedWorksSection: some View {
-        if !relatedSeries.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
                 Text("相关作品")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
+                Spacer()
+                Button {
+                    isShowingRelatedSeriesAdd = true
+                } label: {
+                    Label("添加同 IP", systemImage: "plus")
+                        .font(.subheadline.weight(.medium))
+                }
+                .foregroundStyle(DetailTheme.accent)
+                .accessibilityIdentifier("add-related-series-button")
+            }
 
+            if relatedSeries.isEmpty {
+                Text("粘贴红果分享内容，即可自动读取并关联作品")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(relatedSeries) { related in
@@ -244,7 +260,10 @@ struct SeriesDetailView: View {
                     }
                 }
             }
-            .accessibilityIdentifier("related-works-section")
+        }
+        .accessibilityIdentifier("related-works-section")
+        .sheet(isPresented: $isShowingRelatedSeriesAdd) {
+            AddSeriesView(initialURL: nil, relatedToSeriesID: series.sourceSeriesID) {}
         }
     }
 
@@ -884,7 +903,6 @@ private struct EditSeriesView: View {
     @State private var tagsText: String
     @State private var intro: String
     @State private var completionStatus: String
-    @State private var relatedIPKey: String
 
     init(series: SeriesRecord) {
         self.series = series
@@ -894,7 +912,6 @@ private struct EditSeriesView: View {
         _tagsText = State(initialValue: series.tagsText)
         _intro = State(initialValue: series.intro)
         _completionStatus = State(initialValue: series.completionStatus ?? SeriesCompletionStatus.unknown.rawValue)
-        _relatedIPKey = State(initialValue: series.relatedIPKey ?? "")
     }
 
     var body: some View {
@@ -912,9 +929,6 @@ private struct EditSeriesView: View {
                         .lineLimit(1...3)
                     TextField("简介", text: $intro, axis: .vertical)
                         .lineLimit(4...10)
-                    TextField("同 IP 关联名（可选）", text: $relatedIPKey)
-                        .textInputAutocapitalization(.never)
-
                     Picker("完结状态", selection: $completionStatus) {
                         ForEach(SeriesCompletionStatus.allCases) { status in
                             Text(status.title).tag(status.rawValue)
@@ -936,7 +950,6 @@ private struct EditSeriesView: View {
                         series.tagsText = tagsText.trimmingCharacters(in: .whitespacesAndNewlines)
                         series.intro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
                         series.completionStatus = completionStatus
-                        series.relatedIPKey = relatedIPKey.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
                         series.updatedAt = .now
                         try? modelContext.saveAndNotifyCloudBackup()
                         dismiss()

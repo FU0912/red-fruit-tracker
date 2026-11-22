@@ -1685,8 +1685,10 @@ private struct UpdateNotificationListView: View {
                     Text("待上线·\(pendingNotifications.count)").tag(1)
                 }
                 .pickerStyle(.segmented)
-                .padding(.horizontal, AppLayout.pageInset)
-                .padding(.vertical, 10)
+                .controlSize(.small)
+                .frame(height: 28)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 2)
                 .accessibilityIdentifier("update-notification-segment")
                 notificationContent
             }
@@ -1742,7 +1744,9 @@ private struct UpdateNotificationListView: View {
                     notificationRow(item)
                 }
             }
-            .listStyle(.insetGrouped)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color(uiColor: .systemGroupedBackground))
             .animation(.default, value: visibleNotifications.map(\.id))
         }
     }
@@ -1763,16 +1767,21 @@ private struct UpdateNotificationListView: View {
                 dismiss()
             }
         } label: {
-            HStack(alignment: .top, spacing: 12) {
-                CoverView(urlString: work?.coverURL, title: item.title, width: 66, height: 94)
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 8) {
+                CoverView(urlString: work?.coverURL, title: item.title, width: 58, height: 80)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
-                        .font(.headline)
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
-                        .lineLimit(2)
-                    Text("第 \(nextSeasonNumber(for: item)) 季")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text("第 \(nextSeasonNumber(for: item)) 季")
+                        Text("·")
+                        Text(AppDateText.monthDay(item.scheduledAt))
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                     HStack(spacing: 4) {
                         Text(notificationTags(for: work))
                         if let heat = work?.officialHeatText?.trimmingCharacters(in: .whitespacesAndNewlines), !heat.isEmpty {
@@ -1780,32 +1789,35 @@ private struct UpdateNotificationListView: View {
                             Text(heat.replacingOccurrences(of: "热度", with: ""))
                         }
                     }
-                    .font(.subheadline)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    Text(AppDateText.monthDay(item.scheduledAt))
-                        .font(.subheadline)
-                        .foregroundStyle(.tint)
                     if let intro = work?.intro.trimmingCharacters(in: .whitespacesAndNewlines), !intro.isEmpty {
                         Text(intro)
-                            .font(.subheadline)
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }
                 }
-                Spacer(minLength: 0)
-                if editMode == .active {
+                .frame(maxWidth: .infinity, minHeight: 80, maxHeight: 80, alignment: .topLeading)
+
+                ZStack {
                     Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(selectedIDs.contains(item.id) ? Color.accentColor : Color.secondary)
-                        .font(.title3)
-                        .frame(width: 28, height: 44)
+                        .font(.body)
+                        .frame(width: 22, height: 22)
+                        .opacity(editMode == .active ? 1 : 0)
+                        .accessibilityHidden(editMode != .active)
                 }
+                .frame(width: 22, height: 80, alignment: .center)
             }
+            .frame(height: 80, alignment: .top)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 10, leading: AppLayout.pageInset, bottom: 10, trailing: AppLayout.pageInset))
+        .listRowInsets(EdgeInsets(top: 3, leading: 6, bottom: 3, trailing: 6))
+        .listRowBackground(Color(uiColor: .systemGroupedBackground))
         .listRowSeparator(.hidden)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if selectedSegment == 0 {
@@ -2045,19 +2057,19 @@ private struct SeasonChangeLogView: View {
     }
 }
 
-private struct AddSeriesView: View {
+struct AddSeriesView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
     let initialURL: URL?
     let autoSaveInitialURL: Bool
+    let relatedToSeriesID: String?
     let onSaved: () -> Void
 
     @State private var sourceURLText: String
     @State private var detectedTitle: String
     @State private var coverURLText = ""
     @State private var tagsText = ""
-    @State private var relatedIPKeyText = ""
     @State private var intro = ""
     @State private var officialRatingText = ""
     @State private var officialRatingCount: Int?
@@ -2083,10 +2095,12 @@ private struct AddSeriesView: View {
     init(
         initialURL: URL?,
         autoSaveInitialURL: Bool = false,
+        relatedToSeriesID: String? = nil,
         onSaved: @escaping () -> Void
     ) {
         self.initialURL = initialURL
         self.autoSaveInitialURL = autoSaveInitialURL
+        self.relatedToSeriesID = relatedToSeriesID
         self.onSaved = onSaved
         _sourceURLText = State(initialValue: initialURL?.absoluteString ?? "")
         _detectedTitle = State(initialValue: initialURL.flatMap { TitleNormalizer.fallback(from: $0) } ?? "")
@@ -2180,10 +2194,13 @@ private struct AddSeriesView: View {
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                     TextField("标签，例如 修仙,爽剧", text: $tagsText)
-                    TextField("同 IP 关联名（可选）", text: $relatedIPKeyText)
-                        .textInputAutocapitalization(.never)
                     TextField("简介", text: $intro, axis: .vertical)
                         .lineLimit(3...6)
+                    if relatedToSeriesID != nil {
+                        Label("保存后自动关联到当前作品的同 IP 作品", systemImage: "link")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("官方数据（可选）") {
@@ -2369,6 +2386,32 @@ private struct AddSeriesView: View {
                 modelContext.insert(target)
             }
 
+            if let relatedToSeriesID, sourceID != relatedToSeriesID {
+                let relatedDescriptor = FetchDescriptor<SeriesRecord>(
+                    predicate: #Predicate<SeriesRecord> { $0.sourceSeriesID == relatedToSeriesID }
+                )
+                if let relatedWork = try modelContext.fetch(relatedDescriptor).first {
+                    let groupKey = RelatedIPGroup.key(
+                        existingKey: relatedWork.relatedIPKey,
+                        sourceSeriesID: relatedWork.sourceSeriesID
+                    )
+                    relatedWork.relatedIPKey = groupKey
+                    relatedWork.updatedAt = .now
+                    if let previousKey = target.relatedIPKey?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !previousKey.isEmpty,
+                       previousKey != groupKey {
+                        let previousGroupDescriptor = FetchDescriptor<SeriesRecord>(
+                            predicate: #Predicate<SeriesRecord> { $0.relatedIPKey == previousKey }
+                        )
+                        for member in try modelContext.fetch(previousGroupDescriptor) {
+                            member.relatedIPKey = groupKey
+                            member.updatedAt = .now
+                        }
+                    }
+                    target.relatedIPKey = groupKey
+                }
+            }
+
             target.sourceURL = SeriesLinkPolicy.primary(existing: target.sourceURL, incoming: cleanURL)
             target.title = cleanTitle
             if CoverURLSelector.shouldReplaceExisting(target.coverURL), let coverURL = coverURLText.nilIfBlank {
@@ -2379,9 +2422,6 @@ private struct AddSeriesView: View {
             }
             if target.tagsText.isEmpty {
                 target.tagsText = tagsText.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            if let relatedIPKey = relatedIPKeyText.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank {
-                target.relatedIPKey = relatedIPKey
             }
             if let rating = Double(officialRatingText) { target.officialRating = rating }
             if let officialRatingCount { target.officialRatingCount = officialRatingCount }

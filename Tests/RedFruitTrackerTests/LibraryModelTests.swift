@@ -3,6 +3,17 @@ import SwiftData
 @testable import RedFruitTracker
 
 final class LibraryModelTests: XCTestCase {
+    func testRelatedIPGroupKeepsExistingGroupOrCreatesStableOne() {
+        XCTAssertEqual(
+            RelatedIPGroup.key(existingKey: "  novel-series  ", sourceSeriesID: "series-1"),
+            "novel-series"
+        )
+        XCTAssertEqual(
+            RelatedIPGroup.key(existingKey: "  ", sourceSeriesID: "series-1"),
+            "related-ip:series-1"
+        )
+    }
+
     @MainActor
     func testDisabledCloudBackupNeverTouchesCloudKitAndKeepsLocalData() async throws {
         let schema = Schema([SeriesRecord.self])
@@ -46,6 +57,7 @@ final class LibraryModelTests: XCTestCase {
             officialRating: 8.8,
             officialHeatText: "3600万",
             completionStatus: SeriesCompletionStatus.ongoing.rawValue,
+            relatedIPKey: "related-ip:backup-series",
             createdAt: date,
             updatedAt: date
         )
