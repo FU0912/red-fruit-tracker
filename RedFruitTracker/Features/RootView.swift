@@ -1693,7 +1693,7 @@ private struct UpdateNotificationListView: View {
             .navigationTitle("更新提醒")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button(editMode == .active ? "完成" : "编辑") {
                         withAnimation {
                             editMode = editMode == .active ? .inactive : .active
@@ -1702,7 +1702,7 @@ private struct UpdateNotificationListView: View {
                     }
                     .accessibilityIdentifier("update-notification-edit")
                 }
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") { dismiss() }
                 }
             }
