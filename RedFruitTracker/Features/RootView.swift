@@ -24,6 +24,7 @@ struct RootView: View {
     @State private var pendingShareURL: URL?
     @State private var presentedShareURL: URL?
     @State private var pendingShareRetryToken = 0
+    @State private var statsNavigationToken = UUID()
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -39,6 +40,7 @@ struct RootView: View {
             .tag(0)
 
             StatsView()
+                .id(statsNavigationToken)
                 .tabItem {
                     Label("统计", systemImage: "chart.xyaxis.line")
                 }
@@ -60,6 +62,11 @@ struct RootView: View {
             if newPhase == .active {
                 refreshPendingShare()
                 schedulePendingShareRetry()
+            }
+        }
+        .onChange(of: selectedTab) { _, newTab in
+            if newTab == 1 {
+                statsNavigationToken = UUID()
             }
         }
         .onOpenURL { callbackURL in
@@ -236,7 +243,9 @@ private struct LibraryView: View {
     private var visibleSeries: [SeriesRecord] {
         series.filter {
             let matchesText = LibrarySearch.matches(title: $0.title, tags: $0.tagsText, intro: $0.intro, query: searchText)
-            let matchesTags = selectedTags.isEmpty || !selectedTags.isDisjoint(with: tagValues($0.tagsText))
+            let matchesTags = selectedTags.isEmpty || selectedTags.allSatisfy { selectedTag in
+                tagValues($0.tagsText).contains { $0.localizedCaseInsensitiveCompare(selectedTag) == .orderedSame }
+            }
             return matchesText && matchesTags
         }
     }
@@ -321,12 +330,18 @@ private struct LibraryView: View {
                 if !visibleSeries.isEmpty {
                     Button(action: onAdd) {
                         Image(systemName: "plus")
-                            .font(.title3.weight(.semibold))
-                            .frame(width: 56, height: 56)
+                            .font(.title2.weight(.medium))
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 54, height: 54)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.plain)
+                    .background(.regularMaterial, in: Circle())
+                    .overlay {
+                        Circle()
+                            .stroke(Color.accentColor.opacity(0.35), lineWidth: 1)
+                    }
                     .clipShape(Circle())
-                    .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
+                    .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
                     .accessibilityIdentifier("add-series-button")
                     .accessibilityLabel("添加作品")
                     .padding(.trailing, 18)
@@ -740,6 +755,7 @@ private struct LibraryHeader: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .frame(width: 36, height: 44)
                     .accessibilityLabel("清除搜索和标签筛选")
                 }
             }
@@ -1345,12 +1361,21 @@ private struct StatsView: View {
                 .font(.headline)
 
             tagStatisticsControls(yearOptions: yearOptions)
-            tagDistributionBody(
-                summary: summary,
-                displayedSlices: displayedSlices,
-                chartColors: chartColors,
-                isLoading: isLoading
-            )
+            NavigationLink {
+                TagStatisticsRankingView(
+                    summary: summary,
+                    periodTitle: tagStatisticsPeriod.title
+                )
+            } label: {
+                tagDistributionBody(
+                    summary: summary,
+                    displayedSlices: displayedSlices,
+                    chartColors: chartColors,
+                    isLoading: isLoading
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("tag-statistics-ranking-link")
         }
         .padding(14)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
@@ -1461,41 +1486,29 @@ private struct StatsView: View {
         let yearOptions = tagStatisticsYearOptions
 
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text("总览")
-                        .font(.title2.weight(.bold))
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer(minLength: 0)
+                    Button {
+                        isShowingNotifications = true
+                    } label: {
+                        Image(systemName: updateNotifications.contains(where: { !$0.isRead }) ? "bell.badge.fill" : "bell")
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("更新提醒")
+                    .accessibilityIdentifier("update-notifications-button")
+                }
+                .padding(.horizontal, AppLayout.pageInset)
+                .padding(.top, 2)
 
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
                     tagStatisticsSection(
                         summary: tagStatisticsSummary,
                         displayedSlices: displayedSlices,
                         yearOptions: yearOptions,
                         isLoading: isLoadingTagStatistics
                     )
-
-                    NavigationLink {
-                        TagStatisticsRankingView(
-                            summary: tagStatisticsSummary,
-                            periodTitle: tagStatisticsPeriod.title
-                        )
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "chart.bar.xaxis")
-                                .foregroundStyle(.tint)
-                            Text("查看观看类型排行")
-                                .font(.headline)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(AppLayout.pageInset)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("tag-statistics-ranking-link")
 
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                         ForEach(LibraryFilter.allCases) { filter in
@@ -1561,24 +1574,12 @@ private struct StatsView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
-                }
-                .padding(AppLayout.pageInset)
-            }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("统计")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isShowingNotifications = true
-                    } label: {
-                        Image(systemName: updateNotifications.contains(where: { !$0.isRead }) ? "bell.badge.fill" : "bell")
-                            .frame(width: 44, height: 44)
                     }
-                    .accessibilityLabel("更新提醒")
-                    .accessibilityIdentifier("update-notifications-button")
+                    .padding(AppLayout.pageInset)
                 }
             }
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(isPresented: $isShowingNotifications) {
                 UpdateNotificationListView()
             }
@@ -1695,9 +1696,16 @@ private struct TagStatisticsRankingView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
-                        ForEach(Array(summary.slices.enumerated()), id: \.element.id) { index, slice in
-                            rankingRow(slice, index: index)
+                        VStack(spacing: 0) {
+                            ForEach(Array(summary.slices.enumerated()), id: \.element.id) { index, slice in
+                                rankingRow(slice, index: index)
+                                if index < summary.slices.count - 1 {
+                                    Divider()
+                                        .padding(.leading, 42)
+                                }
+                            }
                         }
+                        .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                     .padding(AppLayout.pageInset)
                 }
@@ -1728,24 +1736,15 @@ private struct TagStatisticsRankingView: View {
         let color = colors[index % colors.count]
         let count = Int((slice.proportion * Double(summary.workCount)).rounded())
 
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Text("\(index + 1)")
-                    .font(.headline.monospacedDigit())
-                    .foregroundStyle(color)
-                    .frame(width: 24, alignment: .leading)
-                Text(slice.tag)
-                    .font(.headline)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                Text("\(count) 部")
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                Text(String(format: "%.1f%%", slice.proportion * 100))
-                    .font(.subheadline.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(color)
-            }
-
+        return HStack(spacing: 8) {
+            Text("\(index + 1)")
+                .font(.subheadline.monospacedDigit().weight(.semibold))
+                .foregroundStyle(color)
+                .frame(width: 24, alignment: .leading)
+            Text(slice.tag)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+                .frame(width: 64, alignment: .leading)
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule()
@@ -1756,10 +1755,18 @@ private struct TagStatisticsRankingView: View {
                 }
             }
             .frame(height: 8)
+            Text("\(count)部")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 34, alignment: .trailing)
+            Text(String(format: "%.1f%%", slice.proportion * 100))
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(color)
+                .frame(width: 48, alignment: .trailing)
         }
-        .padding(14)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -1883,8 +1890,8 @@ private struct UpdateNotificationListView: View {
             }
         } label: {
             HStack(alignment: .top, spacing: 12) {
-                CoverView(urlString: work?.coverURL, title: item.title, width: 72, height: 100)
-                VStack(alignment: .leading, spacing: 4) {
+                CoverView(urlString: work?.coverURL, title: item.title, width: 66, height: 92)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -1894,7 +1901,7 @@ private struct UpdateNotificationListView: View {
                         Text("·")
                         Text(AppDateText.monthDay(item.scheduledAt))
                     }
-                    .font(.subheadline)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     HStack(spacing: 4) {
@@ -1904,30 +1911,30 @@ private struct UpdateNotificationListView: View {
                             Text(heat.replacingOccurrences(of: "热度", with: ""))
                         }
                     }
-                    .font(.subheadline)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     if let intro = work?.intro.trimmingCharacters(in: .whitespacesAndNewlines), !intro.isEmpty {
                         Text(intro)
-                            .font(.subheadline)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 100, maxHeight: 100, alignment: .topLeading)
+                .frame(maxWidth: .infinity, minHeight: 92, maxHeight: 92, alignment: .topLeading)
 
-                ZStack {
-                    Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(selectedIDs.contains(item.id) ? Color.accentColor : Color.secondary)
-                        .font(.title3)
-                        .frame(width: 28, height: 28)
-                        .opacity(editMode == .active ? 1 : 0)
-                        .accessibilityHidden(editMode != .active)
+                if editMode == .active {
+                    ZStack {
+                        Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selectedIDs.contains(item.id) ? Color.accentColor : Color.secondary)
+                            .font(.title3)
+                            .frame(width: 28, height: 28)
+                    }
+                    .frame(width: 28, height: 92, alignment: .center)
                 }
-                .frame(width: 28, height: 100, alignment: .center)
             }
-            .frame(minHeight: 100, maxHeight: 100, alignment: .top)
+            .frame(minHeight: 92, maxHeight: 92, alignment: .top)
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))

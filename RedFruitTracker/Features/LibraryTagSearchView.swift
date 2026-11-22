@@ -87,11 +87,13 @@ struct LibraryTagSearchView: View {
             if !searchText.isEmpty {
                 Button {
                     searchText = ""
+                    selectedTags.removeAll()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .frame(width: 32, height: 32)
                 .accessibilityLabel("清除文字搜索")
             }
         }
@@ -109,13 +111,25 @@ struct LibraryTagSearchView: View {
             } else {
                 selectedTags.insert(tag)
             }
+            searchText = tags
+                .filter { selectedTags.contains($0) }
+                .map { "#\($0)" }
+                .joined(separator: " ")
         } label: {
-            Text(tag)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .center)
-            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            ZStack(alignment: .trailing) {
+                Text(tag)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2.weight(.bold))
+                        .padding(.trailing, 8)
+                }
+            }
+            .foregroundStyle(isSelected ? Color.white : color)
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, minHeight: 34)
             .background(
@@ -124,9 +138,9 @@ struct LibraryTagSearchView: View {
             )
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(color.opacity(isSelected ? 0 : 0.28), lineWidth: 1)
+                    .stroke(color.opacity(isSelected ? 0.65 : 0.28), lineWidth: 1)
             }
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("tag-filter-\(tag)")

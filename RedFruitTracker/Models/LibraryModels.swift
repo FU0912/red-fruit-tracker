@@ -22,8 +22,14 @@ enum LibrarySearch {
         guard !keyword.isEmpty else { return true }
 
         if keyword.hasPrefix("#") {
-            let tag = String(keyword.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
-            return !tag.isEmpty && tags.localizedCaseInsensitiveContains(tag)
+            let requestedTags = keyword
+                .split { $0 == "#" || $0 == " " || $0 == "　" || $0 == "," || $0 == "，" }
+                .map(String.init)
+                .filter { !$0.isEmpty }
+            let availableTags = tagValues(tags)
+            return !requestedTags.isEmpty && requestedTags.allSatisfy { requested in
+                availableTags.contains { $0.localizedCaseInsensitiveCompare(requested) == .orderedSame }
+            }
         }
 
         return title.localizedCaseInsensitiveContains(keyword)
