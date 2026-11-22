@@ -278,11 +278,16 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.launchArguments = ["--ui-testing", "--ui-testing-fixture"]
         app.launch()
 
-        let sharedLink = "https://hongguoduanju.com/detail?series_id=123456"
-        UIPasteboard.general.string = "分享给你一部漫剧：\(sharedLink)"
-
         let addButton = app.buttons["add-series-button"]
         XCTAssertTrue(addButton.waitForExistence(timeout: 5))
+
+        addButton.tap()
+        XCTAssertTrue(app.navigationBars["添加作品"].waitForExistence(timeout: 5))
+        app.buttons["取消"].tap()
+        XCTAssertFalse(app.navigationBars["添加作品"].waitForExistence(timeout: 1))
+
+        let sharedLink = "https://hongguoduanju.com/detail?series_id=123456"
+        UIPasteboard.general.string = "分享给你一部漫剧：\(sharedLink)"
         addButton.press(forDuration: 0.7)
 
         let linkField = app.textFields["红果分享链接"]
@@ -324,12 +329,6 @@ final class RedFruitTrackerUITests: XCTestCase {
         let card = app.buttons["series-card-ui-fixture-series"]
         XCTAssertTrue(card.waitForExistence(timeout: 5))
         card.tap()
-
-        let followToggle = app.switches["follow-updates-toggle"]
-        XCTAssertTrue(followToggle.waitForExistence(timeout: 5))
-        if (followToggle.value as? String) == "1" {
-            followToggle.tap()
-        }
 
         let dateRow = app.buttons["next-season-date-picker"]
         XCTAssertTrue(dateRow.waitForExistence(timeout: 3))

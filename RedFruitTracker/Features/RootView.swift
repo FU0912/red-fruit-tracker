@@ -354,27 +354,38 @@ private struct LibraryView: View {
             .toolbar(.hidden, for: .navigationBar)
             .overlay(alignment: .bottomTrailing) {
                 if !visibleSeries.isEmpty {
-                    Button(action: onAdd) {
-                        Image(systemName: "plus")
-                            .font(.title2.weight(.medium))
-                            .foregroundStyle(Color.accentColor)
-                            .frame(width: 54, height: 54)
-                    }
-                    .buttonStyle(.plain)
-                    .background(.regularMaterial, in: Circle())
-                    .overlay {
-                        Circle()
-                            .stroke(Color.accentColor.opacity(0.35), lineWidth: 1)
-                    }
-                    .clipShape(Circle())
-                    .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
-                    .accessibilityIdentifier("add-series-button")
-                    .accessibilityLabel("添加作品")
-                    .onLongPressGesture(minimumDuration: 0.35, maximumDistance: 20) {
-                        onImportFromClipboard()
-                    }
-                    .padding(.trailing, 18)
-                    .padding(.bottom, 16)
+                    Image(systemName: "plus")
+                        .font(.title2.weight(.medium))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 54, height: 54)
+                        .background(.regularMaterial, in: Circle())
+                        .overlay {
+                            Circle()
+                                .stroke(Color.accentColor.opacity(0.35), lineWidth: 1)
+                        }
+                        .clipShape(Circle())
+                        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+                        .contentShape(Circle())
+                        .gesture(
+                            LongPressGesture(minimumDuration: 0.35, maximumDistance: 20)
+                                .exclusively(before: TapGesture())
+                                .onEnded { gesture in
+                                    switch gesture {
+                                    case .first(true):
+                                        onImportFromClipboard()
+                                    case .second:
+                                        onAdd()
+                                    default:
+                                        break
+                                    }
+                                }
+                        )
+                        .accessibilityElement()
+                        .accessibilityLabel("添加作品")
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityIdentifier("add-series-button")
+                        .padding(.trailing, 18)
+                        .padding(.bottom, 16)
                 }
             }
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
