@@ -2291,6 +2291,7 @@ struct AddSeriesView: View {
                     TextField("红果分享链接", text: $sourceURLText, axis: .vertical)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
+                        .accessibilityIdentifier("add-series-source-url")
 
                     Button(action: fetchMetadata) {
                         HStack {

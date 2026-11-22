@@ -301,7 +301,7 @@ final class RedFruitTrackerUITests: XCTestCase {
             }
         }
 
-        let linkField = app.textFields["红果分享链接"]
+        let linkField = app.textFields["add-series-source-url"]
         XCTAssertTrue(linkField.waitForExistence(timeout: 5))
         XCTAssertEqual(linkField.value as? String, sharedLink)
     }
