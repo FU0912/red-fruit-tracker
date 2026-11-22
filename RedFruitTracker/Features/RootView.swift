@@ -3,7 +3,7 @@ import Charts
 import ImageIO
 import SwiftData
 import SwiftUI
-import UIKit
+@preconcurrency import UIKit
 
 extension Notification.Name {
     static let searchLibraryTag = Notification.Name("RedFruitTracker.searchLibraryTag")
@@ -140,15 +140,19 @@ struct RootView: View {
 
     @MainActor
     private func importClipboardShare() {
-        guard let text = UIPasteboard.general.string,
-              let url = ClipboardShareDetector.redFruitURL(in: text) else {
-            clipboardFeedback = "剪贴板中没有可识别的红果漫剧链接。"
-            return
-        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let url = UIPasteboard.general.string.flatMap(ClipboardShareDetector.redFruitURL(in:))
+            DispatchQueue.main.async { [self] in
+                guard let url else {
+                    clipboardFeedback = "剪贴板中没有可识别的红果漫剧链接。"
+                    return
+                }
 
-        pendingShareURL = url
-        presentedShareURL = nil
-        isShowingAdd = true
+                pendingShareURL = url
+                presentedShareURL = nil
+                isShowingAdd = true
+            }
+        }
     }
 
     @MainActor

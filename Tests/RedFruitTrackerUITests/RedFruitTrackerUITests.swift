@@ -290,6 +290,17 @@ final class RedFruitTrackerUITests: XCTestCase {
         UIPasteboard.general.string = "分享给你一部漫剧：\(sharedLink)"
         addButton.press(forDuration: 0.7)
 
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let pasteAlert = springboard.alerts.firstMatch
+        if pasteAlert.waitForExistence(timeout: 3) {
+            let allowPaste = pasteAlert.buttons.matching(
+                NSPredicate(format: "label IN %@", ["Allow Paste", "Allow", "Paste", "允许粘贴"])
+            ).firstMatch
+            if allowPaste.exists {
+                allowPaste.tap()
+            }
+        }
+
         let linkField = app.textFields["红果分享链接"]
         XCTAssertTrue(linkField.waitForExistence(timeout: 5))
         XCTAssertEqual(linkField.value as? String, sharedLink)
