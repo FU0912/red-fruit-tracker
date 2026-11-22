@@ -385,7 +385,7 @@ private struct LibraryView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .applyLibraryTagSearch)) { notification in
                 guard let tag = notification.object as? String else { return }
-                searchText = ""
+                searchText = "#\(tag)"
                 selectedTags = [tag]
                 selectedSeries = nil
                 isShowingLibrarySearch = false
@@ -1473,6 +1473,30 @@ private struct StatsView: View {
                         isLoading: isLoadingTagStatistics
                     )
 
+                    NavigationLink {
+                        TagStatisticsRankingView(
+                            summary: tagStatisticsSummary,
+                            periodTitle: tagStatisticsPeriod.title
+                        )
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "chart.bar.xaxis")
+                                .foregroundStyle(.tint)
+                            Text("查看观看类型排行")
+                                .font(.headline)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(AppLayout.pageInset)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("tag-statistics-ranking-link")
+
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                         ForEach(LibraryFilter.allCases) { filter in
                             NavigationLink {
@@ -1542,6 +1566,7 @@ private struct StatsView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("统计")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -1554,7 +1579,7 @@ private struct StatsView: View {
                     .accessibilityIdentifier("update-notifications-button")
                 }
             }
-            .sheet(isPresented: $isShowingNotifications) {
+            .fullScreenCover(isPresented: $isShowingNotifications) {
                 UpdateNotificationListView()
             }
         }
@@ -1649,6 +1674,95 @@ private struct TagDistributionLegend: View {
     }
 }
 
+private struct TagStatisticsRankingView: View {
+    let summary: TagStatisticsSummary
+    let periodTitle: String
+
+    private let colors: [Color] = [.blue, .orange, .green, .pink, .purple, .teal, .indigo]
+
+    var body: some View {
+        Group {
+            if summary.slices.isEmpty {
+                ContentUnavailableView(
+                    "暂无观看类型",
+                    systemImage: "chart.bar.xaxis",
+                    description: Text("当前统计周期还没有可用的作品标签。")
+                )
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("\(periodTitle) · 共 \(summary.workCount) 部作品")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        ForEach(Array(summary.slices.enumerated()), id: \.element.id) { index, slice in
+                            rankingRow(slice, index: index)
+                        }
+                    }
+                    .padding(AppLayout.pageInset)
+                }
+            }
+        }
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        .navigationTitle("观看类型排行")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private func rankingRow(_ slice: TagStatisticsSlice, index: Int) -> some View {
+        if slice.tag == "其他" {
+            rankingContent(slice, index: index)
+        } else {
+            Button {
+                NotificationCenter.default.post(name: .searchLibraryTag, object: slice.tag)
+            } label: {
+                rankingContent(slice, index: index)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("tag-ranking-\(slice.tag)")
+            .accessibilityLabel("搜索标签：\(slice.tag)")
+        }
+    }
+
+    private func rankingContent(_ slice: TagStatisticsSlice, index: Int) -> some View {
+        let color = colors[index % colors.count]
+        let count = Int((slice.proportion * Double(summary.workCount)).rounded())
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text("\(index + 1)")
+                    .font(.headline.monospacedDigit())
+                    .foregroundStyle(color)
+                    .frame(width: 24, alignment: .leading)
+                Text(slice.tag)
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text("\(count) 部")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Text(String(format: "%.1f%%", slice.proportion * 100))
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(color)
+            }
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(color.opacity(0.14))
+                    Capsule()
+                        .fill(color)
+                        .frame(width: proxy.size.width * min(max(slice.proportion, 0), 1))
+                }
+            }
+            .frame(height: 8)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
 private struct UpdateNotificationListView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -1686,12 +1800,13 @@ private struct UpdateNotificationListView: View {
                 }
                 .pickerStyle(.segmented)
                 .controlSize(.small)
-                .frame(height: 28)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 2)
+                .frame(height: 32)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
                 .accessibilityIdentifier("update-notification-segment")
                 notificationContent
             }
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("我的预约")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1746,7 +1861,7 @@ private struct UpdateNotificationListView: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .animation(.default, value: visibleNotifications.map(\.id))
         }
     }
@@ -1767,19 +1882,19 @@ private struct UpdateNotificationListView: View {
                 dismiss()
             }
         } label: {
-            HStack(alignment: .top, spacing: 8) {
-                CoverView(urlString: work?.coverURL, title: item.title, width: 58, height: 80)
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .top, spacing: 12) {
+                CoverView(urlString: work?.coverURL, title: item.title, width: 72, height: 100)
+                VStack(alignment: .leading, spacing: 4) {
                     Text(item.title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     HStack(spacing: 4) {
-                        Text("第 \(nextSeasonNumber(for: item)) 季")
+                        Text("第\(nextSeasonNumber(for: item))季")
                         Text("·")
                         Text(AppDateText.monthDay(item.scheduledAt))
                     }
-                    .font(.caption2)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     HStack(spacing: 4) {
@@ -1789,35 +1904,42 @@ private struct UpdateNotificationListView: View {
                             Text(heat.replacingOccurrences(of: "热度", with: ""))
                         }
                     }
-                    .font(.caption2)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     if let intro = work?.intro.trimmingCharacters(in: .whitespacesAndNewlines), !intro.isEmpty {
                         Text(intro)
-                            .font(.caption2)
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 80, maxHeight: 80, alignment: .topLeading)
+                .frame(maxWidth: .infinity, minHeight: 100, maxHeight: 100, alignment: .topLeading)
 
                 ZStack {
                     Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(selectedIDs.contains(item.id) ? Color.accentColor : Color.secondary)
-                        .font(.body)
-                        .frame(width: 22, height: 22)
+                        .font(.title3)
+                        .frame(width: 28, height: 28)
                         .opacity(editMode == .active ? 1 : 0)
                         .accessibilityHidden(editMode != .active)
                 }
-                .frame(width: 22, height: 80, alignment: .center)
+                .frame(width: 28, height: 100, alignment: .center)
             }
-            .frame(height: 80, alignment: .top)
+            .frame(minHeight: 100, maxHeight: 100, alignment: .top)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.black.opacity(0.04), lineWidth: 1)
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 3, leading: 6, bottom: 3, trailing: 6))
-        .listRowBackground(Color(uiColor: .systemGroupedBackground))
+        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+        .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if selectedSegment == 0 {

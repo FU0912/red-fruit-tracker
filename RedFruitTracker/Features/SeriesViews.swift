@@ -67,8 +67,8 @@ struct SeriesDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: AppLayout.sectionSpacing) {
                     detailHeader
-                    relatedWorksSection
                     introSection
+                    relatedWorksSection
                     personalSection {
                         reviewFocusGeneration += 1
                     }

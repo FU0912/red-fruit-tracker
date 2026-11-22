@@ -8,7 +8,8 @@ struct LibraryTagSearchView: View {
     @Binding var selectedTags: Set<String>
     let matchingCount: Int
 
-    private let columns = [GridItem(.adaptive(minimum: 104), spacing: 10)]
+    private let columns = [GridItem(.adaptive(minimum: 72), spacing: 8)]
+    private let tagColors: [Color] = [.blue, .teal, .orange, .pink, .purple, .indigo, .green]
 
     var body: some View {
         ScrollView {
@@ -34,7 +35,7 @@ struct LibraryTagSearchView: View {
                 } else {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
                         ForEach(tags, id: \.self) { tag in
-                            tagButton(tag)
+                            tagButton(tag, color: tagColors[tags.firstIndex(of: tag).map { $0 % tagColors.count } ?? 0])
                         }
                     }
                 }
@@ -100,7 +101,7 @@ struct LibraryTagSearchView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private func tagButton(_ tag: String) -> some View {
+    private func tagButton(_ tag: String, color: Color) -> some View {
         let isSelected = selectedTags.contains(tag)
         return Button {
             if isSelected {
@@ -109,23 +110,22 @@ struct LibraryTagSearchView: View {
                 selectedTags.insert(tag)
             }
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "checkmark")
-                    .font(.caption2.weight(.bold))
-                    .frame(width: 12)
-                    .opacity(isSelected ? 1 : 0)
-                Text(tag)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
+            Text(tag)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .center)
             .foregroundStyle(isSelected ? Color.white : Color.primary)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 40)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 34)
             .background(
-                isSelected ? Color.accentColor : Color(uiColor: .secondarySystemGroupedBackground),
-                in: Capsule()
+                isSelected ? color : color.opacity(0.14),
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
             )
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(color.opacity(isSelected ? 0 : 0.28), lineWidth: 1)
+            }
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
