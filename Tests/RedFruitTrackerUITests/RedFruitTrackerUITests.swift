@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 final class RedFruitTrackerUITests: XCTestCase {
     func testUnsignedBuildStaysOpenWithoutCloudKitEntitlement() {
@@ -268,8 +269,25 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.tabBars.buttons["统计"].tap()
         app.buttons["stats-filter-appointments"].tap()
         XCTAssertTrue(app.navigationBars["我的预约"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["update-notification-segment"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["update-notification-segment"].exists)
         XCTAssertTrue(app.buttons["update-notification-edit"].exists)
+    }
+
+    func testLongPressAddImportsRedFruitClipboardLink() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--ui-testing-fixture"]
+        app.launch()
+
+        let sharedLink = "https://hongguoduanju.com/detail?series_id=123456"
+        UIPasteboard.general.string = "分享给你一部漫剧：\(sharedLink)"
+
+        let addButton = app.buttons["add-series-button"]
+        XCTAssertTrue(addButton.waitForExistence(timeout: 5))
+        addButton.press(forDuration: 0.7)
+
+        let linkField = app.textFields["红果分享链接"]
+        XCTAssertTrue(linkField.waitForExistence(timeout: 5))
+        XCTAssertEqual(linkField.value as? String, sharedLink)
     }
 
     func testStatisticsShowsWatchedWorkTagDistribution() {
