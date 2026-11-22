@@ -1488,23 +1488,23 @@ private struct StatsView: View {
         let yearOptions = tagStatisticsYearOptions
 
         NavigationStack {
-            VStack(spacing: 0) {
-                HStack {
-                    Spacer(minLength: 0)
-                    Button {
-                        isShowingNotifications = true
-                    } label: {
-                        Image(systemName: updateNotifications.contains(where: { !$0.isRead }) ? "bell.badge.fill" : "bell")
-                            .frame(width: 44, height: 44)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Button {
+                            isShowingNotifications = true
+                        } label: {
+                            Image(systemName: updateNotifications.contains(where: { !$0.isRead }) ? "bell.badge.fill" : "bell")
+                                .font(.title2.weight(.semibold))
+                                .frame(width: 56, height: 56)
+                        }
+                        .accessibilityLabel("更新提醒")
+                        .accessibilityIdentifier("update-notifications-button")
                     }
-                    .accessibilityLabel("更新提醒")
-                    .accessibilityIdentifier("update-notifications-button")
-                }
-                .padding(.horizontal, AppLayout.pageInset)
-                .padding(.top, 2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 2)
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
                     tagStatisticsSection(
                         summary: tagStatisticsSummary,
                         displayedSlices: displayedSlices,
@@ -1522,6 +1522,8 @@ private struct StatsView: View {
                                     value: "\(count(for: filter))",
                                     symbol: filter.systemImage
                                 )
+                                .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("stats-filter-\(filter.rawValue)")
@@ -1578,7 +1580,6 @@ private struct StatsView: View {
                     }
                     }
                     .padding(AppLayout.pageInset)
-                }
             }
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
@@ -1708,11 +1709,9 @@ private struct TagStatisticsRankingView: View {
                             }
                         }
                         .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    }
-                    .padding(AppLayout.pageInset)
                 }
+                .padding(AppLayout.pageInset)
             }
-        }
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .navigationTitle("观看类型排行")
         .navigationBarTitleDisplayMode(.inline)
@@ -1892,10 +1891,10 @@ private struct UpdateNotificationListView: View {
             }
         } label: {
             HStack(alignment: .top, spacing: 12) {
-                CoverView(urlString: work?.coverURL, title: item.title, width: 66, height: 92)
+                CoverView(urlString: work?.coverURL, title: item.title, width: 66, height: 98)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.headline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     HStack(spacing: 4) {
@@ -1903,7 +1902,7 @@ private struct UpdateNotificationListView: View {
                         Text("·")
                         Text(AppDateText.monthDay(item.scheduledAt))
                     }
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     HStack(spacing: 4) {
@@ -1913,18 +1912,18 @@ private struct UpdateNotificationListView: View {
                             Text(heat.replacingOccurrences(of: "热度", with: ""))
                         }
                     }
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     if let intro = work?.intro.trimmingCharacters(in: .whitespacesAndNewlines), !intro.isEmpty {
                         Text(intro)
-                            .font(.caption)
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 92, maxHeight: 92, alignment: .topLeading)
+                .frame(maxWidth: .infinity, minHeight: 98, maxHeight: 98, alignment: .topLeading)
 
                 if editMode == .active {
                     ZStack {
@@ -1933,10 +1932,10 @@ private struct UpdateNotificationListView: View {
                             .font(.title3)
                             .frame(width: 28, height: 28)
                     }
-                    .frame(width: 28, height: 92, alignment: .center)
+                    .frame(width: 28, height: 98, alignment: .center)
                 }
             }
-            .frame(minHeight: 92, maxHeight: 92, alignment: .top)
+            .frame(minHeight: 98, maxHeight: 98, alignment: .top)
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))

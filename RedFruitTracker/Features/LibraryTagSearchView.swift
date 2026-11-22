@@ -47,13 +47,6 @@ struct LibraryTagSearchView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("清除") {
-                    searchText = ""
-                    selectedTags.removeAll()
-                }
-                .disabled(searchText.isEmpty && selectedTags.isEmpty)
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("完成") { dismiss() }
                     .fontWeight(.semibold)
@@ -123,11 +116,6 @@ struct LibraryTagSearchView: View {
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .center)
 
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.caption2.weight(.bold))
-                        .padding(.trailing, 8)
-                }
             }
             .foregroundStyle(isSelected ? Color.white : color)
             .padding(.horizontal, 8)
