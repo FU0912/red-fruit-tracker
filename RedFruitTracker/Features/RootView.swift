@@ -90,9 +90,10 @@ struct RootView: View {
         )
         .fileImporter(
             isPresented: $isImportingBackup,
-            // Some Files providers expose exported JSON as public.data rather
-            // than public.json. Accept both and validate the archive after pick.
-            allowedContentTypes: [.json, .data],
+            // Providers can report the same .json as public.json, public.data,
+            // or a provider-specific type. Use the universal item type so the
+            // Files picker can select it; archive validation happens afterward.
+            allowedContentTypes: [.item],
             allowsMultipleSelection: false,
             onCompletion: importBackup
         )
