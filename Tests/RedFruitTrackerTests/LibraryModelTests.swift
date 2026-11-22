@@ -501,6 +501,10 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertTrue(personal.followsUpdates)
         XCTAssertEqual(personal.followedAt, Date(timeIntervalSince1970: 123))
         XCTAssertEqual(LibraryFilter.followed.title, "追更")
+        XCTAssertEqual(
+            Array(LibraryFilter.allCases.filter { $0 != .all }.prefix(2)),
+            [.appointments, .followed]
+        )
     }
 
     func testTagStatisticsCountsEachWatchedWorkOnceAndSplitsMultipleTags() {

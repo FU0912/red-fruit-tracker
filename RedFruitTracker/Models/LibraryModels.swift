@@ -106,11 +106,11 @@ enum ShelfState: String, CaseIterable, Identifiable {
 
 enum LibraryFilter: String, CaseIterable, Identifiable {
     case all
+    case appointments
+    case followed
     case completed
     case ongoing
     case unknown
-    case appointments
-    case followed
     case unstarted
     case watching
     case finished

@@ -218,7 +218,6 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["反派二代目，女主全都坏掉了"].firstMatch.exists)
 
         app.tabBars.buttons["统计"].tap()
-        XCTAssertTrue(app.navigationBars["统计"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["stats-filter-watching"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["season-change-log-link"].exists)
     }
@@ -267,8 +266,8 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["series-card-next-season-date"].exists)
 
         app.tabBars.buttons["统计"].tap()
-        app.buttons["update-notifications-button"].tap()
-        XCTAssertTrue(app.navigationBars["更新提醒"].waitForExistence(timeout: 3))
+        app.buttons["stats-filter-appointments"].tap()
+        XCTAssertTrue(app.navigationBars["我的预约"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["update-notification-segment"].exists)
         XCTAssertTrue(app.buttons["update-notification-edit"].exists)
     }

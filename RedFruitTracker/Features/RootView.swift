@@ -1294,6 +1294,7 @@ private struct StatsView: View {
     @State private var tagStatisticsSummary = TagStatisticsSummary(workCount: 0, slices: [])
     @State private var isLoadingTagStatistics = true
     @State private var selectedFilter: LibraryFilter?
+    @State private var isShowingAppointments = false
 
     private var completedCount: Int {
         series.filter { $0.completionStatus == SeriesCompletionStatus.completed.rawValue }.count
@@ -1498,7 +1499,11 @@ private struct StatsView: View {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                         ForEach(LibraryFilter.allCases.filter { $0 != .all }) { filter in
                             Button {
-                                selectedFilter = filter
+                                if filter == .appointments {
+                                    isShowingAppointments = true
+                                } else {
+                                    selectedFilter = filter
+                                }
                             } label: {
                                 StatTile(
                                     title: filter.title,
@@ -1569,6 +1574,9 @@ private struct StatsView: View {
                 NavigationStack {
                     FilteredSeriesView(filter: filter)
                 }
+            }
+            .fullScreenCover(isPresented: $isShowingAppointments) {
+                UpdateNotificationListView(initialSegment: 1)
             }
         }
         .task(id: request) {
@@ -1768,6 +1776,10 @@ private struct UpdateNotificationListView: View {
     @State private var selectedSegment = 0
     @State private var selectedIDs = Set<String>()
     @State private var editMode: EditMode = .inactive
+
+    init(initialSegment: Int = 0) {
+        _selectedSegment = State(initialValue: initialSegment)
+    }
 
     private var liveNotifications: [UpdateNotificationRecord] {
         notifications.filter { $0.scheduledAt <= .now }.sorted { $0.scheduledAt > $1.scheduledAt }

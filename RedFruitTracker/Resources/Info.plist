@@ -22,9 +22,9 @@
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.79</string>
+	<string>1.2.80</string>
 	<key>CFBundleVersion</key>
-	<string>82</string>
+	<string>83</string>
 	<key>RedFruitCloudKitEnabled</key>
 	<false/>
 	<key>UILaunchScreen</key>
