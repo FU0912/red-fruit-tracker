@@ -90,7 +90,9 @@ struct RootView: View {
         )
         .fileImporter(
             isPresented: $isImportingBackup,
-            allowedContentTypes: [.json],
+            // Some Files providers expose exported JSON as public.data rather
+            // than public.json. Accept both and validate the archive after pick.
+            allowedContentTypes: [.json, .data],
             allowsMultipleSelection: false,
             onCompletion: importBackup
         )
