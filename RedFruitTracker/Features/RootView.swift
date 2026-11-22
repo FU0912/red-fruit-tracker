@@ -8,6 +8,7 @@ import UIKit
 extension Notification.Name {
     static let searchLibraryTag = Notification.Name("RedFruitTracker.searchLibraryTag")
     static let applyLibraryTagSearch = Notification.Name("RedFruitTracker.applyLibraryTagSearch")
+    static let openSeriesFromUpdateNotification = Notification.Name("RedFruitTracker.openSeriesFromUpdateNotification")
 }
 
 struct RootView: View {
@@ -72,6 +73,9 @@ struct RootView: View {
             guard let tag = notification.object as? String else { return }
             selectedTab = 0
             NotificationCenter.default.post(name: .applyLibraryTagSearch, object: tag)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openSeriesFromUpdateNotification)) { _ in
+            selectedTab = 0
         }
         .fileExporter(
             isPresented: $isExportingBackup,
@@ -385,6 +389,10 @@ private struct LibraryView: View {
                 selectedTags = [tag]
                 selectedSeries = nil
                 isShowingLibrarySearch = false
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openSeriesFromUpdateNotification)) { notification in
+                guard let sourceID = notification.object as? String else { return }
+                selectedSeries = series.first { $0.sourceSeriesID == sourceID }
             }
         }
     }
@@ -914,28 +922,6 @@ private struct SeriesCard: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier(accessibilityIdentifier)
 
-            if let nextSeasonDate = personal?.nextSeasonDate {
-                Button {
-                    onSelect()
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "calendar")
-                        Text("第 \((series.manualSeasonCount ?? seasons.count) + 1) 季待上线")
-                        Text("·")
-                        Text(AppDateText.monthDay(nextSeasonDate))
-                    }
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.indigo)
-                    .padding(.horizontal, 8)
-                    .frame(minHeight: AppLayout.minimumControlHeight)
-                    .background(.indigo.opacity(0.1), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("series-card-next-season-date")
-                .accessibilityLabel("第 \((series.manualSeasonCount ?? seasons.count) + 1) 季待上线，\(AppDateText.monthDay(nextSeasonDate))，点按编辑")
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
@@ -1669,15 +1655,68 @@ private struct UpdateNotificationListView: View {
 
     @Query(sort: \UpdateNotificationRecord.scheduledAt, order: .reverse)
     private var notifications: [UpdateNotificationRecord]
+    @Query private var series: [SeriesRecord]
+    @Query private var seasons: [SeasonRecord]
+    @State private var selectedSegment = 0
+    @State private var selectedIDs = Set<String>()
+    @State private var editMode: EditMode = .inactive
+
+    private var liveNotifications: [UpdateNotificationRecord] {
+        notifications.filter { $0.scheduledAt <= .now }.sorted { $0.scheduledAt > $1.scheduledAt }
+    }
+
+    private var pendingNotifications: [UpdateNotificationRecord] {
+        notifications.filter { $0.scheduledAt > .now }.sorted { $0.scheduledAt < $1.scheduledAt }
+    }
+
+    private var visibleNotifications: [UpdateNotificationRecord] {
+        selectedSegment == 0 ? liveNotifications : pendingNotifications
+    }
+
+    private var selectedVisibleNotifications: [UpdateNotificationRecord] {
+        visibleNotifications.filter { selectedIDs.contains($0.id) }
+    }
 
     var body: some View {
         NavigationStack {
-            notificationContent
+            VStack(spacing: 0) {
+                Picker("更新提醒", selection: $selectedSegment) {
+                    Text("已上线·\(liveNotifications.count)").tag(0)
+                    Text("待上线·\(pendingNotifications.count)").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, AppLayout.pageInset)
+                .padding(.vertical, 10)
+                .accessibilityIdentifier("update-notification-segment")
+                notificationContent
+            }
             .navigationTitle("更新提醒")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(editMode == .active ? "完成" : "编辑") {
+                        withAnimation {
+                            editMode = editMode == .active ? .inactive : .active
+                            selectedIDs.removeAll()
+                        }
+                    }
+                    .accessibilityIdentifier("update-notification-edit")
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("关闭") { dismiss() }
+                }
+            }
+            .environment(\.editMode, $editMode)
+            .onChange(of: selectedSegment) { _, _ in selectedIDs.removeAll() }
+            .toolbar {
+                if editMode == .active, !selectedIDs.isEmpty {
+                    ToolbarItemGroup(placement: .bottomBar) {
+                        if selectedSegment == 0 {
+                            Button("已读") { markSelectedAsRead() }
+                        }
+                        Spacer()
+                        Button("删除", role: .destructive) { deleteSelected() }
+                    }
                 }
             }
         }
@@ -1691,30 +1730,59 @@ private struct UpdateNotificationListView: View {
                 systemImage: "bell.slash",
                 description: Text("为作品设置预约日期后，提醒会显示在这里")
             )
+        } else if visibleNotifications.isEmpty {
+            ContentUnavailableView(
+                selectedSegment == 0 ? "暂无已上线提醒" : "暂无待上线提醒",
+                systemImage: selectedSegment == 0 ? "checkmark.bell" : "calendar.badge.clock",
+                description: Text(selectedSegment == 0 ? "预约日期到了的作品会显示在这里" : "为作品设置预约日期后会显示在这里")
+            )
         } else {
             List {
-                ForEach(notifications) { item in
+                ForEach(visibleNotifications) { item in
                     notificationRow(item)
                 }
             }
             .listStyle(.insetGrouped)
+            .animation(.default, value: visibleNotifications.map(\.id))
         }
     }
 
     private func notificationRow(_ item: UpdateNotificationRecord) -> some View {
         Button {
-            item.isRead = true
-            try? modelContext.saveAndNotifyCloudBackup()
+            if editMode == .active {
+                if selectedIDs.contains(item.id) {
+                    selectedIDs.remove(item.id)
+                } else {
+                    selectedIDs.insert(item.id)
+                }
+            } else if selectedSegment == 0 {
+                item.isRead = true
+                try? modelContext.saveAndNotifyCloudBackup()
+                NotificationCenter.default.post(name: .openSeriesFromUpdateNotification, object: item.sourceSeriesID)
+                dismiss()
+            }
         } label: {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: item.isRead ? "bell" : "bell.badge.fill")
-                    .foregroundStyle(item.isRead ? Color.secondary : Color.orange)
-                    .frame(width: 24)
+                if editMode == .active {
+                    Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(selectedIDs.contains(item.id) ? Color.accentColor : Color.secondary)
+                        .font(.title3)
+                } else {
+                    CoverView(
+                        urlString: series.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.coverURL,
+                        title: item.title,
+                        width: 58,
+                        height: 82
+                    )
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.title)
                         .font(.headline)
                         .foregroundStyle(.primary)
-                    Text("第 \(nextSeasonNumber(for: item)) 季待上线 · \(AppDateText.monthDay(item.scheduledAt))")
+                    Text("第 \(nextSeasonNumber(for: item)) 季")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(AppDateText.monthDay(item.scheduledAt))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -1724,30 +1792,47 @@ private struct UpdateNotificationListView: View {
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button {
-                item.isRead = true
-                try? modelContext.saveAndNotifyCloudBackup()
-            } label: {
-                Label("已读", systemImage: "checkmark")
+            if selectedSegment == 0 {
+                Button {
+                    item.isRead = true
+                    try? modelContext.saveAndNotifyCloudBackup()
+                } label: {
+                    Label("已读", systemImage: "checkmark")
+                }
+                .tint(.blue)
             }
-            .tint(.blue)
 
             Button(role: .destructive) {
-                let sourceID = item.sourceSeriesID
-                let descriptor = FetchDescriptor<PersonalRecord>(
-                    predicate: #Predicate<PersonalRecord> { $0.sourceSeriesID == sourceID }
-                )
-                if let personal = (try? modelContext.fetch(descriptor))?.first {
-                    personal.nextSeasonDate = nil
-                    personal.updatedAt = .now
-                }
-                UpdateNotificationService.cancelAppointment(seriesID: sourceID)
-                modelContext.delete(item)
-                try? modelContext.saveAndNotifyCloudBackup()
+                deleteAppointment(for: item)
             } label: {
                 Label("删除", systemImage: "trash")
             }
         }
+    }
+
+    private func markSelectedAsRead() {
+        selectedVisibleNotifications.forEach { $0.isRead = true }
+        try? modelContext.saveAndNotifyCloudBackup()
+        selectedIDs.removeAll()
+    }
+
+    private func deleteSelected() {
+        selectedVisibleNotifications.forEach(deleteAppointment)
+        selectedIDs.removeAll()
+    }
+
+    private func deleteAppointment(for item: UpdateNotificationRecord) {
+        let sourceID = item.sourceSeriesID
+        let descriptor = FetchDescriptor<PersonalRecord>(
+            predicate: #Predicate<PersonalRecord> { $0.sourceSeriesID == sourceID }
+        )
+        if let personal = (try? modelContext.fetch(descriptor))?.first {
+            personal.nextSeasonDate = nil
+            personal.updatedAt = .now
+        }
+        UpdateNotificationService.cancelAppointment(seriesID: sourceID)
+        modelContext.delete(item)
+        try? modelContext.saveAndNotifyCloudBackup()
     }
 
     private func nextSeasonNumber(for notification: UpdateNotificationRecord) -> Int {

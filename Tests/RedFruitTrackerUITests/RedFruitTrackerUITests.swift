@@ -263,18 +263,14 @@ final class RedFruitTrackerUITests: XCTestCase {
         app.navigationBars.buttons["取消"].tap()
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        let appointment = app.buttons["series-card-next-season-date"]
-        XCTAssertTrue(appointment.waitForExistence(timeout: 3))
-        appointment.tap()
-        XCTAssertTrue(dateRow.waitForExistence(timeout: 3))
-        dateRow.tap()
-        XCTAssertTrue(app.buttons["appointment-confirm"].waitForExistence(timeout: 3))
-        let clearDate = app.buttons["清除日期"]
-        XCTAssertTrue(clearDate.waitForExistence(timeout: 3))
-        clearDate.tap()
-        app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(card.exists)
-        XCTAssertFalse(appointment.waitForExistence(timeout: 1))
+        XCTAssertFalse(app.buttons["series-card-next-season-date"].exists)
+
+        app.tabBars.buttons["统计"].tap()
+        app.buttons["update-notifications-button"].tap()
+        XCTAssertTrue(app.navigationBars["更新提醒"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["update-notification-segment"].exists)
+        XCTAssertTrue(app.buttons["update-notification-edit"].exists)
     }
 
     func testStatisticsShowsWatchedWorkTagDistribution() {
