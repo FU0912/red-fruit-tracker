@@ -2123,10 +2123,12 @@ private struct FilteredSeriesView: View {
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .navigationTitle(filter.title)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(isPresented: $isShowingSeries) {
+        .sheet(isPresented: $isShowingSeries) {
             if let selectedSeriesID,
                let selectedSeries = series.first(where: { $0.sourceSeriesID == selectedSeriesID }) {
-                SeriesDetailView(series: selectedSeries)
+                NavigationStack {
+                    SeriesDetailView(series: selectedSeries)
+                }
             }
         }
     }
