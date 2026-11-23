@@ -116,6 +116,7 @@ struct PersonalBackupRecord: Codable, Equatable, Sendable {
     let followedAt: Date?
     let viewingStatusChangedAt: Date?
     let nextSeasonDate: Date?
+    let nextSeasonDateUnknown: Bool?
     let updatedAt: Date
 
     init(_ value: PersonalRecord) {
@@ -129,6 +130,7 @@ struct PersonalBackupRecord: Codable, Equatable, Sendable {
         followedAt = value.followedAt
         viewingStatusChangedAt = value.viewingStatusChangedAt
         nextSeasonDate = value.nextSeasonDate
+        nextSeasonDateUnknown = value.nextSeasonDateUnknown
         updatedAt = value.updatedAt
     }
 }
@@ -225,6 +227,7 @@ struct UpdateNotificationBackupRecord: Codable, Equatable, Sendable {
     let title: String
     let scheduledAt: Date
     let isRead: Bool
+    let isDateUnknown: Bool?
     let createdAt: Date
 
     init(_ value: UpdateNotificationRecord) {
@@ -233,6 +236,7 @@ struct UpdateNotificationBackupRecord: Codable, Equatable, Sendable {
         title = value.title
         scheduledAt = value.scheduledAt
         isRead = value.isRead
+        isDateUnknown = value.isDateUnknown
         createdAt = value.createdAt
     }
 }
@@ -451,6 +455,7 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             record.followedAt = value.followedAt
             record.viewingStatusChangedAt = value.viewingStatusChangedAt
             record.nextSeasonDate = value.nextSeasonDate
+            record.nextSeasonDateUnknown = value.nextSeasonDateUnknown ?? false
             record.updatedAt = value.updatedAt
             context.insert(record)
         }
@@ -495,7 +500,8 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
                 title: value.title,
                 scheduledAt: value.scheduledAt,
                 isRead: value.isRead,
-                createdAt: value.createdAt
+                createdAt: value.createdAt,
+                isDateUnknown: value.isDateUnknown ?? false
             )
             record.id = value.id
             context.insert(record)

@@ -4,7 +4,8 @@ import UserNotifications
 enum UpdateNotificationService {
     static let appointmentPrefix = "redfruit-appointment-"
 
-    static func scheduleAppointment(seriesID: String, title: String, date: Date) async {
+    static func scheduleAppointment(seriesID: String, title: String, date: Date, isDateUnknown: Bool = false) async {
+        if isDateUnknown { return }
         let center = UNUserNotificationCenter.current()
         let identifier = appointmentIdentifier(seriesID: seriesID)
         let calendar = Calendar.autoupdatingCurrent

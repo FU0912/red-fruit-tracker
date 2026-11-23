@@ -24,6 +24,10 @@ struct RootView: View {
     @State private var isCreatingBackup = false
     @State private var isImportingBackup = false
     @State private var clipboardFeedback: String?
+    @State private var clipboardImportURL: URL?
+    @State private var clipboardImportStatus = ""
+    @State private var clipboardImportProgress = 0.05
+    @State private var clipboardImportIsComplete = false
     @State private var pendingShareURL: URL?
     @State private var presentedShareURL: URL?
     @State private var pendingShareRetryToken = 0
@@ -34,7 +38,7 @@ struct RootView: View {
         let date = pendingBackupTimestamp ?? .now
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy年MM月dd日_HH时mm分"
+        formatter.dateFormat = "yyyy.MM.dd__HH.mm"
         return "漫剧记录备份_\(formatter.string(from: date))"
     }
 
@@ -62,6 +66,9 @@ struct RootView: View {
                     Label("统计", systemImage: "chart.xyaxis.line")
                 }
                 .tag(1)
+        }
+        .overlay {
+            clipboardImportOverlay
         }
         .sheet(isPresented: $isShowingAdd, onDismiss: refreshPendingShare) {
             AddSeriesView(initialURL: pendingShareURL, autoSaveInitialURL: presentedShareURL != nil) {
@@ -184,9 +191,77 @@ struct RootView: View {
             return
         }
 
-        pendingShareURL = url
-        presentedShareURL = nil
-        isShowingAdd = true
+        clipboardImportStatus = "正在读取分享链接…"
+        clipboardImportProgress = 0.08
+        clipboardImportIsComplete = false
+        clipboardImportURL = url
+    }
+
+    @ViewBuilder
+    private var clipboardImportOverlay: some View {
+        if let url = clipboardImportURL {
+            ZStack {
+                Color.black.opacity(0.14)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 12) {
+                    if clipboardImportIsComplete {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.green)
+                    } else {
+                        ProgressView(value: clipboardImportProgress)
+                            .progressViewStyle(.linear)
+                            .frame(width: 190)
+                    }
+
+                    Text(clipboardImportStatus)
+                        .font(.subheadline.weight(.medium))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity)
+                }
+                .padding(18)
+                .frame(width: 260)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay {
+                    AddSeriesView(
+                        initialURL: url,
+                        autoSaveInitialURL: true,
+                        compactAutoImport: true,
+                        onCompactAutoImportProgress: { message, progress in
+                            clipboardImportStatus = message
+                            clipboardImportProgress = progress
+                        },
+                        onCompactAutoImportFinished: { message in
+                            finishClipboardImport(message, for: url)
+                        }
+                    ) {}
+                    .id(url.absoluteString)
+                    .frame(width: 1, height: 1)
+                    .opacity(0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+            }
+            .transition(.opacity)
+            .zIndex(10)
+        }
+    }
+
+    @MainActor
+    private func finishClipboardImport(_ message: String, for url: URL) {
+        clipboardImportStatus = message
+        clipboardImportProgress = 1
+        clipboardImportIsComplete = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1200))
+            guard clipboardImportURL == url else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                clipboardImportURL = nil
+                clipboardImportIsComplete = false
+            }
+        }
     }
 
     @MainActor
@@ -660,7 +735,7 @@ private struct LibraryHeader: View {
         guard lastBackupTimestamp > 0 else { return "尚无备份" }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy年MM月dd日 HH:mm"
+        formatter.dateFormat = "MM.dd  HH.mm"
         return "上次备份 \(formatter.string(from: Date(timeIntervalSince1970: lastBackupTimestamp)))"
     }
 
@@ -1967,7 +2042,7 @@ private struct UpdateNotificationListView: View {
                     HStack(spacing: 4) {
                         Text("第\(nextSeasonNumber(for: item))季")
                         Text("·")
-                        Text(AppDateText.monthDay(item.scheduledAt))
+                        Text(item.isDateUnknown ? "即将上线" : AppDateText.monthDay(item.scheduledAt))
                     }
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -2061,6 +2136,7 @@ private struct UpdateNotificationListView: View {
         )
         if let personal = (try? modelContext.fetch(descriptor))?.first {
             personal.nextSeasonDate = nil
+            personal.nextSeasonDateUnknown = false
             personal.updatedAt = .now
         }
         UpdateNotificationService.cancelAppointment(seriesID: sourceID)
@@ -2290,6 +2366,9 @@ struct AddSeriesView: View {
     let initialURL: URL?
     let autoSaveInitialURL: Bool
     let relatedToSeriesID: String?
+    let compactAutoImport: Bool
+    let onCompactAutoImportProgress: (String, Double) -> Void
+    let onCompactAutoImportFinished: (String) -> Void
     let onSaved: () -> Void
 
     @State private var sourceURLText: String
@@ -2307,6 +2386,7 @@ struct AddSeriesView: View {
     @State private var shelfState = "unstarted"
     @State private var followsUpdates = false
     @State private var nextSeasonDate: Date?
+    @State private var nextSeasonDateUnknown = false
     @State private var includeFirstSeason = false
     @State private var firstSeasonNumber = 1
     @State private var firstSeasonEpisodeCount = 0
@@ -2318,22 +2398,47 @@ struct AddSeriesView: View {
     @State private var coverCandidates: [String] = []
     @State private var lastFetchedURL: String?
     @State private var hasAutoSavedInitialURL = false
+    @State private var didFetchPublicMetadata = false
 
     init(
         initialURL: URL?,
         autoSaveInitialURL: Bool = false,
         relatedToSeriesID: String? = nil,
+        compactAutoImport: Bool = false,
+        onCompactAutoImportProgress: @escaping (String, Double) -> Void = { _, _ in },
+        onCompactAutoImportFinished: @escaping (String) -> Void = { _ in },
         onSaved: @escaping () -> Void
     ) {
         self.initialURL = initialURL
         self.autoSaveInitialURL = autoSaveInitialURL
         self.relatedToSeriesID = relatedToSeriesID
+        self.compactAutoImport = compactAutoImport
+        self.onCompactAutoImportProgress = onCompactAutoImportProgress
+        self.onCompactAutoImportFinished = onCompactAutoImportFinished
         self.onSaved = onSaved
         _sourceURLText = State(initialValue: initialURL?.absoluteString ?? "")
         _detectedTitle = State(initialValue: initialURL.flatMap { TitleNormalizer.fallback(from: $0) } ?? "")
     }
 
+    @ViewBuilder
     var body: some View {
+        if compactAutoImport {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .task {
+                    guard let initialURL else {
+                        onCompactAutoImportFinished("没有识别到分享链接")
+                        return
+                    }
+                    onCompactAutoImportProgress("正在解析分享链接…", 0.12)
+                    fetchMetadata(for: initialURL, force: true)
+                }
+        } else {
+            formBody
+        }
+    }
+
+    private var formBody: some View {
         NavigationStack {
             Form {
                 Section {
@@ -2466,6 +2571,8 @@ struct AddSeriesView: View {
                         date: $nextSeasonDate,
                         identifier: "add-next-season-date-picker"
                     )
+                    Toggle("即将上线", isOn: $nextSeasonDateUnknown)
+                        .accessibilityIdentifier("add-next-season-date-unknown")
 
                     Toggle("手动添加季", isOn: $includeFirstSeason)
                         .accessibilityIdentifier("manual-season-toggle")
@@ -2536,6 +2643,9 @@ struct AddSeriesView: View {
         guard force || lastFetchedURL != normalizedURL || detectedTitle.isEmpty else { return }
 
         isFetching = true
+        if compactAutoImport {
+            onCompactAutoImportProgress("正在获取公开资料…", 0.20)
+        }
         notice = nil
         errorMessage = nil
         lastFetchedURL = normalizedURL
@@ -2546,6 +2656,9 @@ struct AddSeriesView: View {
                 await MainActor.run {
                     guard lastFetchedURL == normalizedURL else { return }
                     detectedTitle = metadata.title ?? TitleNormalizer.fallback(from: url) ?? ""
+                    if compactAutoImport {
+                        onCompactAutoImportProgress("已获取名称，正在读取封面…", 0.42)
+                    }
                     coverCandidates = metadata.coverCandidates
                     if coverURLText.isEmpty {
                         coverURLText = metadata.coverURL ?? ""
@@ -2559,6 +2672,9 @@ struct AddSeriesView: View {
                     if officialHeatText.isEmpty { officialHeatText = metadata.officialHeatText ?? "" }
                     officialHeatScore = metadata.officialHeatScore
                     detectedSeasons = metadata.seasons
+                    if compactAutoImport {
+                        onCompactAutoImportProgress("已获取封面和基本信息，正在读取季集…", 0.72)
+                    }
                     includeFirstSeason = false
                     let coverNotice = metadata.coverURL == nil && !metadata.coverCandidates.isEmpty
                         ? "未自动采用不确定的图片，请在候选封面中选择人物海报。"
@@ -2580,6 +2696,9 @@ struct AddSeriesView: View {
                     includeFirstSeason = false
                     notice = "没有读到完整公开资料，可以保存链接后再补充。"
                     isFetching = false
+                    if compactAutoImport {
+                        onCompactAutoImportProgress("公开资料读取不完整，正在保存已读取内容…", 0.72)
+                    }
                     autoSaveIfNeeded()
                 }
             }
@@ -2611,6 +2730,10 @@ struct AddSeriesView: View {
                 try modelContext.saveAndNotifyCloudBackup()
                 RecentSeriesWidgetSnapshot.refresh(context: modelContext)
                 onSaved()
+                if compactAutoImport {
+                    onCompactAutoImportProgress("资料已保存，正在整理书架…", 0.92)
+                    onCompactAutoImportFinished("已添加到书架")
+                }
                 duplicateNotice = "这部作品已经添加过。本次只更新了添加时间，并移到了书架最前面。原有评分、评价和其他记录均未更改。"
                 return
             }
@@ -2691,8 +2814,13 @@ struct AddSeriesView: View {
                     personal.followsUpdates = followsUpdates
                     personal.followedAt = followsUpdates ? .now : nil
                     personal.nextSeasonDate = nextSeasonDate
+                    personal.nextSeasonDateUnknown = nextSeasonDateUnknown
                 } else if let nextSeasonDate {
                     personal.nextSeasonDate = nextSeasonDate
+                    personal.nextSeasonDateUnknown = false
+                } else if nextSeasonDateUnknown {
+                    personal.nextSeasonDate = nil
+                    personal.nextSeasonDateUnknown = true
                 }
                 if let personalRating { personal.myRating = RatingScale.normalized(personalRating) }
                 if !myReview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -2706,6 +2834,7 @@ struct AddSeriesView: View {
                 personal.followsUpdates = followsUpdates
                 personal.followedAt = followsUpdates ? .now : nil
                 personal.nextSeasonDate = nextSeasonDate
+                personal.nextSeasonDateUnknown = nextSeasonDateUnknown
                 personal.myRating = personalRating.map(RatingScale.normalized)
                 personal.review = myReview.trimmingCharacters(in: .whitespacesAndNewlines)
                 modelContext.insert(personal)
@@ -2727,6 +2856,7 @@ struct AddSeriesView: View {
                 if existingNotification == nil { modelContext.insert(notification) }
                 notification.title = cleanTitle
                 notification.scheduledAt = nextSeasonDate
+                notification.isDateUnknown = false
                 if dateChanged { notification.isRead = false }
                 Task {
                     await UpdateNotificationService.scheduleAppointment(
@@ -2735,6 +2865,23 @@ struct AddSeriesView: View {
                         date: nextSeasonDate
                     )
                 }
+            } else if nextSeasonDateUnknown {
+                let notificationDescriptor = FetchDescriptor<UpdateNotificationRecord>(
+                    predicate: #Predicate<UpdateNotificationRecord> { $0.sourceSeriesID == sourceID }
+                )
+                let existingNotification = try modelContext.fetch(notificationDescriptor).first
+                let notification = existingNotification ?? UpdateNotificationRecord(
+                    sourceSeriesID: sourceID,
+                    title: cleanTitle,
+                    scheduledAt: .distantFuture,
+                    isDateUnknown: true
+                )
+                if existingNotification == nil { modelContext.insert(notification) }
+                notification.title = cleanTitle
+                notification.scheduledAt = .distantFuture
+                notification.isDateUnknown = true
+                notification.isRead = false
+                UpdateNotificationService.cancelAppointment(seriesID: sourceID)
             } else if record == nil {
                 let notificationDescriptor = FetchDescriptor<UpdateNotificationRecord>(
                     predicate: #Predicate<UpdateNotificationRecord> { $0.sourceSeriesID == sourceID }
@@ -2821,8 +2968,15 @@ struct AddSeriesView: View {
             try modelContext.saveAndNotifyCloudBackup()
             RecentSeriesWidgetSnapshot.refresh(context: modelContext)
             onSaved()
+            if compactAutoImport {
+                onCompactAutoImportProgress("资料已保存，正在整理书架…", 0.92)
+                onCompactAutoImportFinished("已添加到书架")
+            }
             dismiss()
         } catch {
+            if compactAutoImport {
+                onCompactAutoImportFinished("自动添加失败：\(error.localizedDescription)")
+            }
             errorMessage = error.localizedDescription
         }
     }

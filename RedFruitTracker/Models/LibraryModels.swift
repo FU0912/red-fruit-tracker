@@ -660,6 +660,7 @@ final class PersonalRecord {
     var followedAt: Date?
     var viewingStatusChangedAt: Date?
     var nextSeasonDate: Date?
+    var nextSeasonDateUnknown: Bool
     var updatedAt: Date
 
     init(sourceSeriesID: String) {
@@ -670,6 +671,7 @@ final class PersonalRecord {
         self.followedAt = nil
         self.viewingStatusChangedAt = nil
         self.nextSeasonDate = nil
+        self.nextSeasonDateUnknown = false
         self.updatedAt = .now
     }
 }
@@ -719,6 +721,7 @@ final class UpdateNotificationRecord {
     var sourceSeriesID: String
     var title: String
     var scheduledAt: Date
+    var isDateUnknown: Bool
     var isRead: Bool
     var createdAt: Date
 
@@ -727,12 +730,14 @@ final class UpdateNotificationRecord {
         title: String,
         scheduledAt: Date,
         isRead: Bool = false,
-        createdAt: Date = .now
+        createdAt: Date = .now,
+        isDateUnknown: Bool = false
     ) {
         self.id = "\(sourceSeriesID)#\(scheduledAt.timeIntervalSinceReferenceDate)"
         self.sourceSeriesID = sourceSeriesID
         self.title = title
         self.scheduledAt = scheduledAt
+        self.isDateUnknown = isDateUnknown
         self.isRead = isRead
         self.createdAt = createdAt
     }

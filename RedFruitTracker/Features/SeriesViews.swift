@@ -122,8 +122,9 @@ struct SeriesDetailView: View {
         }
         .task {
             ensurePersonalRecord()
-            if let personalRecord, let date = personalRecord.nextSeasonDate {
-                updateAppointmentNotification(for: personalRecord, date: date)
+            if let personalRecord,
+               personalRecord.nextSeasonDate != nil || personalRecord.nextSeasonDateUnknown {
+                updateAppointmentNotification(for: personalRecord, date: personalRecord.nextSeasonDate)
             }
         }
         .onDisappear { flushPersonalChanges() }
@@ -471,6 +472,10 @@ struct SeriesDetailView: View {
                         nextSeasonNumber: (series.manualSeasonCount ?? (seasons.map(\.seasonNumber).max() ?? 0)) + 1
                     )
                     .accessibilityIdentifier("next-season-date-picker")
+                    Toggle("即将上线", isOn: nextSeasonDateUnknownBinding(for: personalRecord))
+                        .tint(DetailTheme.accent)
+                        .frame(minHeight: 48)
+                        .accessibilityIdentifier("next-season-date-unknown")
                     Divider().overlay(.white.opacity(0.12))
                     Stepper(value: manualSeasonCountBinding, in: 0...99) {
                         HStack {
@@ -598,9 +603,23 @@ struct SeriesDetailView: View {
             get: { personal.nextSeasonDate },
             set: { value in
                 personal.nextSeasonDate = value
+                personal.nextSeasonDateUnknown = false
                 personal.updatedAt = .now
                 savePersonalChanges()
                 updateAppointmentNotification(for: personal, date: value)
+            }
+        )
+    }
+
+    private func nextSeasonDateUnknownBinding(for personal: PersonalRecord) -> Binding<Bool> {
+        Binding(
+            get: { personal.nextSeasonDateUnknown },
+            set: { value in
+                personal.nextSeasonDateUnknown = value
+                if value { personal.nextSeasonDate = nil }
+                personal.updatedAt = .now
+                savePersonalChanges()
+                updateAppointmentNotification(for: personal, date: personal.nextSeasonDate)
             }
         )
     }
@@ -614,8 +633,25 @@ struct SeriesDetailView: View {
         )
         let existing = (try? modelContext.fetch(descriptor))?.first
 
+        let isDateUnknown = personal.nextSeasonDateUnknown
         guard let date else {
-            if let existing { modelContext.delete(existing) }
+            guard isDateUnknown else {
+                if let existing { modelContext.delete(existing) }
+                UpdateNotificationService.cancelAppointment(seriesID: sourceID)
+                try? modelContext.saveAndNotifyCloudBackup()
+                return
+            }
+            let notification = existing ?? UpdateNotificationRecord(
+                sourceSeriesID: sourceID,
+                title: series.title,
+                scheduledAt: .distantFuture,
+                isDateUnknown: true
+            )
+            if existing == nil { modelContext.insert(notification) }
+            notification.title = series.title
+            notification.scheduledAt = .distantFuture
+            notification.isDateUnknown = true
+            notification.isRead = false
             UpdateNotificationService.cancelAppointment(seriesID: sourceID)
             try? modelContext.saveAndNotifyCloudBackup()
             return
@@ -633,6 +669,7 @@ struct SeriesDetailView: View {
         if existing == nil { modelContext.insert(notification) }
         notification.title = series.title
         notification.scheduledAt = date
+        notification.isDateUnknown = false
         notification.isRead = false
         try? modelContext.saveAndNotifyCloudBackup()
         Task {
