@@ -455,11 +455,11 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             context.insert(record)
         }
         var existingSnapshotKeys = Set(try context.fetch(FetchDescriptor<OfficialSnapshot>()).map {
-            snapshotKey(sourceSeriesID: $0.sourceSeriesID, capturedAt: $0.capturedAt)
+            Self.snapshotKey(sourceSeriesID: $0.sourceSeriesID, capturedAt: $0.capturedAt)
         })
         var backupSnapshotsByKey: [String: OfficialSnapshotBackupRecord] = [:]
         for value in officialSnapshots {
-            let key = snapshotKey(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
+            let key = Self.snapshotKey(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
             backupSnapshotsByKey[key] = backupSnapshotsByKey[key].map { $0.merging(value) } ?? value
         }
         let snapshotsToRestore = backupSnapshotsByKey.values.sorted {
@@ -467,7 +467,7 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             return $0.capturedAt < $1.capturedAt
         }
         for value in snapshotsToRestore {
-            let key = snapshotKey(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
+            let key = Self.snapshotKey(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
             guard existingSnapshotKeys.insert(key).inserted else { continue }
             let record = OfficialSnapshot(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
             record.officialRating = value.officialRating
