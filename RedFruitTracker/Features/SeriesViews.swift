@@ -123,7 +123,7 @@ struct SeriesDetailView: View {
         .task {
             ensurePersonalRecord()
             if let personalRecord,
-               personalRecord.nextSeasonDate != nil || personalRecord.nextSeasonDateUnknown {
+               personalRecord.nextSeasonDate != nil || personalRecord.nextSeasonDateUnknown == true {
                 updateAppointmentNotification(for: personalRecord, date: personalRecord.nextSeasonDate)
             }
         }
@@ -649,7 +649,7 @@ struct SeriesDetailView: View {
 
     private func nextSeasonDateUnknownBinding(for personal: PersonalRecord) -> Binding<Bool> {
         Binding(
-            get: { personal.nextSeasonDateUnknown },
+            get: { personal.nextSeasonDateUnknown == true },
             set: { value in
                 personal.nextSeasonDateUnknown = value
                 if value { personal.nextSeasonDate = nil }
@@ -669,7 +669,7 @@ struct SeriesDetailView: View {
         )
         let existing = (try? modelContext.fetch(descriptor))?.first
 
-        let isDateUnknown = personal.nextSeasonDateUnknown
+        let isDateUnknown = personal.nextSeasonDateUnknown == true
         guard let date else {
             guard isDateUnknown else {
                 if let existing { modelContext.delete(existing) }
