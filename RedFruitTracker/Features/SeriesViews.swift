@@ -14,9 +14,6 @@ struct SeriesDetailView: View {
     @Query(sort: \SeasonRecord.seasonNumber)
     private var allSeasons: [SeasonRecord]
 
-    @Query(sort: \EpisodeRecord.episodeNumber)
-    private var allEpisodes: [EpisodeRecord]
-
     @Query
     private var personalRecords: [PersonalRecord]
 
@@ -40,12 +37,6 @@ struct SeriesDetailView: View {
                 season.sourceSeriesID == sourceSeriesID
             },
             sort: \SeasonRecord.seasonNumber
-        )
-        _allEpisodes = Query(
-            filter: #Predicate<EpisodeRecord> { episode in
-                episode.sourceSeriesID == sourceSeriesID
-            },
-            sort: \EpisodeRecord.episodeNumber
         )
         _personalRecords = Query(
             filter: #Predicate<PersonalRecord> { personal in
@@ -775,13 +766,10 @@ private struct RelatedScreenshotSection: View {
                 }
             }
         } else {
-            PhotosPicker(selection: $pickerItem, matching: .images, preferredItemEncoding: .automatic) {
-                Label("点击上传相关截图", systemImage: "photo.badge.plus")
-                    .frame(maxWidth: .infinity, minHeight: 112)
-            }
-            .buttonStyle(.bordered)
-            .tint(DetailTheme.accent)
-            .accessibilityIdentifier("related-screenshot-empty-upload")
+            Label("尚未上传相关截图", systemImage: "photo")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 84)
+                .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12))
         }
     }
 
@@ -801,7 +789,7 @@ private struct RelatedScreenshotSection: View {
         guard let pickerItem else { return }
         do {
             guard let data = try await pickerItem.loadTransferable(type: Data.self),
-                  let normalizedData = RelatedScreenshotImage.normalizedData(from: data) else {
+                  let normalizedData = await RelatedScreenshotImage.normalizedData(from: data) else {
                 throw RelatedScreenshotImageError.invalidImage
             }
             series.relatedScreenshotData = normalizedData
@@ -1124,161 +1112,6 @@ private struct EditSeriesView: View {
                     .fontWeight(.semibold)
                 }
             }
-        }
-    }
-}
-
-private struct AddSeasonView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-
-    let seriesID: String
-    let suggestedNumber: Int
-
-    @State private var seasonNumber: Int
-    @State private var title = ""
-    @State private var episodeCount = 0
-    @State private var sourceURL = ""
-    @State private var detectedSeasons: [PublicSeasonMetadata] = []
-    @State private var isFetching = false
-    @State private var notice: String?
-    @State private var errorMessage: String?
-
-    init(seriesID: String, suggestedNumber: Int) {
-        self.seriesID = seriesID
-        self.suggestedNumber = suggestedNumber
-        _seasonNumber = State(initialValue: suggestedNumber)
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Stepper("第\(seasonNumber)季", value: $seasonNumber, in: 1...99)
-                TextField("季标题（可选）", text: $title, axis: .vertical)
-                    .lineLimit(1...3)
-                Stepper("预计 \(episodeCount) 集", value: $episodeCount, in: 0...9999)
-                TextField("本季观看链接（可选）", text: $sourceURL, axis: .vertical)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.URL)
-
-                Button {
-                    fetchMetadata()
-                } label: {
-                    HStack {
-                        Label("读取链接中的其他季", systemImage: "arrow.down.circle")
-                        Spacer()
-                        if isFetching { ProgressView().controlSize(.small) }
-                    }
-                }
-                .disabled(isFetching || URLExtractor.firstURL(in: sourceURL) == nil)
-
-                if !detectedSeasons.isEmpty {
-                    Text("已识别 \(detectedSeasons.count) 季，保存后会合并到当前作品。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .navigationTitle("添加 / 查找其他季")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { save() }
-                        .fontWeight(.semibold)
-                }
-            }
-            .alert("操作提示", isPresented: Binding(
-                get: { errorMessage != nil || notice != nil },
-                set: { if !$0 { errorMessage = nil; notice = nil } }
-            )) {
-                Button("好", role: .cancel) { errorMessage = nil; notice = nil }
-            } message: {
-                Text(errorMessage ?? notice ?? "")
-            }
-        }
-    }
-
-    private func fetchMetadata() {
-        guard let url = URLExtractor.firstURL(in: sourceURL) else { return }
-        isFetching = true
-        errorMessage = nil
-        Task {
-            do {
-                let metadata = try await PublicMetadataService.shared.fetch(from: url)
-                await MainActor.run {
-                    detectedSeasons = metadata.seasons
-                    if let first = metadata.seasons.first {
-                        seasonNumber = first.seasonNumber
-                        title = first.title ?? "第\(first.seasonNumber)季"
-                        episodeCount = first.episodeCount
-                    }
-                    isFetching = false
-                    if metadata.seasons.isEmpty {
-                        notice = "链接中没有可识别的季资料，可以手动填写后保存。"
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    isFetching = false
-                    errorMessage = "没有读取到这条链接的公开季资料。"
-                }
-            }
-        }
-    }
-
-    private func save() {
-        do {
-            let existingSeasons = try modelContext.fetch(FetchDescriptor<SeasonRecord>())
-            let existingEpisodes = try modelContext.fetch(FetchDescriptor<EpisodeRecord>())
-            let cleanURL = URLExtractor.firstURL(in: sourceURL)?.absoluteString
-            let seasonsToSave = detectedSeasons.isEmpty
-                ? [PublicSeasonMetadata(
-                    seasonNumber: seasonNumber,
-                    title: title.nilIfBlank,
-                    episodeCount: episodeCount,
-                    sourceURL: cleanURL,
-                    episodes: []
-                )]
-                : detectedSeasons
-
-            for metadataSeason in seasonsToSave {
-                let season = existingSeasons.first {
-                    $0.sourceSeriesID == seriesID && $0.seasonNumber == metadataSeason.seasonNumber
-                } ?? SeasonRecord(sourceSeriesID: seriesID, seasonNumber: metadataSeason.seasonNumber)
-                if !existingSeasons.contains(where: { $0 === season }) { modelContext.insert(season) }
-                season.title = metadataSeason.seasonNumber == seasonNumber
-                    ? (title.nilIfBlank ?? metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季")
-                    : (metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季")
-                season.episodeCount = SeasonEpisodeCount.latest(
-                    existing: season.episodeCount,
-                    reported: metadataSeason.episodeCount,
-                    observed: metadataSeason.episodes.count
-                )
-                season.sourceURL = metadataSeason.sourceURL ?? cleanURL ?? season.sourceURL
-                season.updatedAt = .now
-
-                for metadataEpisode in metadataSeason.episodes {
-                    let episode = existingEpisodes.first {
-                        $0.sourceSeriesID == seriesID
-                            && $0.seasonNumber == metadataSeason.seasonNumber
-                            && $0.episodeNumber == metadataEpisode.episodeNumber
-                    } ?? EpisodeRecord(
-                        sourceVid: "\(seriesID)#s\(metadataSeason.seasonNumber)#e\(metadataEpisode.episodeNumber)",
-                        sourceSeriesID: seriesID,
-                        seasonNumber: metadataSeason.seasonNumber,
-                        episodeNumber: metadataEpisode.episodeNumber
-                    )
-                    if !existingEpisodes.contains(where: { $0 === episode }) { modelContext.insert(episode) }
-                    if let episodeTitle = metadataEpisode.title, !episodeTitle.isEmpty { episode.title = episodeTitle }
-                    if let webURL = metadataEpisode.webURL { episode.webURL = webURL }
-                }
-            }
-            try modelContext.saveAndNotifyCloudBackup()
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 }

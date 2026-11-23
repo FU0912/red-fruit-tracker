@@ -1,4 +1,5 @@
 import Photos
+import ImageIO
 import UIKit
 
 enum RelatedScreenshotImageError: LocalizedError {
@@ -18,22 +19,37 @@ enum RelatedScreenshotImageError: LocalizedError {
 enum RelatedScreenshotImage {
     private static let maxDimension: CGFloat = 1600
 
-    static func normalizedData(from data: Data) -> Data? {
-        guard let image = UIImage(data: data) else { return nil }
-        let longestSide = max(image.size.width, image.size.height)
-        let scale = min(1, maxDimension / max(longestSide, 1))
-        let targetSize = CGSize(
-            width: max(1, (image.size.width * scale).rounded()),
-            height: max(1, (image.size.height * scale).rounded())
-        )
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        format.opaque = true
-        return UIGraphicsImageRenderer(size: targetSize, format: format).jpegData(
-            withCompressionQuality: 0.86
-        ) { _ in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
+    static func normalizedData(from data: Data) async -> Data? {
+        await Task.detached(priority: .userInitiated) {
+            normalize(data)
+        }.value
+    }
+
+    private static func normalize(_ data: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(
+                source,
+                0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: Int(maxDimension)
+                ] as CFDictionary
+              ) else {
+            return nil
         }
+
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, "public.jpeg" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(
+            destination,
+            image,
+            [kCGImageDestinationLossyCompressionQuality: 0.86] as CFDictionary
+        )
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 
     static func image(from data: Data) -> UIImage? {

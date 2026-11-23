@@ -528,7 +528,7 @@ final class SeriesRecord {
     var title: String
     var sourceURL: String?
     var coverURL: String?
-    var relatedScreenshotData: Data?
+    @Attribute(.externalStorage) var relatedScreenshotData: Data?
     var intro: String
     var tagsText: String
     var officialRating: Double?

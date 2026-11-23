@@ -20,6 +20,7 @@ struct RootView: View {
     @State private var fileBackupFeedback: String?
     @State private var backupDocument: LibraryBackupFileDocument?
     @State private var isExportingBackup = false
+    @State private var isCreatingBackup = false
     @State private var isImportingBackup = false
     @State private var clipboardFeedback: String?
     @State private var pendingShareURL: URL?
@@ -129,10 +130,23 @@ struct RootView: View {
 
     @MainActor
     private func exportBackup() {
+        guard !isCreatingBackup else { return }
         do {
             let archive = try LibraryBackupArchive.export(from: modelContext)
-            backupDocument = LibraryBackupFileDocument(data: try archive.encodedData())
-            isExportingBackup = true
+            isCreatingBackup = true
+            Task { @MainActor in
+                do {
+                    let data = try await Task.detached(priority: .userInitiated) {
+                        try archive.encodedData()
+                    }.value
+                    backupDocument = LibraryBackupFileDocument(data: data)
+                    isCreatingBackup = false
+                    isExportingBackup = true
+                } catch {
+                    isCreatingBackup = false
+                    fileBackupFeedback = "生成备份失败：\(error.localizedDescription)"
+                }
+            }
         } catch {
             fileBackupFeedback = "生成备份失败：\(error.localizedDescription)"
         }
@@ -164,23 +178,26 @@ struct RootView: View {
             }
         case .success(let url):
             let didAccess = url.startAccessingSecurityScopedResource()
-            defer {
-                if didAccess { url.stopAccessingSecurityScopedResource() }
-            }
-
-            do {
-                let archive = try LibraryBackupArchive.decode(Data(contentsOf: url))
-                try archive.restore(into: modelContext)
-                do {
-                    try modelContext.saveAndNotifyCloudBackup()
-                } catch {
-                    modelContext.rollback()
-                    throw error
+            Task { @MainActor in
+                defer {
+                    if didAccess { url.stopAccessingSecurityScopedResource() }
                 }
-                RecentSeriesWidgetSnapshot.refresh(context: modelContext)
-                fileBackupFeedback = "已恢复 \(archive.series.count) 部作品及相关记录。"
-            } catch {
-                fileBackupFeedback = "恢复失败：\(error.localizedDescription)"
+                do {
+                    let archive = try await Task.detached(priority: .userInitiated) {
+                        try LibraryBackupArchive.decode(Data(contentsOf: url, options: .mappedIfSafe))
+                    }.value
+                    do {
+                        try archive.restore(into: modelContext)
+                        try modelContext.saveAndNotifyCloudBackup()
+                    } catch {
+                        modelContext.rollback()
+                        throw error
+                    }
+                    RecentSeriesWidgetSnapshot.refresh(context: modelContext)
+                    fileBackupFeedback = "已恢复 \(archive.series.count) 部作品及相关记录。"
+                } catch {
+                    fileBackupFeedback = "恢复失败：\(error.localizedDescription)"
+                }
             }
         }
     }
@@ -285,6 +302,12 @@ private struct LibraryView: View {
     }
 
     var body: some View {
+        let seasonsBySeries = Dictionary(grouping: seasons, by: \.sourceSeriesID)
+        let personalBySeries = Dictionary(
+            personalRecords.map { ($0.sourceSeriesID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
         NavigationStack {
             Group {
                 if visibleSeries.isEmpty {
@@ -335,8 +358,8 @@ private struct LibraryView: View {
                         ForEach(visibleSeries) { item in
                             SeriesCard(
                                 series: item,
-                                seasons: seasons.filter { $0.sourceSeriesID == item.sourceSeriesID },
-                                personal: personalRecords.first { $0.sourceSeriesID == item.sourceSeriesID },
+                                seasons: seasonsBySeries[item.sourceSeriesID] ?? [],
+                                personal: personalBySeries[item.sourceSeriesID],
                                 accessibilityIdentifier: "series-card-\(item.sourceSeriesID)",
                                 onSelect: { selectedSeries = item }
                             )
@@ -422,7 +445,7 @@ private struct LibraryView: View {
                     seriesToDelete = nil
                 }
             } message: {
-                Text("会同时删除这部作品的季、集、评分和公开资料快照。")
+            Text("会同时删除这部作品的季、集、个人记录、公开资料快照、导入队列和预约提醒。")
             }
             .alert("删除失败", isPresented: Binding(
                 get: { deletionErrorMessage != nil },
@@ -463,15 +486,33 @@ private struct LibraryView: View {
     private func delete(_ series: SeriesRecord) {
         do {
             let sourceID = series.sourceSeriesID
-            let seasons = try modelContext.fetch(FetchDescriptor<SeasonRecord>())
-            let episodes = try modelContext.fetch(FetchDescriptor<EpisodeRecord>())
-            let personal = try modelContext.fetch(FetchDescriptor<PersonalRecord>())
-            let snapshots = try modelContext.fetch(FetchDescriptor<OfficialSnapshot>())
+            let seasons = try modelContext.fetch(FetchDescriptor<SeasonRecord>(
+                predicate: #Predicate<SeasonRecord> { $0.sourceSeriesID == sourceID }
+            ))
+            let episodes = try modelContext.fetch(FetchDescriptor<EpisodeRecord>(
+                predicate: #Predicate<EpisodeRecord> { $0.sourceSeriesID == sourceID }
+            ))
+            let personal = try modelContext.fetch(FetchDescriptor<PersonalRecord>(
+                predicate: #Predicate<PersonalRecord> { $0.sourceSeriesID == sourceID }
+            ))
+            let snapshots = try modelContext.fetch(FetchDescriptor<OfficialSnapshot>(
+                predicate: #Predicate<OfficialSnapshot> { $0.sourceSeriesID == sourceID }
+            ))
+            let notifications = try modelContext.fetch(FetchDescriptor<UpdateNotificationRecord>(
+                predicate: #Predicate<UpdateNotificationRecord> { $0.sourceSeriesID == sourceID }
+            ))
+            let knownURLs = Set(([series.sourceURL].compactMap { $0 } + seasons.compactMap(\.sourceURL))
+                .map(CoverURLSelector.normalizedCacheKey(for:)))
+            let inboxItems = try modelContext.fetch(FetchDescriptor<ImportInboxItem>())
 
-            seasons.filter { $0.sourceSeriesID == sourceID }.forEach { modelContext.delete($0) }
-            episodes.filter { $0.sourceSeriesID == sourceID }.forEach { modelContext.delete($0) }
-            personal.filter { $0.sourceSeriesID == sourceID }.forEach { modelContext.delete($0) }
-            snapshots.filter { $0.sourceSeriesID == sourceID }.forEach { modelContext.delete($0) }
+            seasons.forEach { modelContext.delete($0) }
+            episodes.forEach { modelContext.delete($0) }
+            personal.forEach { modelContext.delete($0) }
+            snapshots.forEach { modelContext.delete($0) }
+            notifications.forEach { modelContext.delete($0) }
+            inboxItems
+                .filter { knownURLs.contains(CoverURLSelector.normalizedCacheKey(for: $0.originalURL)) }
+                .forEach { modelContext.delete($0) }
             modelContext.delete(series)
             try modelContext.saveAndNotifyCloudBackup()
             RecentSeriesWidgetSnapshot.refresh(series: self.series.filter { $0.sourceSeriesID != sourceID })
@@ -553,16 +594,10 @@ private struct LibraryView: View {
         refreshProgress = BatchRefreshProgress(total: candidates.count)
         let skipped = series.count - candidates.count
 
-        for (item, url) in candidates {
+        for (item, _) in candidates {
             if Task.isCancelled { break }
             do {
-                let metadata = try await PublicMetadataService.shared.fetch(from: url)
-                try Task.checkCancellation()
-                await applyPublicMetadata(metadata, to: item)
-                try Task.checkCancellation()
-                mergePublicSeasons(metadata.seasons, for: item)
-                insertSnapshot(for: item, metadata: metadata)
-                try modelContext.saveAndNotifyCloudBackup()
+                _ = try await MetadataRefreshService.refresh(item, in: modelContext)
                 refreshProgress.record(success: true)
             } catch {
                 if Task.isCancelled { break }
@@ -578,101 +613,6 @@ private struct LibraryView: View {
         }
         RecentSeriesWidgetSnapshot.refresh(series: series)
         BackgroundMetadataRefresh.scheduleNextRun()
-    }
-
-    private func applyPublicMetadata(_ metadata: PublicSeriesMetadata, to item: SeriesRecord) async {
-        if let coverURL = metadata.coverURL?.nilIfBlank,
-           item.coverURL == nil || CoverURLSelector.shouldReplaceExisting(item.coverURL) {
-            item.coverURL = coverURL
-        } else if let existingCover = item.coverURL {
-            // Only replace a legacy cover after a successful image probe. A
-            // timeout or CDN failure must not erase a user-selected poster.
-            if await CoverImageProbe.orientation(urlString: existingCover) == .landscape {
-                if let coverURL = metadata.coverURL?.nilIfBlank {
-                    item.coverURL = coverURL
-                } else {
-                    item.coverURL = nil
-                }
-            }
-        }
-        if item.intro.isEmpty, let intro = metadata.intro, !intro.isEmpty {
-            item.intro = intro
-        }
-        if item.tagsText.isEmpty, let tagsText = metadata.tagsText, !tagsText.isEmpty {
-            item.tagsText = tagsText
-        }
-        if let rating = metadata.officialRating { item.officialRating = rating }
-        if let ratingCount = metadata.officialRatingCount { item.officialRatingCount = ratingCount }
-        if let heatScore = metadata.officialHeatScore { item.officialHeatScore = heatScore }
-        if let heat = metadata.officialHeatText, !heat.isEmpty { item.officialHeatText = heat }
-        item.updatedAt = .now
-    }
-
-    private func mergePublicSeasons(_ metadataSeasons: [PublicSeasonMetadata], for item: SeriesRecord) {
-        guard !metadataSeasons.isEmpty else { return }
-        let sourceID = item.sourceSeriesID
-        let seasonDescriptor = FetchDescriptor<SeasonRecord>(
-            predicate: #Predicate<SeasonRecord> { $0.sourceSeriesID == sourceID }
-        )
-        let episodeDescriptor = FetchDescriptor<EpisodeRecord>(
-            predicate: #Predicate<EpisodeRecord> { $0.sourceSeriesID == sourceID }
-        )
-        guard let existingSeasons = try? modelContext.fetch(seasonDescriptor),
-              let existingEpisodes = try? modelContext.fetch(episodeDescriptor) else {
-            return
-        }
-
-        for metadataSeason in metadataSeasons {
-            let existing = existingSeasons.first {
-                $0.sourceSeriesID == item.sourceSeriesID && $0.seasonNumber == metadataSeason.seasonNumber
-            }
-            let season = existing ?? SeasonRecord(
-                sourceSeriesID: item.sourceSeriesID,
-                seasonNumber: metadataSeason.seasonNumber
-            )
-            if existing == nil { modelContext.insert(season) }
-            if season.title.isEmpty { season.title = metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季" }
-            season.episodeCount = SeasonEpisodeCount.latest(
-                existing: season.episodeCount,
-                reported: metadataSeason.episodeCount,
-                observed: metadataSeason.episodes.count
-            )
-            season.sourceURL = metadataSeason.sourceURL ?? season.sourceURL ?? item.sourceURL
-            season.updatedAt = .now
-
-            for metadataEpisode in metadataSeason.episodes {
-                let existingEpisode = existingEpisodes.first {
-                    $0.sourceSeriesID == item.sourceSeriesID
-                        && $0.seasonNumber == metadataSeason.seasonNumber
-                        && $0.episodeNumber == metadataEpisode.episodeNumber
-                }
-                let episode = existingEpisode ?? EpisodeRecord(
-                    sourceVid: "\(item.sourceSeriesID)#s\(metadataSeason.seasonNumber)#e\(metadataEpisode.episodeNumber)",
-                    sourceSeriesID: item.sourceSeriesID,
-                    seasonNumber: metadataSeason.seasonNumber,
-                    episodeNumber: metadataEpisode.episodeNumber
-                )
-                if existingEpisode == nil { modelContext.insert(episode) }
-                if let title = metadataEpisode.title, !title.isEmpty { episode.title = title }
-                if let webURL = metadataEpisode.webURL { episode.webURL = webURL }
-            }
-        }
-    }
-
-    private func insertSnapshot(for item: SeriesRecord, metadata: PublicSeriesMetadata) {
-        guard metadata.officialHeatScore != nil
-                || !(metadata.officialHeatText?.isEmpty ?? true)
-                || !metadata.seasons.isEmpty else {
-            return
-        }
-        let snapshot = OfficialSnapshot(sourceSeriesID: item.sourceSeriesID)
-        snapshot.officialHeatScore = metadata.officialHeatScore
-        snapshot.officialHeatText = metadata.officialHeatText
-        if !metadata.seasons.isEmpty {
-            snapshot.seasonCount = metadata.seasons.count
-            snapshot.episodeCount = metadata.seasons.map(\.episodeCount).reduce(0, +)
-        }
-        modelContext.insert(snapshot)
     }
 }
 

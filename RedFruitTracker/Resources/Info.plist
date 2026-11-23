@@ -22,9 +22,9 @@
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.88</string>
+	<string>1.2.89</string>
 	<key>CFBundleVersion</key>
-	<string>91</string>
+	<string>92</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>用于将相关截图保存到设备相册。</string>
 	<key>RedFruitCloudKitEnabled</key>

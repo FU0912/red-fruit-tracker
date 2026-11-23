@@ -52,7 +52,6 @@ enum BackgroundMetadataRefresh {
             } catch {
                 task.setTaskCompleted(success: false)
             }
-            scheduleNextRun()
         }
         task.expirationHandler = { operation.cancel() }
     }
@@ -95,16 +94,17 @@ enum BackgroundMetadataRefresh {
         defaults.set(completed, forKey: completedKey)
         defaults.set(failures, forKey: failuresKey)
         defaults.set("后台更新中 0/\(candidates.count) 部", forKey: progressKey)
+        defer {
+            defaults.set(false, forKey: inProgressKey)
+            if Task.isCancelled {
+                defaults.set("后台更新已暂停：已处理 \(completed)/\(candidates.count) 部，失败 \(failures) 部", forKey: progressKey)
+            }
+        }
 
         for item in ordered {
             try Task.checkCancellation()
-            guard let rawURL = item.sourceURL, let url = URL(string: rawURL) else { continue }
-
             do {
-                let metadata = try await PublicMetadataService.shared.fetch(from: url)
-                try Task.checkCancellation()
-                apply(metadata, to: item, context: context)
-                try context.saveAndNotifyCloudBackup()
+                _ = try await MetadataRefreshService.refresh(item, in: context)
                 defaults.set(item.sourceSeriesID, forKey: cursorKey)
             } catch is CancellationError {
                 throw CancellationError()
@@ -118,83 +118,10 @@ enum BackgroundMetadataRefresh {
         }
 
         defaults.removeObject(forKey: cursorKey)
-        defaults.set(false, forKey: inProgressKey)
         defaults.set(
             "后台更新完成：已处理 \(completed) 部，失败 \(failures) 部",
             forKey: progressKey
         )
         RecentSeriesWidgetSnapshot.refresh(series: series)
-    }
-
-    @MainActor
-    private static func apply(_ metadata: PublicSeriesMetadata, to item: SeriesRecord, context: ModelContext) {
-        if let cover = metadata.coverURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !cover.isEmpty,
-           item.coverURL == nil || CoverURLSelector.shouldReplaceExisting(item.coverURL) {
-            item.coverURL = cover
-        }
-        if item.intro.isEmpty, let intro = metadata.intro, !intro.isEmpty { item.intro = intro }
-        if item.tagsText.isEmpty, let tags = metadata.tagsText, !tags.isEmpty { item.tagsText = tags }
-        if let rating = metadata.officialRating { item.officialRating = rating }
-        if let count = metadata.officialRatingCount { item.officialRatingCount = count }
-        if let heatScore = metadata.officialHeatScore { item.officialHeatScore = heatScore }
-        if let heatText = metadata.officialHeatText, !heatText.isEmpty { item.officialHeatText = heatText }
-        item.updatedAt = .now
-
-        guard !metadata.seasons.isEmpty else {
-            if metadata.officialHeatScore != nil || metadata.officialHeatText != nil {
-                let snapshot = OfficialSnapshot(sourceSeriesID: item.sourceSeriesID)
-                snapshot.officialHeatScore = metadata.officialHeatScore
-                snapshot.officialHeatText = metadata.officialHeatText
-                context.insert(snapshot)
-            }
-            return
-        }
-
-        let sourceID = item.sourceSeriesID
-        let seasonDescriptor = FetchDescriptor<SeasonRecord>(
-            predicate: #Predicate<SeasonRecord> { $0.sourceSeriesID == sourceID }
-        )
-        let episodeDescriptor = FetchDescriptor<EpisodeRecord>(
-            predicate: #Predicate<EpisodeRecord> { $0.sourceSeriesID == sourceID }
-        )
-        let existingSeasons = (try? context.fetch(seasonDescriptor)) ?? []
-        let existingEpisodes = (try? context.fetch(episodeDescriptor)) ?? []
-
-        for metadataSeason in metadata.seasons {
-            let season = existingSeasons.first(where: { $0.seasonNumber == metadataSeason.seasonNumber })
-                ?? SeasonRecord(sourceSeriesID: sourceID, seasonNumber: metadataSeason.seasonNumber)
-            if !existingSeasons.contains(where: { $0 === season }) { context.insert(season) }
-            if season.title.isEmpty { season.title = metadataSeason.title ?? "第\(metadataSeason.seasonNumber)季" }
-            season.episodeCount = SeasonEpisodeCount.latest(
-                existing: season.episodeCount,
-                reported: metadataSeason.episodeCount,
-                observed: metadataSeason.episodes.count
-            )
-            season.sourceURL = metadataSeason.sourceURL ?? season.sourceURL ?? item.sourceURL
-            season.updatedAt = .now
-
-            for metadataEpisode in metadataSeason.episodes {
-                let episode = existingEpisodes.first {
-                    $0.seasonNumber == metadataSeason.seasonNumber
-                        && $0.episodeNumber == metadataEpisode.episodeNumber
-                } ?? EpisodeRecord(
-                    sourceVid: "\(sourceID)#s\(metadataSeason.seasonNumber)#e\(metadataEpisode.episodeNumber)",
-                    sourceSeriesID: sourceID,
-                    seasonNumber: metadataSeason.seasonNumber,
-                    episodeNumber: metadataEpisode.episodeNumber
-                )
-                if !existingEpisodes.contains(where: { $0 === episode }) { context.insert(episode) }
-                if let title = metadataEpisode.title, !title.isEmpty { episode.title = title }
-                if let webURL = metadataEpisode.webURL { episode.webURL = webURL }
-            }
-        }
-
-        let snapshot = OfficialSnapshot(sourceSeriesID: sourceID)
-        snapshot.officialHeatScore = metadata.officialHeatScore
-        snapshot.officialHeatText = metadata.officialHeatText
-        snapshot.seasonCount = metadata.seasons.count
-        snapshot.episodeCount = metadata.seasons.map(\.episodeCount).reduce(0, +)
-        context.insert(snapshot)
     }
 }

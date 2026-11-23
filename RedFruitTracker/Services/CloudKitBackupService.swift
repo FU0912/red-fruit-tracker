@@ -16,6 +16,7 @@ extension ModelContext {
     /// remains the source of truth when iCloud is unavailable.
     func saveAndNotifyCloudBackup() throws {
         try save()
+        guard CloudBackupRuntimePolicy.isCloudKitEnabled else { return }
         NotificationCenter.default.post(name: .redFruitLibraryDidSave, object: nil)
     }
 }

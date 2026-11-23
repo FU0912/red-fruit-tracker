@@ -66,7 +66,7 @@ enum CoverURLSelector {
             let decodedPath = components.path.removingPercentEncoding ?? components.path
             var basePath = replacing(#"~tplv.*$"#, in: decodedPath, with: "")
             basePath = replacing(#"\.(?:jpe?g|png|webp|image)$"#, in: basePath, with: "")
-            return "https://novel.byteimg.com(basePath)"
+            return "https://novel.byteimg.com\(basePath)"
         }
         var path = components.path
         path = replacing(#"\.(?:jpe?g|png|webp|image)$"#, in: path, with: "")
@@ -88,6 +88,10 @@ enum CoverURLSelector {
             }
         }
         return components.string ?? rawURL
+    }
+
+    static func normalizedCacheKey(for rawURL: String) -> String {
+        deduplicationKey(for: rawURL)
     }
 
     private static func replacing(_ pattern: String, in value: String, with replacement: String) -> String {
@@ -249,6 +253,14 @@ enum PublicMetadataError: LocalizedError {
 actor PublicMetadataService {
     static let shared = PublicMetadataService()
 
+    private struct CachedHTML {
+        let value: String
+        let expiresAt: Date
+    }
+
+    private var htmlCache: [String: CachedHTML] = [:]
+    private var htmlRequests: [String: Task<String, Error>] = [:]
+
     func fetch(from url: URL) async throws -> PublicSeriesMetadata {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             throw PublicMetadataError.unsupportedURL
@@ -316,6 +328,15 @@ actor PublicMetadataService {
     }
 
     private func requestHTML(from url: URL) async throws -> String {
+        let cacheKey = Self.normalizedHTMLCacheKey(for: url)
+        if let cached = htmlCache[cacheKey], cached.expiresAt > .now {
+            return cached.value
+        }
+
+        if let request = htmlRequests[cacheKey] {
+            return try await request.value
+        }
+
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
         request.setValue(
@@ -323,28 +344,74 @@ actor PublicMetadataService {
             forHTTPHeaderField: "User-Agent"
         )
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              200..<400 ~= httpResponse.statusCode else {
-            throw PublicMetadataError.invalidResponse
+        let htmlRequest = Task {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  200..<400 ~= httpResponse.statusCode else {
+                throw PublicMetadataError.invalidResponse
+            }
+            return String(decoding: data, as: UTF8.self)
         }
-        return String(decoding: data, as: UTF8.self)
+        htmlRequests[cacheKey] = htmlRequest
+
+        do {
+            let html = try await htmlRequest.value
+            htmlRequests[cacheKey] = nil
+            htmlCache[cacheKey] = CachedHTML(value: html, expiresAt: .now.addingTimeInterval(10 * 60))
+            if htmlCache.count > 96,
+               let oldestKey = htmlCache.min(by: { $0.value.expiresAt < $1.value.expiresAt })?.key {
+                htmlCache[oldestKey] = nil
+            }
+            return html
+        } catch {
+            htmlRequests[cacheKey] = nil
+            throw error
+        }
+    }
+
+    private static func normalizedHTMLCacheKey(for url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString
+        }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        components.fragment = nil
+        components.queryItems = components.queryItems?.sorted {
+            ($0.name, $0.value ?? "") < ($1.name, $1.value ?? "")
+        }
+        return components.string ?? url.absoluteString
     }
 }
 
 private enum PortraitCoverProbe {
+    private static let maximumCandidates = 16
+    private static let maximumConcurrentRequests = 4
+
     static func distinctPortraits(from candidates: [CoverImageCandidate]) async -> [VerifiedCoverCandidate] {
-        let candidatesToInspect = Array(candidates.prefix(24))
+        let candidatesToInspect = Array(candidates.prefix(maximumCandidates))
         let inspected = await withTaskGroup(of: (Int, VerifiedCoverCandidate?).self) { group in
-            for (index, candidate) in candidatesToInspect.enumerated() {
+            var nextIndex = 0
+            let initialCount = min(maximumConcurrentRequests, candidatesToInspect.count)
+            while nextIndex < initialCount {
+                let index = nextIndex
+                let candidate = candidatesToInspect[index]
                 group.addTask {
                     (index, await inspect(candidate))
                 }
+                nextIndex += 1
             }
 
             var values: [(Int, VerifiedCoverCandidate)] = []
             for await (index, result) in group {
                 if let result { values.append((index, result)) }
+                if nextIndex < candidatesToInspect.count {
+                    let newIndex = nextIndex
+                    let candidate = candidatesToInspect[newIndex]
+                    group.addTask {
+                        (newIndex, await inspect(candidate))
+                    }
+                    nextIndex += 1
+                }
             }
             return values.sorted { $0.0 < $1.0 }.map(\.1)
         }
@@ -352,18 +419,141 @@ private enum PortraitCoverProbe {
     }
 
     private static func inspect(_ candidate: CoverImageCandidate) async -> VerifiedCoverCandidate? {
-        guard let url = URL(string: candidate.url) else { return nil }
+        let cacheKey = CoverURLSelector.normalizedCacheKey(for: candidate.url)
+        if let cached = ImageProbeCache.value(for: cacheKey) {
+            guard let cached,
+                  cached.height > cached.width,
+                  let fingerprint = cached.fingerprint else { return nil }
+            return VerifiedCoverCandidate(
+                candidate: candidate,
+                width: cached.width,
+                height: cached.height,
+                fingerprint: fingerprint
+            )
+        }
+
+        let metadata = await ImageProbeCache.probe(urlString: candidate.url, cacheKey: cacheKey)
+        guard let metadata,
+              metadata.height > metadata.width,
+              let fingerprint = metadata.fingerprint else { return nil }
+        return VerifiedCoverCandidate(
+            candidate: candidate,
+            width: metadata.width,
+            height: metadata.height,
+            fingerprint: fingerprint
+        )
+    }
+}
+
+private struct ImageProbeMetadata: Sendable {
+    let width: Int
+    let height: Int
+    let fingerprint: UInt64?
+}
+
+private final class ImageProbeCacheEntry: NSObject {
+    let metadata: ImageProbeMetadata?
+    let expiresAt: Date
+
+    init(metadata: ImageProbeMetadata?, expiresAt: Date) {
+        self.metadata = metadata
+        self.expiresAt = expiresAt
+    }
+}
+
+private actor ImageProbeRequestLimiter {
+    static let shared = ImageProbeRequestLimiter()
+
+    private let maximumConcurrentRequests = 4
+    private var activeRequests = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var requestsByKey: [String: Task<ImageProbeMetadata?, Never>] = [:]
+
+    func metadata(
+        for key: String,
+        operation: @escaping @Sendable () async -> ImageProbeMetadata?
+    ) async -> ImageProbeMetadata? {
+        if let request = requestsByKey[key] { return await request.value }
+        let request = Task { await withPermit(operation) }
+        requestsByKey[key] = request
+        let value = await request.value
+        requestsByKey[key] = nil
+        return value
+    }
+
+    func withPermit<Value: Sendable>(_ operation: @Sendable () async -> Value) async -> Value {
+        await acquire()
+        let value = await operation()
+        release()
+        return value
+    }
+
+    private func acquire() async {
+        await withCheckedContinuation { continuation in
+            if activeRequests < maximumConcurrentRequests {
+                activeRequests += 1
+                continuation.resume()
+            } else {
+                waiters.append(continuation)
+            }
+        }
+    }
+
+    private func release() {
+        if waiters.isEmpty {
+            activeRequests -= 1
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}
+
+private enum ImageProbeCache {
+    private static let cache: NSCache<NSString, ImageProbeCacheEntry> = {
+        let cache = NSCache<NSString, ImageProbeCacheEntry>()
+        cache.countLimit = 256
+        return cache
+    }()
+
+    static func value(for key: String) -> ImageProbeMetadata?? {
+        guard let entry = cache.object(forKey: key as NSString), entry.expiresAt > .now else {
+            return nil
+        }
+        return .some(entry.metadata)
+    }
+
+    static func probe(urlString: String, cacheKey: String) async -> ImageProbeMetadata? {
+        if let cached = value(for: cacheKey) {
+            return cached
+        }
+        guard let url = URL(string: urlString) else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 3
         request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
         request.setValue("image/jpeg,image/png,image/webp,image/*;q=0.8", forHTTPHeaderField: "Accept")
 
+        let metadata = await ImageProbeRequestLimiter.shared.metadata(for: cacheKey) {
+            await loadMetadata(for: request)
+        }
+
+        let lifetime: TimeInterval = metadata == nil ? 15 * 60 : 6 * 60 * 60
+        cache.setObject(
+            ImageProbeCacheEntry(metadata: metadata, expiresAt: .now.addingTimeInterval(lifetime)),
+            forKey: cacheKey as NSString
+        )
+        return metadata
+    }
+
+    private static func loadMetadata(for request: URLRequest) async -> ImageProbeMetadata? {
         guard let (data, response) = try? await URLSession.shared.data(for: request),
-              data.count <= 12_000_000,
-              let httpResponse = response as? HTTPURLResponse,
-              200..<400 ~= httpResponse.statusCode,
-              let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(
+           data.count <= 12_000_000,
+           let httpResponse = response as? HTTPURLResponse,
+           200..<400 ~= httpResponse.statusCode,
+           let source = CGImageSourceCreateWithData(data as CFData, nil),
+           let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+           let height = properties[kCGImagePropertyPixelHeight] as? NSNumber {
+            let image = CGImageSourceCreateThumbnailAtIndex(
                 source,
                 0,
                 [
@@ -371,12 +561,14 @@ private enum PortraitCoverProbe {
                     kCGImageSourceCreateThumbnailWithTransform: true,
                     kCGImageSourceThumbnailMaxPixelSize: 32
                 ] as CFDictionary
-              ),
-              Double(image.height) > Double(image.width) * 1.05,
-              let fingerprint = CoverImageFingerprint.hash(image: image) else {
-            return nil
+            )
+            return ImageProbeMetadata(
+                width: width.intValue,
+                height: height.intValue,
+                fingerprint: image.flatMap(CoverImageFingerprint.hash(image:))
+            )
         }
-        return VerifiedCoverCandidate(candidate: candidate, width: image.width, height: image.height, fingerprint: fingerprint)
+        return nil
     }
 }
 
@@ -445,21 +637,12 @@ enum CoverImageOrientation: Sendable, Equatable {
 
 enum CoverImageProbe {
     static func orientation(urlString: String) async -> CoverImageOrientation {
-        guard let url = URL(string: urlString) else { return .unknown }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 4
-        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let httpResponse = response as? HTTPURLResponse,
-              200..<400 ~= httpResponse.statusCode,
-              let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
-              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else {
+        let key = CoverURLSelector.normalizedCacheKey(for: urlString)
+        guard let metadata = await ImageProbeCache.probe(urlString: urlString, cacheKey: key) else {
             return .unknown
         }
-        if height.doubleValue > width.doubleValue * 1.05 { return .portrait }
-        if width.doubleValue > height.doubleValue * 1.05 { return .landscape }
+        if Double(metadata.height) > Double(metadata.width) * 1.05 { return .portrait }
+        if Double(metadata.width) > Double(metadata.height) * 1.05 { return .landscape }
         return .unknown
     }
 
