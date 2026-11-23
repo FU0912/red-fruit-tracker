@@ -2042,7 +2042,7 @@ private struct UpdateNotificationListView: View {
                     HStack(spacing: 4) {
                         Text("第\(nextSeasonNumber(for: item))季")
                         Text("·")
-                        Text(item.isDateUnknown ? "即将上线" : AppDateText.monthDay(item.scheduledAt))
+                        Text(item.isDateUnknown == true ? "即将上线" : AppDateText.monthDay(item.scheduledAt))
                     }
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
