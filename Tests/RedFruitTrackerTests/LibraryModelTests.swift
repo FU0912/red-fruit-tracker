@@ -52,6 +52,7 @@ final class LibraryModelTests: XCTestCase {
             title: "备份作品",
             sourceURL: "https://example.com/series",
             coverURL: "https://example.com/poster.jpg",
+            relatedScreenshotData: Data([0, 1, 2, 3, 4]),
             intro: "简介",
             tagsText: "穿越,校园",
             officialRating: 8.8,
@@ -117,6 +118,7 @@ final class LibraryModelTests: XCTestCase {
 
         let archive = try LibraryBackupArchive.export(from: context, exportedAt: date)
         XCTAssertEqual(archive.recordCount, 7)
+        XCTAssertEqual(archive.series.first?.relatedScreenshotData, Data([0, 1, 2, 3, 4]))
         XCTAssertEqual(try LibraryBackupArchive.decode(archive.encodedData()), archive)
     }
 
@@ -133,7 +135,11 @@ final class LibraryModelTests: XCTestCase {
         ])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let source = try ModelContainer(for: schema, configurations: [configuration])
-        let sourceSeries = SeriesRecord(sourceSeriesID: "restore-series", title: "恢复作品")
+        let sourceSeries = SeriesRecord(
+            sourceSeriesID: "restore-series",
+            title: "恢复作品",
+            relatedScreenshotData: Data([9, 8, 7])
+        )
         source.mainContext.insert(sourceSeries)
         try source.mainContext.save()
         let archive = try LibraryBackupArchive.export(from: source.mainContext)
@@ -145,6 +151,7 @@ final class LibraryModelTests: XCTestCase {
         let restored = try destination.mainContext.fetch(FetchDescriptor<SeriesRecord>())
         XCTAssertEqual(restored.map(\.sourceSeriesID), ["restore-series"])
         XCTAssertEqual(restored.first?.title, "恢复作品")
+        XCTAssertEqual(restored.first?.relatedScreenshotData, Data([9, 8, 7]))
     }
 
     @MainActor

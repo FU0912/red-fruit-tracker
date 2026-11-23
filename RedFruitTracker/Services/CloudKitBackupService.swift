@@ -25,6 +25,7 @@ struct SeriesBackupRecord: Codable, Equatable, Sendable {
     let title: String
     let sourceURL: String?
     let coverURL: String?
+    let relatedScreenshotData: Data?
     let intro: String
     let tagsText: String
     let officialRating: Double?
@@ -42,6 +43,7 @@ struct SeriesBackupRecord: Codable, Equatable, Sendable {
         title = value.title
         sourceURL = value.sourceURL
         coverURL = value.coverURL
+        relatedScreenshotData = value.relatedScreenshotData
         intro = value.intro
         tagsText = value.tagsText
         officialRating = value.officialRating
@@ -347,6 +349,7 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
                 title: value.title,
                 sourceURL: value.sourceURL,
                 coverURL: value.coverURL,
+                relatedScreenshotData: value.relatedScreenshotData,
                 intro: value.intro,
                 tagsText: value.tagsText,
                 officialRating: value.officialRating,

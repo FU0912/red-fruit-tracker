@@ -528,6 +528,7 @@ final class SeriesRecord {
     var title: String
     var sourceURL: String?
     var coverURL: String?
+    var relatedScreenshotData: Data?
     var intro: String
     var tagsText: String
     var officialRating: Double?
@@ -548,6 +549,7 @@ final class SeriesRecord {
         title: String,
         sourceURL: String? = nil,
         coverURL: String? = nil,
+        relatedScreenshotData: Data? = nil,
         intro: String = "",
         tagsText: String = "",
         officialRating: Double? = nil,
@@ -564,6 +566,7 @@ final class SeriesRecord {
         self.title = title
         self.sourceURL = sourceURL
         self.coverURL = coverURL
+        self.relatedScreenshotData = relatedScreenshotData
         self.intro = intro
         self.tagsText = tagsText
         self.officialRating = officialRating

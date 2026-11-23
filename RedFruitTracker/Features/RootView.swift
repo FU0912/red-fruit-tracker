@@ -301,7 +301,11 @@ private struct LibraryView: View {
                             onOpenSearch: { isShowingLibrarySearch = true },
                             selectedTags: $selectedTags
                         )
-                        LibraryEmptyState(isSearching: !searchText.isEmpty || !selectedTags.isEmpty, onAdd: onAdd)
+                        LibraryEmptyState(
+                            isSearching: !searchText.isEmpty || !selectedTags.isEmpty,
+                            onClipboardImport: onImportFromClipboard,
+                            onCustomAdd: onAdd
+                        )
                     }
                 } else {
                     List {
@@ -376,9 +380,9 @@ private struct LibraryView: View {
                                 .onEnded { gesture in
                                     switch gesture {
                                     case .first(true):
-                                        onImportFromClipboard()
-                                    case .second:
                                         onAdd()
+                                    case .second:
+                                        onImportFromClipboard()
                                     default:
                                         break
                                     }
@@ -819,7 +823,8 @@ private struct LibraryHeader: View {
 
 private struct LibraryEmptyState: View {
     let isSearching: Bool
-    let onAdd: () -> Void
+    let onClipboardImport: () -> Void
+    let onCustomAdd: () -> Void
 
     var body: some View {
         VStack(spacing: 14) {
@@ -836,10 +841,31 @@ private struct LibraryEmptyState: View {
                 .multilineTextAlignment(.center)
 
             if !isSearching {
-                Button(action: onAdd) {
-                    Label("添加作品", systemImage: "plus")
-                }
-                .buttonStyle(.borderedProminent)
+                Label("检测剪贴板", systemImage: "doc.on.clipboard")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .frame(minHeight: 44)
+                    .background(Color.accentColor, in: Capsule())
+                    .contentShape(Capsule())
+                    .gesture(
+                        LongPressGesture(minimumDuration: 0.35, maximumDistance: 20)
+                            .exclusively(before: TapGesture())
+                            .onEnded { gesture in
+                                switch gesture {
+                                case .first(true):
+                                    onCustomAdd()
+                                case .second:
+                                    onClipboardImport()
+                                default:
+                                    break
+                                }
+                            }
+                    )
+                    .accessibilityElement()
+                    .accessibilityLabel("检测剪贴板")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("empty-add-series-button")
                 .padding(.top, 4)
             }
         }

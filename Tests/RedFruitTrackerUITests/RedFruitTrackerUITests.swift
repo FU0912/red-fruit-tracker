@@ -34,9 +34,10 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["library-header-title"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["library-search-field"].exists)
         XCTAssertTrue(app.staticTexts["还没有记录"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["添加作品"].firstMatch.exists)
+        let emptyAdd = app.buttons["empty-add-series-button"].firstMatch
+        XCTAssertTrue(emptyAdd.exists)
 
-        app.buttons["添加作品"].firstMatch.tap()
+        emptyAdd.press(forDuration: 0.7)
         XCTAssertTrue(app.navigationBars["添加作品"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.textFields["红果分享链接"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.textFields["作品名称"].exists)
@@ -117,7 +118,7 @@ final class RedFruitTrackerUITests: XCTestCase {
         XCTAssertTrue(tabBar.waitForExistence(timeout: 5))
         XCTAssertLessThanOrEqual(floatingAdd.frame.maxY, tabBar.frame.minY + 4)
 
-        floatingAdd.tap()
+        floatingAdd.press(forDuration: 0.7)
         XCTAssertTrue(app.navigationBars["添加作品"].waitForExistence(timeout: 5))
         app.navigationBars["添加作品"].buttons["取消"].tap()
         XCTAssertTrue(cardButton.waitForExistence(timeout: 5))
@@ -281,14 +282,14 @@ final class RedFruitTrackerUITests: XCTestCase {
         let addButton = app.buttons["add-series-button"]
         XCTAssertTrue(addButton.waitForExistence(timeout: 5))
 
-        addButton.tap()
+        addButton.press(forDuration: 0.7)
         XCTAssertTrue(app.navigationBars["添加作品"].waitForExistence(timeout: 5))
         app.buttons["取消"].tap()
         XCTAssertFalse(app.navigationBars["添加作品"].waitForExistence(timeout: 1))
 
         let sharedLink = "https://hongguoduanju.com/detail?series_id=123456"
         UIPasteboard.general.string = "分享给你一部漫剧：\(sharedLink)"
-        addButton.press(forDuration: 0.7)
+        addButton.tap()
 
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let pasteAlert = springboard.alerts.firstMatch
