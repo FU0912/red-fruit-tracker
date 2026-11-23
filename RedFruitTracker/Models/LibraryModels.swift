@@ -675,7 +675,9 @@ final class PersonalRecord {
     var followedAt: Date?
     var viewingStatusChangedAt: Date?
     var nextSeasonDate: Date?
-    var nextSeasonDateUnknown: Bool
+    // Optional so stores created before the appointment flag was introduced
+    // can add the field without a destructive migration.
+    var nextSeasonDateUnknown: Bool?
     var updatedAt: Date
 
     init(sourceSeriesID: String) {
@@ -736,7 +738,8 @@ final class UpdateNotificationRecord {
     var sourceSeriesID: String
     var title: String
     var scheduledAt: Date
-    var isDateUnknown: Bool
+    // Optional for lightweight migration of existing notification records.
+    var isDateUnknown: Bool?
     var isRead: Bool
     var createdAt: Date
 
