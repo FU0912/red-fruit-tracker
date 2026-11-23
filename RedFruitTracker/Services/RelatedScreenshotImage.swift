@@ -1,3 +1,4 @@
+import Foundation
 import Photos
 import ImageIO
 import UIKit
@@ -18,6 +19,25 @@ enum RelatedScreenshotImageError: LocalizedError {
 
 enum RelatedScreenshotImage {
     private static let maxDimension: CGFloat = 1600
+    static let maximumCount = 30
+    private static let archiveMagic = Data("RFT_SCREENSHOTS_V1\n".utf8)
+
+    static func images(from storedData: Data?) -> [Data] {
+        guard let storedData, !storedData.isEmpty else { return [] }
+        guard storedData.starts(with: archiveMagic) else { return [storedData] }
+        let payload = storedData.dropFirst(archiveMagic.count)
+        return (try? PropertyListDecoder().decode([Data].self, from: Data(payload))) ?? []
+    }
+
+    static func archivedData(from images: [Data]) -> Data? {
+        guard !images.isEmpty,
+              let payload = try? PropertyListEncoder().encode(images) else {
+            return nil
+        }
+        var archive = archiveMagic
+        archive.append(payload)
+        return archive
+    }
 
     static func normalizedData(from data: Data) async -> Data? {
         await Task.detached(priority: .userInitiated) {

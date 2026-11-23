@@ -649,7 +649,7 @@ private struct LibraryHeader: View {
                 } label: {
                     Image(systemName: "externaldrive")
                 }
-                .frame(width: 44, height: 44)
+                .frame(width: 57, height: 57)
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("file-backup-menu")
                 .accessibilityLabel("文件备份与恢复")
@@ -662,7 +662,7 @@ private struct LibraryHeader: View {
                         Image(systemName: "arrow.clockwise")
                     }
                 }
-                .frame(width: 44, height: 44)
+                .frame(width: 57, height: 57)
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("library-refresh-button")
                 .accessibilityLabel("更新全部公开资料")
@@ -1340,10 +1340,16 @@ private struct StatsView: View {
     }
 
     private static func displayedTagSlices(from slices: [TagStatisticsSlice]) -> [TagStatisticsSlice] {
-        guard slices.count > 6 else { return slices }
+        let ordered = slices.sorted {
+            if $0.proportion == $1.proportion {
+                return $0.tag.localizedStandardCompare($1.tag) == .orderedAscending
+            }
+            return $0.proportion > $1.proportion
+        }
+        guard ordered.count > 6 else { return ordered }
 
-        let leading = Array(slices.prefix(5))
-        let otherProportion = slices.dropFirst(5).reduce(0) { $0 + $1.proportion }
+        let leading = Array(ordered.prefix(5))
+        let otherProportion = ordered.dropFirst(5).reduce(0) { $0 + $1.proportion }
         return leading + [TagStatisticsSlice(tag: "其他", proportion: otherProportion)]
     }
 
@@ -1890,7 +1896,7 @@ private struct UpdateNotificationListView: View {
                     selectedIDs.insert(item.id)
                 }
             } else if selectedSegment == 0 {
-                item.isRead = true
+                markAsRead(item)
                 try? modelContext.saveAndNotifyCloudBackup()
                 NotificationCenter.default.post(name: .openSeriesFromUpdateNotification, object: item.sourceSeriesID)
                 dismiss()
@@ -1958,7 +1964,7 @@ private struct UpdateNotificationListView: View {
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if selectedSegment == 0 {
                 Button {
-                    item.isRead = true
+                    markAsRead(item)
                     try? modelContext.saveAndNotifyCloudBackup()
                 } label: {
                     Label("已读", systemImage: "checkmark")
@@ -1980,7 +1986,7 @@ private struct UpdateNotificationListView: View {
     }
 
     private func markSelectedAsRead() {
-        selectedVisibleNotifications.forEach { $0.isRead = true }
+        selectedVisibleNotifications.forEach(markAsRead)
         try? modelContext.saveAndNotifyCloudBackup()
         selectedIDs.removeAll()
     }
@@ -1991,6 +1997,9 @@ private struct UpdateNotificationListView: View {
     }
 
     private func deleteAppointment(for item: UpdateNotificationRecord) {
+        if item.scheduledAt <= .now {
+            advanceSeasonCount(for: item)
+        }
         let sourceID = item.sourceSeriesID
         let descriptor = FetchDescriptor<PersonalRecord>(
             predicate: #Predicate<PersonalRecord> { $0.sourceSeriesID == sourceID }
@@ -2002,6 +2011,25 @@ private struct UpdateNotificationListView: View {
         UpdateNotificationService.cancelAppointment(seriesID: sourceID)
         modelContext.delete(item)
         try? modelContext.saveAndNotifyCloudBackup()
+    }
+
+    private func markAsRead(_ item: UpdateNotificationRecord) {
+        if item.scheduledAt <= .now {
+            advanceSeasonCount(for: item)
+        }
+        item.isRead = true
+    }
+
+    private func advanceSeasonCount(for notification: UpdateNotificationRecord) {
+        guard !notification.isRead else { return }
+        let sourceID = notification.sourceSeriesID
+        guard let work = series.first(where: { $0.sourceSeriesID == sourceID }) else { return }
+        let currentCount = work.manualSeasonCount ?? seasons
+            .filter { $0.sourceSeriesID == sourceID }
+            .map(\.seasonNumber)
+            .max() ?? 0
+        work.manualSeasonCount = max(currentCount, nextSeasonNumber(for: notification))
+        work.updatedAt = .now
     }
 
     private func nextSeasonNumber(for notification: UpdateNotificationRecord) -> Int {

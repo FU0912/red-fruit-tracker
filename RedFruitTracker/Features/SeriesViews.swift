@@ -219,7 +219,11 @@ struct SeriesDetailView: View {
             if relatedSeries.isEmpty {
                 Text("粘贴红果分享内容，即可自动读取并关联作品")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.78))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 12) {
@@ -679,8 +683,8 @@ struct SeriesDetailView: View {
 }
 
 private enum DetailTheme {
-    static let background = Color(red: 0.28, green: 0.28, blue: 0.28)
-    static let cell = Color.white.opacity(0.10)
+    static let background = Color(red: 0.16, green: 0.19, blue: 0.24)
+    static let cell = Color.white.opacity(0.11)
     static let accent = Color(red: 0.30, green: 0.58, blue: 0.96)
 }
 
@@ -689,8 +693,9 @@ private struct RelatedScreenshotSection: View {
 
     let series: SeriesRecord
 
-    @State private var pickerItem: PhotosPickerItem?
+    @State private var pickerItems: [PhotosPickerItem] = []
     @State private var isShowingViewer = false
+    @State private var viewerIndex = 0
     @State private var notice: String?
 
     var body: some View {
@@ -700,8 +705,16 @@ private struct RelatedScreenshotSection: View {
         }
         .accessibilityIdentifier("related-screenshot-section")
         .sheet(isPresented: $isShowingViewer) {
-            if let image = currentImage {
-                RelatedScreenshotViewer(image: image)
+            let data = screenshotData
+            let images = data.compactMap(RelatedScreenshotImage.image(from:))
+            if !images.isEmpty {
+                RelatedScreenshotViewer(
+                    images: images,
+                    data: data,
+                    selectedIndex: $viewerIndex,
+                    onSave: saveToPhotos,
+                    onDelete: deleteScreenshot(at:)
+                )
             }
         }
         .alert("相关截图", isPresented: noticeBinding) {
@@ -709,7 +722,7 @@ private struct RelatedScreenshotSection: View {
         } message: {
             Text(notice ?? "")
         }
-        .onChange(of: pickerItem) { _, _ in
+        .onChange(of: pickerItems) { _, _ in
             Task { await importScreenshot() }
         }
     }
@@ -720,8 +733,13 @@ private struct RelatedScreenshotSection: View {
                 .font(.title3.weight(.bold))
                 .foregroundStyle(.white)
             Spacer()
-            PhotosPicker(selection: $pickerItem, matching: .images, preferredItemEncoding: .automatic) {
-                Label(series.relatedScreenshotData == nil ? "上传" : "更换", systemImage: "photo.badge.plus")
+            PhotosPicker(
+                selection: $pickerItems,
+                maxSelectionCount: RelatedScreenshotImage.maximumCount,
+                matching: .images,
+                preferredItemEncoding: .automatic
+            ) {
+                Label("添加", systemImage: "photo.badge.plus")
                     .font(.subheadline.weight(.medium))
             }
             .foregroundStyle(DetailTheme.accent)
@@ -731,51 +749,50 @@ private struct RelatedScreenshotSection: View {
 
     @ViewBuilder
     private var content: some View {
-        if let data = series.relatedScreenshotData, let image = RelatedScreenshotImage.image(from: data) {
-            HStack(alignment: .top, spacing: 12) {
-                Button { isShowingViewer = true } label: {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 132)
-                        .frame(maxHeight: 184)
-                        .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.16)) }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("展开相关截图")
-                .accessibilityIdentifier("related-screenshot-preview")
-
-                VStack(spacing: 10) {
-                    Button { saveToPhotos(data) } label: {
-                        Image(systemName: "square.and.arrow.down").frame(width: 44, height: 44)
+        if !screenshotData.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(Array(screenshotData.enumerated()), id: \.offset) { index, data in
+                        if let image = RelatedScreenshotImage.image(from: data) {
+                            Button {
+                                viewerIndex = index
+                                isShowingViewer = true
+                            } label: {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 132)
+                                    .frame(maxHeight: 184)
+                                    .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.16)) }
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button { saveToPhotos(data) } label: {
+                                    Label("保存到相册", systemImage: "square.and.arrow.down")
+                                }
+                                Button(role: .destructive) { deleteScreenshot(at: index) } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                            }
+                            .accessibilityLabel("展开相关截图 \(index + 1)")
+                            .accessibilityIdentifier("related-screenshot-preview-\(index)")
+                        }
                     }
-                    .buttonStyle(.bordered)
-                    .tint(DetailTheme.accent)
-                    .accessibilityLabel("保存相关截图到相册")
-                    .accessibilityIdentifier("related-screenshot-save")
-
-                    Button(role: .destructive) { deleteScreenshot() } label: {
-                        Image(systemName: "trash").frame(width: 44, height: 44)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.red)
-                    .accessibilityLabel("删除相关截图")
-                    .accessibilityIdentifier("related-screenshot-delete")
                 }
+                .padding(.vertical, 2)
             }
         } else {
             Label("尚未上传相关截图", systemImage: "photo")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.72))
                 .frame(maxWidth: .infinity, minHeight: 84)
                 .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12))
         }
     }
 
-    private var currentImage: UIImage? {
-        guard let data = series.relatedScreenshotData else { return nil }
-        return RelatedScreenshotImage.image(from: data)
+    private var screenshotData: [Data] {
+        RelatedScreenshotImage.images(from: series.relatedScreenshotData)
     }
 
     private var noticeBinding: Binding<Bool> {
@@ -786,23 +803,33 @@ private struct RelatedScreenshotSection: View {
     }
 
     private func importScreenshot() async {
-        guard let pickerItem else { return }
+        guard !pickerItems.isEmpty else { return }
         do {
-            guard let data = try await pickerItem.loadTransferable(type: Data.self),
-                  let normalizedData = await RelatedScreenshotImage.normalizedData(from: data) else {
-                throw RelatedScreenshotImageError.invalidImage
+            var images = screenshotData
+            for item in pickerItems.prefix(RelatedScreenshotImage.maximumCount) {
+                guard let data = try await item.loadTransferable(type: Data.self),
+                      let normalizedData = await RelatedScreenshotImage.normalizedData(from: data) else {
+                    continue
+                }
+                images.append(normalizedData)
+                if images.count == RelatedScreenshotImage.maximumCount { break }
             }
-            series.relatedScreenshotData = normalizedData
+            guard !images.isEmpty else { throw RelatedScreenshotImageError.invalidImage }
+            series.relatedScreenshotData = RelatedScreenshotImage.archivedData(from: images)
             try modelContext.saveAndNotifyCloudBackup()
-            self.pickerItem = nil
+            self.pickerItems = []
         } catch {
             notice = error.localizedDescription
         }
     }
 
-    private func deleteScreenshot() {
-        series.relatedScreenshotData = nil
+    private func deleteScreenshot(at index: Int) {
+        var images = screenshotData
+        guard images.indices.contains(index) else { return }
+        images.remove(at: index)
+        series.relatedScreenshotData = RelatedScreenshotImage.archivedData(from: images)
         try? modelContext.saveAndNotifyCloudBackup()
+        if images.isEmpty { isShowingViewer = false }
     }
 
     private func saveToPhotos(_ data: Data) {
@@ -820,22 +847,44 @@ private struct RelatedScreenshotSection: View {
 private struct RelatedScreenshotViewer: View {
     @Environment(\.dismiss) private var dismiss
 
-    let image: UIImage
+    let images: [UIImage]
+    let data: [Data]
+    @Binding var selectedIndex: Int
+    let onSave: (Data) -> Void
+    let onDelete: (Int) -> Void
 
     var body: some View {
         NavigationStack {
-            ScrollView([.vertical, .horizontal], showsIndicators: false) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(16)
+            TabView(selection: $selectedIndex) {
+                ForEach(Array(images.enumerated()), id: \.offset) { index, image in
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(16)
+                        .tag(index)
+                }
             }
-            .background(.black)
+            .tabViewStyle(.page(indexDisplayMode: .automatic))
+            .background(DetailTheme.background)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") { dismiss() }
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if data.indices.contains(selectedIndex) {
+                        Button { onSave(data[selectedIndex]) } label: {
+                            Image(systemName: "square.and.arrow.down")
+                        }
+                        .accessibilityLabel("保存当前截图到相册")
+                        Button(role: .destructive) {
+                            onDelete(selectedIndex)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .accessibilityLabel("删除当前截图")
+                    }
                 }
             }
         }
