@@ -161,6 +161,7 @@ struct SeriesDetailView: View {
                     .accessibilityIdentifier("copy-series-title")
 
                     officialMetadataSection
+                    originalWorkSection
                 }
                 .frame(maxWidth: .infinity, minHeight: 184, alignment: .topLeading)
                 .layoutPriority(1)
@@ -197,6 +198,41 @@ struct SeriesDetailView: View {
 
     private var relatedScreenshotSection: some View {
         RelatedScreenshotSection(series: series)
+    }
+
+    @ViewBuilder
+    private var originalWorkSection: some View {
+        if let title = series.originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("相关原著")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                HStack(spacing: 12) {
+                    CoverView(urlString: series.originalCoverURL, title: title, width: 58, height: 82)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                        HStack(spacing: 5) {
+                            Text("原著小说")
+                            if let status = series.originalStatus, !status.isEmpty { Text("· \(status)") }
+                            if let rating = series.originalRating { Text("· \(String(format: "%.1f", rating))分") }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.72))
+                    }
+                    Spacer(minLength: 0)
+                    if let originalURL = series.originalURL.flatMap(URL.init(string:)) {
+                        Link("去阅读", destination: originalURL)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(DetailTheme.accent)
+                    }
+                }
+                .padding(12)
+                .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
     }
 
     @ViewBuilder

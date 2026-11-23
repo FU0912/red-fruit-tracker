@@ -36,6 +36,11 @@ struct SeriesBackupRecord: Codable, Equatable, Sendable {
     let completionStatus: String?
     let manualSeasonCount: Int?
     let relatedIPKey: String?
+    let originalTitle: String?
+    let originalCoverURL: String?
+    let originalURL: String?
+    let originalRating: Double?
+    let originalStatus: String?
     let createdAt: Date
     let updatedAt: Date
 
@@ -54,6 +59,11 @@ struct SeriesBackupRecord: Codable, Equatable, Sendable {
         completionStatus = value.completionStatus
         manualSeasonCount = value.manualSeasonCount
         relatedIPKey = value.relatedIPKey
+        originalTitle = value.originalTitle
+        originalCoverURL = value.originalCoverURL
+        originalURL = value.originalURL
+        originalRating = value.originalRating
+        originalStatus = value.originalStatus
         createdAt = value.createdAt
         updatedAt = value.updatedAt
     }
@@ -412,6 +422,11 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
                 completionStatus: value.completionStatus,
                 manualSeasonCount: value.manualSeasonCount,
                 relatedIPKey: value.relatedIPKey,
+                originalTitle: value.originalTitle,
+                originalCoverURL: value.originalCoverURL,
+                originalURL: value.originalURL,
+                originalRating: value.originalRating,
+                originalStatus: value.originalStatus,
                 createdAt: value.createdAt,
                 updatedAt: value.updatedAt
             ))

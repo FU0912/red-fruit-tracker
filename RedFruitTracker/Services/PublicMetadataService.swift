@@ -14,6 +14,11 @@ struct PublicSeriesMetadata {
     var officialHeatScore: Double?
     var officialHeatText: String?
     var completionStatus: String?
+    var originalTitle: String?
+    var originalCoverURL: String?
+    var originalURL: String?
+    var originalRating: Double?
+    var originalStatus: String?
     var seasons: [PublicSeasonMetadata]
 }
 
@@ -314,6 +319,16 @@ actor PublicMetadataService {
             officialHeatScore: HTMLMetadata.officialHeatScore(in: html, fallbackHTML: metadataHTML),
             officialHeatText: HTMLMetadata.officialHeatText(in: html, fallbackHTML: metadataHTML),
             completionStatus: HTMLMetadata.completionStatus(in: metadataHTML) ?? HTMLMetadata.completionStatus(in: html),
+            originalTitle: HTMLMetadata.currentSeriesDetailValue(for: ["original_title", "book_name", "novel_name", "novel_title", "source_title"], in: metadataHTML)
+                ?? HTMLMetadata.currentSeriesDetailValue(for: ["original_title", "book_name", "novel_name", "novel_title", "source_title"], in: html),
+            originalCoverURL: HTMLMetadata.currentSeriesDetailValue(for: ["original_cover", "book_cover", "novel_cover", "source_cover"], in: metadataHTML)
+                ?? HTMLMetadata.currentSeriesDetailValue(for: ["original_cover", "book_cover", "novel_cover", "source_cover"], in: html),
+            originalURL: HTMLMetadata.currentSeriesDetailValue(for: ["original_url", "book_url", "novel_url", "source_url"], in: metadataHTML)
+                ?? HTMLMetadata.currentSeriesDetailValue(for: ["original_url", "book_url", "novel_url", "source_url"], in: html),
+            originalRating: HTMLMetadata.currentSeriesSocialInfoIntValue(for: ["original_rating", "book_rating", "novel_rating"], in: metadataHTML).map(Double.init)
+                ?? HTMLMetadata.currentSeriesSocialInfoIntValue(for: ["original_rating", "book_rating", "novel_rating"], in: html).map(Double.init),
+            originalStatus: HTMLMetadata.currentSeriesDetailValue(for: ["original_status", "book_status", "novel_status", "serial_status"], in: metadataHTML)
+                ?? HTMLMetadata.currentSeriesDetailValue(for: ["original_status", "book_status", "novel_status", "serial_status"], in: html),
             seasons: PublicSeasonMetadataMerger.merge(primary: detailSeasons, supplement: shareSeasons)
         )
 

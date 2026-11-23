@@ -541,6 +541,11 @@ final class SeriesRecord {
     /// separate from the title because different adaptations often have small
     /// title changes while still belonging to one source IP.
     var relatedIPKey: String?
+    var originalTitle: String?
+    var originalCoverURL: String?
+    var originalURL: String?
+    var originalRating: Double?
+    var originalStatus: String?
     var createdAt: Date
     var updatedAt: Date
 
@@ -559,6 +564,11 @@ final class SeriesRecord {
         completionStatus: String? = nil,
         manualSeasonCount: Int? = nil,
         relatedIPKey: String? = nil,
+        originalTitle: String? = nil,
+        originalCoverURL: String? = nil,
+        originalURL: String? = nil,
+        originalRating: Double? = nil,
+        originalStatus: String? = nil,
         createdAt: Date = .now,
         updatedAt: Date = .now
     ) {
@@ -576,6 +586,11 @@ final class SeriesRecord {
         self.completionStatus = completionStatus
         self.manualSeasonCount = manualSeasonCount
         self.relatedIPKey = relatedIPKey
+        self.originalTitle = originalTitle
+        self.originalCoverURL = originalCoverURL
+        self.originalURL = originalURL
+        self.originalRating = originalRating
+        self.originalStatus = originalStatus
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

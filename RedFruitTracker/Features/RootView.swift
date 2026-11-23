@@ -2380,6 +2380,11 @@ struct AddSeriesView: View {
     @State private var officialRatingCount: Int?
     @State private var officialHeatText = ""
     @State private var officialHeatScore: Double?
+    @State private var originalTitle = ""
+    @State private var originalCoverURL = ""
+    @State private var originalURL = ""
+    @State private var originalRating: Double?
+    @State private var originalStatus = ""
     @State private var myRatingText = ""
     @State private var myReview = ""
     @State private var completionStatus = SeriesCompletionStatus.unknown.rawValue
@@ -2671,6 +2676,11 @@ struct AddSeriesView: View {
                     officialRatingCount = metadata.officialRatingCount
                     if officialHeatText.isEmpty { officialHeatText = metadata.officialHeatText ?? "" }
                     officialHeatScore = metadata.officialHeatScore
+                    originalTitle = metadata.originalTitle ?? ""
+                    originalCoverURL = metadata.originalCoverURL ?? ""
+                    originalURL = metadata.originalURL ?? ""
+                    originalRating = metadata.originalRating
+                    originalStatus = metadata.originalStatus ?? ""
                     detectedSeasons = metadata.seasons
                     if compactAutoImport {
                         onCompactAutoImportProgress("已获取封面和基本信息，正在读取季集…", 0.72)
@@ -2784,6 +2794,11 @@ struct AddSeriesView: View {
 
             target.sourceURL = SeriesLinkPolicy.primary(existing: target.sourceURL, incoming: cleanURL)
             target.title = cleanTitle
+            if target.originalTitle == nil { target.originalTitle = originalTitle.nilIfBlank }
+            if target.originalCoverURL == nil { target.originalCoverURL = originalCoverURL.nilIfBlank }
+            if target.originalURL == nil { target.originalURL = originalURL.nilIfBlank }
+            if target.originalRating == nil { target.originalRating = originalRating }
+            if target.originalStatus == nil { target.originalStatus = originalStatus.nilIfBlank }
             if CoverURLSelector.shouldReplaceExisting(target.coverURL), let coverURL = coverURLText.nilIfBlank {
                 target.coverURL = coverURL
             }
