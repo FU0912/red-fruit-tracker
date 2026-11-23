@@ -532,8 +532,9 @@ private enum ImageProbeCache {
         request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
         request.setValue("image/jpeg,image/png,image/webp,image/*;q=0.8", forHTTPHeaderField: "Accept")
 
+        let imageRequest = request
         let metadata = await ImageProbeRequestLimiter.shared.metadata(for: cacheKey) {
-            await loadMetadata(for: request)
+            await loadMetadata(for: imageRequest)
         }
 
         let lifetime: TimeInterval = metadata == nil ? 15 * 60 : 6 * 60 * 60
@@ -546,29 +547,30 @@ private enum ImageProbeCache {
 
     private static func loadMetadata(for request: URLRequest) async -> ImageProbeMetadata? {
         guard let (data, response) = try? await URLSession.shared.data(for: request),
-           data.count <= 12_000_000,
-           let httpResponse = response as? HTTPURLResponse,
-           200..<400 ~= httpResponse.statusCode,
-           let source = CGImageSourceCreateWithData(data as CFData, nil),
-           let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-           let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
-           let height = properties[kCGImagePropertyPixelHeight] as? NSNumber {
-            let image = CGImageSourceCreateThumbnailAtIndex(
-                source,
-                0,
-                [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceThumbnailMaxPixelSize: 32
-                ] as CFDictionary
-            )
-            return ImageProbeMetadata(
-                width: width.intValue,
-                height: height.intValue,
-                fingerprint: image.flatMap(CoverImageFingerprint.hash(image:))
-            )
+              data.count <= 12_000_000,
+              let httpResponse = response as? HTTPURLResponse,
+              200..<400 ~= httpResponse.statusCode,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else {
+            return nil
         }
-        return nil
+
+        let image = CGImageSourceCreateThumbnailAtIndex(
+            source,
+            0,
+            [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 32
+            ] as CFDictionary
+        )
+        return ImageProbeMetadata(
+            width: width.intValue,
+            height: height.intValue,
+            fingerprint: image.flatMap(CoverImageFingerprint.hash(image:))
+        )
     }
 }
 
