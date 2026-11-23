@@ -746,7 +746,8 @@ private struct RelatedScreenshotSection: View {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 132, maxHeight: 184)
+                        .frame(width: 132)
+                        .frame(maxHeight: 184)
                         .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.16)) }
