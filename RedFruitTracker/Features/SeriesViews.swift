@@ -30,9 +30,6 @@ struct SeriesDetailView: View {
     @State private var reviewFocusGeneration = 0
     @State private var isShowingSeriesEdit = false
     @State private var isShowingRelatedSeriesAdd = false
-    @State private var screenshotPickerItem: PhotosPickerItem?
-    @State private var isShowingScreenshotViewer = false
-    @State private var screenshotNotice: String?
 
     init(series: SeriesRecord) {
         self.series = series
@@ -206,134 +203,8 @@ struct SeriesDetailView: View {
         }
     }
 
-    @ViewBuilder
     private var relatedScreenshotSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("相关截图")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.white)
-                Spacer()
-                PhotosPicker(
-                    selection: $screenshotPickerItem,
-                    matching: .images,
-                    preferredItemEncoding: .automatic
-                ) {
-                    Label(series.relatedScreenshotData == nil ? "上传" : "更换", systemImage: "photo.badge.plus")
-                        .font(.subheadline.weight(.medium))
-                }
-                .foregroundStyle(DetailTheme.accent)
-                .accessibilityIdentifier("related-screenshot-picker")
-            }
-
-            if let data = series.relatedScreenshotData,
-               let image = RelatedScreenshotImage.image(from: data) {
-                HStack(alignment: .top, spacing: 12) {
-                    Button {
-                        isShowingScreenshotViewer = true
-                    } label: {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 132, maxHeight: 184)
-                            .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .strokeBorder(.white.opacity(0.16), lineWidth: 1)
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("展开相关截图")
-                    .accessibilityIdentifier("related-screenshot-preview")
-
-                    VStack(spacing: 10) {
-                        Button {
-                            saveScreenshotToPhotos(data)
-                        } label: {
-                            Image(systemName: "square.and.arrow.down")
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(DetailTheme.accent)
-                        .accessibilityLabel("保存相关截图到相册")
-                        .accessibilityIdentifier("related-screenshot-save")
-
-                        Button(role: .destructive) {
-                            deleteScreenshot()
-                        } label: {
-                            Image(systemName: "trash")
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.red)
-                        .accessibilityLabel("删除相关截图")
-                        .accessibilityIdentifier("related-screenshot-delete")
-                    }
-                }
-            } else {
-                PhotosPicker(
-                    selection: $screenshotPickerItem,
-                    matching: .images,
-                    preferredItemEncoding: .automatic
-                ) {
-                    Label("点击上传相关截图", systemImage: "photo.badge.plus")
-                        .frame(maxWidth: .infinity, minHeight: 112)
-                }
-                .buttonStyle(.bordered)
-                .tint(DetailTheme.accent)
-                .accessibilityIdentifier("related-screenshot-empty-upload")
-            }
-        }
-        .accessibilityIdentifier("related-screenshot-section")
-        .sheet(isPresented: $isShowingScreenshotViewer) {
-            if let data = series.relatedScreenshotData,
-               let image = RelatedScreenshotImage.image(from: data) {
-                RelatedScreenshotViewer(image: image)
-            }
-        }
-        .alert("相关截图", isPresented: Binding(
-            get: { screenshotNotice != nil },
-            set: { if !$0 { screenshotNotice = nil } }
-        )) {
-            Button("好", role: .cancel) { screenshotNotice = nil }
-        } message: {
-            Text(screenshotNotice ?? "")
-        }
-        .onChange(of: screenshotPickerItem) { _, _ in
-            Task { await importSelectedScreenshot() }
-        }
-    }
-
-    private func importSelectedScreenshot() async {
-        guard let screenshotPickerItem else { return }
-        do {
-            guard let data = try await screenshotPickerItem.loadTransferable(type: Data.self),
-                  let normalizedData = RelatedScreenshotImage.normalizedData(from: data) else {
-                throw RelatedScreenshotImageError.invalidImage
-            }
-            series.relatedScreenshotData = normalizedData
-            try modelContext.saveAndNotifyCloudBackup()
-            self.screenshotPickerItem = nil
-        } catch {
-            screenshotNotice = error.localizedDescription
-        }
-    }
-
-    private func deleteScreenshot() {
-        series.relatedScreenshotData = nil
-        try? modelContext.saveAndNotifyCloudBackup()
-    }
-
-    private func saveScreenshotToPhotos(_ data: Data) {
-        Task {
-            do {
-                try await RelatedScreenshotImage.saveToPhotos(data: data)
-                await MainActor.run { screenshotNotice = "已保存到设备相册。" }
-            } catch {
-                await MainActor.run { screenshotNotice = error.localizedDescription }
-            }
-        }
+        RelatedScreenshotSection(series: series)
     }
 
     @ViewBuilder
@@ -820,6 +691,141 @@ private enum DetailTheme {
     static let background = Color(red: 0.28, green: 0.28, blue: 0.28)
     static let cell = Color.white.opacity(0.10)
     static let accent = Color(red: 0.30, green: 0.58, blue: 0.96)
+}
+
+private struct RelatedScreenshotSection: View {
+    @Environment(\.modelContext) private var modelContext
+
+    let series: SeriesRecord
+
+    @State private var pickerItem: PhotosPickerItem?
+    @State private var isShowingViewer = false
+    @State private var notice: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            content
+        }
+        .accessibilityIdentifier("related-screenshot-section")
+        .sheet(isPresented: $isShowingViewer) {
+            if let image = currentImage {
+                RelatedScreenshotViewer(image: image)
+            }
+        }
+        .alert("相关截图", isPresented: noticeBinding) {
+            Button("好", role: .cancel) { notice = nil }
+        } message: {
+            Text(notice ?? "")
+        }
+        .onChange(of: pickerItem) { _, _ in
+            Task { await importScreenshot() }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Text("相关截图")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.white)
+            Spacer()
+            PhotosPicker(selection: $pickerItem, matching: .images, preferredItemEncoding: .automatic) {
+                Label(series.relatedScreenshotData == nil ? "上传" : "更换", systemImage: "photo.badge.plus")
+                    .font(.subheadline.weight(.medium))
+            }
+            .foregroundStyle(DetailTheme.accent)
+            .accessibilityIdentifier("related-screenshot-picker")
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let data = series.relatedScreenshotData, let image = RelatedScreenshotImage.image(from: data) {
+            HStack(alignment: .top, spacing: 12) {
+                Button { isShowingViewer = true } label: {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 132, maxHeight: 184)
+                        .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.16)) }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("展开相关截图")
+                .accessibilityIdentifier("related-screenshot-preview")
+
+                VStack(spacing: 10) {
+                    Button { saveToPhotos(data) } label: {
+                        Image(systemName: "square.and.arrow.down").frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(DetailTheme.accent)
+                    .accessibilityLabel("保存相关截图到相册")
+                    .accessibilityIdentifier("related-screenshot-save")
+
+                    Button(role: .destructive) { deleteScreenshot() } label: {
+                        Image(systemName: "trash").frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+                    .accessibilityLabel("删除相关截图")
+                    .accessibilityIdentifier("related-screenshot-delete")
+                }
+            }
+        } else {
+            PhotosPicker(selection: $pickerItem, matching: .images, preferredItemEncoding: .automatic) {
+                Label("点击上传相关截图", systemImage: "photo.badge.plus")
+                    .frame(maxWidth: .infinity, minHeight: 112)
+            }
+            .buttonStyle(.bordered)
+            .tint(DetailTheme.accent)
+            .accessibilityIdentifier("related-screenshot-empty-upload")
+        }
+    }
+
+    private var currentImage: UIImage? {
+        guard let data = series.relatedScreenshotData else { return nil }
+        return RelatedScreenshotImage.image(from: data)
+    }
+
+    private var noticeBinding: Binding<Bool> {
+        Binding(
+            get: { notice != nil },
+            set: { if !$0 { notice = nil } }
+        )
+    }
+
+    private func importScreenshot() async {
+        guard let pickerItem else { return }
+        do {
+            guard let data = try await pickerItem.loadTransferable(type: Data.self),
+                  let normalizedData = RelatedScreenshotImage.normalizedData(from: data) else {
+                throw RelatedScreenshotImageError.invalidImage
+            }
+            series.relatedScreenshotData = normalizedData
+            try modelContext.saveAndNotifyCloudBackup()
+            self.pickerItem = nil
+        } catch {
+            notice = error.localizedDescription
+        }
+    }
+
+    private func deleteScreenshot() {
+        series.relatedScreenshotData = nil
+        try? modelContext.saveAndNotifyCloudBackup()
+    }
+
+    private func saveToPhotos(_ data: Data) {
+        Task {
+            do {
+                try await RelatedScreenshotImage.saveToPhotos(data: data)
+                await MainActor.run { notice = "已保存到设备相册。" }
+            } catch {
+                await MainActor.run { notice = error.localizedDescription }
+            }
+        }
+    }
 }
 
 private struct RelatedScreenshotViewer: View {
