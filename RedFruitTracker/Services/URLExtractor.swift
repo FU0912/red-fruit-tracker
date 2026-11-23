@@ -15,7 +15,10 @@ enum URLExtractor {
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         return regex.matches(in: text, range: range).compactMap { match in
             guard let matchRange = Range(match.range, in: text) else { return nil }
-            let candidate = trimPunctuation(from: String(text[matchRange]))
+            let matchedValue = String(text[matchRange])
+            let linkValue = matchedValue.range(of: "](")
+                .map { String(matchedValue[..<$0.lowerBound]) } ?? matchedValue
+            let candidate = trimPunctuation(from: linkValue)
                 .replacingOccurrences(of: "&amp;", with: "&")
                 .replacingOccurrences(of: "&#x26;", with: "&")
             guard let url = URL(string: candidate),
@@ -30,7 +33,7 @@ enum URLExtractor {
 
     private static func trimPunctuation(from value: String) -> String {
         let punctuation = CharacterSet.whitespacesAndNewlines
-            .union(CharacterSet(charactersIn: ",，。;；:：!！?？、)]}》〉】»’\"'"))
+            .union(CharacterSet(charactersIn: ",，。;；:：!！?？、)]}》〉】»’\"'\\"))
         return value.trimmingCharacters(in: punctuation)
     }
 }
@@ -41,6 +44,7 @@ enum ClipboardShareDetector {
             let host = url.host?.lowercased() ?? ""
             return host == "hongguoduanju.com" || host.hasSuffix(".hongguoduanju.com")
                 || host == "hongguo.com" || host.hasSuffix(".hongguo.com")
+                || host == "novelquickapp.com" || host.hasSuffix(".novelquickapp.com")
                 || host == "kylin.hainanyuyue.com"
         }
     }

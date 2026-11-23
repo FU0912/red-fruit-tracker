@@ -155,6 +155,110 @@ final class LibraryModelTests: XCTestCase {
     }
 
     @MainActor
+    func testLibraryBackupArchiveMergesMissingSeriesWithoutOverwritingAndRestoresSortPosition() throws {
+        let schema = Schema([
+            SeriesRecord.self,
+            SeasonRecord.self,
+            EpisodeRecord.self,
+            PersonalRecord.self,
+            OfficialSnapshot.self,
+            ImportInboxItem.self,
+            UpdateNotificationRecord.self
+        ])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let source = try ModelContainer(for: schema, configurations: [configuration])
+        let baseDate = Date(timeIntervalSince1970: 1_800_000_000)
+
+        let sourceSeries = (1...5).map { position in
+            SeriesRecord(
+                sourceSeriesID: "series-\(position)",
+                title: "作品 \(position)",
+                createdAt: baseDate.addingTimeInterval(Double(position) * 86_400)
+            )
+        }
+        sourceSeries.forEach { source.mainContext.insert($0) }
+        let restoredWorkID = "series-5"
+        let restoredDate = baseDate.addingTimeInterval(5 * 86_400)
+        let restoredWork = sourceSeries[4]
+        restoredWork.relatedScreenshotData = Data([5, 4, 3, 2, 1])
+        source.mainContext.insert(SeasonRecord(
+            sourceSeriesID: restoredWorkID,
+            seasonNumber: 2,
+            title: "第2季",
+            episodeCount: 18
+        ))
+        source.mainContext.insert(EpisodeRecord(
+            sourceVid: "series-5#s2#e1",
+            sourceSeriesID: restoredWorkID,
+            seasonNumber: 2,
+            episodeNumber: 1,
+            title: "第1集",
+            isWatched: true,
+            watchedAt: restoredDate
+        ))
+        let restoredPersonal = PersonalRecord(sourceSeriesID: restoredWorkID)
+        restoredPersonal.myRating = 8.7
+        restoredPersonal.review = "重新看过"
+        restoredPersonal.localShelfState = ShelfState.finished.rawValue
+        source.mainContext.insert(restoredPersonal)
+        let restoredSnapshot = OfficialSnapshot(sourceSeriesID: restoredWorkID, capturedAt: restoredDate)
+        restoredSnapshot.officialHeatText = "3600万"
+        source.mainContext.insert(restoredSnapshot)
+        source.mainContext.insert(ImportInboxItem(originalURL: "https://example.com/series-5", status: "imported"))
+        source.mainContext.insert(UpdateNotificationRecord(
+            sourceSeriesID: restoredWorkID,
+            title: "作品 5",
+            scheduledAt: restoredDate.addingTimeInterval(30 * 86_400)
+        ))
+
+        let backedUpPersonal = PersonalRecord(sourceSeriesID: "series-1")
+        backedUpPersonal.review = "备份里的旧评价"
+        source.mainContext.insert(backedUpPersonal)
+        try source.mainContext.save()
+        let archive = try LibraryBackupArchive.export(from: source.mainContext)
+
+        let destination = try ModelContainer(for: schema, configurations: [configuration])
+        for position in 1...4 {
+            destination.mainContext.insert(SeriesRecord(
+                sourceSeriesID: "series-\(position)",
+                title: position == 1 ? "本机修改过的标题" : "作品 \(position)",
+                createdAt: baseDate.addingTimeInterval(Double(position) * 86_400)
+            ))
+        }
+        let localPersonal = PersonalRecord(sourceSeriesID: "series-1")
+        localPersonal.review = "本机保留的评价"
+        localPersonal.myRating = 6.4
+        destination.mainContext.insert(localPersonal)
+        try destination.mainContext.save()
+
+        try archive.restore(into: destination.mainContext)
+        try destination.mainContext.save()
+
+        let restoredSeries = try destination.mainContext.fetch(FetchDescriptor<SeriesRecord>(
+            sortBy: [
+                SortDescriptor(\.createdAt, order: .reverse),
+                SortDescriptor(\.sourceSeriesID)
+            ]
+        ))
+        XCTAssertEqual(restoredSeries.map(\.sourceSeriesID), (1...5).reversed().map { "series-\($0)" })
+        let restoredItem = try XCTUnwrap(restoredSeries.first)
+        XCTAssertEqual(restoredItem.relatedScreenshotData, Data([5, 4, 3, 2, 1]))
+        XCTAssertEqual(restoredItem.createdAt, restoredDate)
+
+        let localItem = try XCTUnwrap(restoredSeries.first(where: { $0.sourceSeriesID == "series-1" }))
+        XCTAssertEqual(localItem.title, "本机修改过的标题")
+        let personalRecords = try destination.mainContext.fetch(FetchDescriptor<PersonalRecord>())
+        XCTAssertEqual(personalRecords.first(where: { $0.sourceSeriesID == "series-1" })?.review, "本机保留的评价")
+        XCTAssertEqual(personalRecords.first(where: { $0.sourceSeriesID == "series-1" })?.myRating, 6.4)
+        XCTAssertEqual(personalRecords.first(where: { $0.sourceSeriesID == restoredWorkID })?.review, "重新看过")
+        XCTAssertEqual(try destination.mainContext.fetch(FetchDescriptor<SeasonRecord>()).map(\.sourceSeasonKey), ["series-5#2"])
+        XCTAssertEqual(try destination.mainContext.fetch(FetchDescriptor<EpisodeRecord>()).map(\.sourceVid), ["series-5#s2#e1"])
+        XCTAssertEqual(try destination.mainContext.fetch(FetchDescriptor<OfficialSnapshot>()).count, 1)
+        XCTAssertEqual(try destination.mainContext.fetch(FetchDescriptor<ImportInboxItem>()).map(\.originalURL), ["https://example.com/series-5"])
+        XCTAssertEqual(try destination.mainContext.fetch(FetchDescriptor<UpdateNotificationRecord>()).count, 1)
+    }
+
+    @MainActor
     func testLibraryBackupArchiveRestoresWhenOnlyOrphanedRecordsRemain() throws {
         let schema = Schema([
             SeriesRecord.self,
@@ -1014,6 +1118,17 @@ final class LibraryModelTests: XCTestCase {
         )
         XCTAssertNil(ClipboardShareDetector.redFruitURL(in: "https://example.com/detail?id=123"))
         XCTAssertNil(ClipboardShareDetector.redFruitURL(in: "https://hongguoduanju.com.attacker.invalid/detail?id=123"))
+    }
+
+    func testClipboardShareDetectorAcceptsTheCopiedRedFruitShareMessageAsIs() throws {
+        let message = """
+        漫剧《无敌帝夫，女帝的咸鱼丈夫他不装了》 - 免费好剧，尽在红果
+        点击链接打开👉[https://novelquickapp.com/s/GGMIsH-oQUM/](https://novelquickapp.com/s/GGMIsH-oQUM/)
+        复制本条消息后，打开「红果短剧App」后免费看全集~
+        """
+
+        let url = try XCTUnwrap(ClipboardShareDetector.redFruitURL(in: message))
+        XCTAssertEqual(url.absoluteString, "https://novelquickapp.com/s/GGMIsH-oQUM/")
     }
 
     func testOfficialDetailFixtureExtractsSocialFieldsAndSeasonEpisodeTotals() throws {

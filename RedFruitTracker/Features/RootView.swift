@@ -13,11 +13,13 @@ extension Notification.Name {
 struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("redFruitTracker.lastFileBackupTimestamp") private var lastFileBackupTimestamp = 0.0
 
     @State private var selectedTab = 0
     @State private var isShowingAdd = false
     @State private var fileBackupFeedback: String?
     @State private var backupDocument: LibraryBackupFileDocument?
+    @State private var pendingBackupTimestamp: Date?
     @State private var isExportingBackup = false
     @State private var isCreatingBackup = false
     @State private var isImportingBackup = false
@@ -96,8 +98,11 @@ struct RootView: View {
             onCompletion: { result in
                 switch result {
                 case .success:
+                    lastFileBackupTimestamp = (pendingBackupTimestamp ?? .now).timeIntervalSince1970
+                    pendingBackupTimestamp = nil
                     fileBackupFeedback = "备份文件已保存。可在文件 App 中选择 iCloud Drive 保存。"
                 case .failure(let error):
+                    pendingBackupTimestamp = nil
                     if (error as? CocoaError)?.code == .userCancelled { return }
                     fileBackupFeedback = "导出失败：\(error.localizedDescription)"
                 }
@@ -134,6 +139,7 @@ struct RootView: View {
         guard !isCreatingBackup else { return }
         do {
             let archive = try LibraryBackupArchive.export(from: modelContext)
+            pendingBackupTimestamp = archive.exportedAt
             isCreatingBackup = true
             Task { @MainActor in
                 do {
@@ -145,6 +151,7 @@ struct RootView: View {
                     isExportingBackup = true
                 } catch {
                     isCreatingBackup = false
+                    pendingBackupTimestamp = nil
                     fileBackupFeedback = "生成备份失败：\(error.localizedDescription)"
                 }
             }
@@ -155,19 +162,23 @@ struct RootView: View {
 
     @MainActor
     private func importClipboardShare() {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let url = UIPasteboard.general.string.flatMap(ClipboardShareDetector.redFruitURL(in:))
-            DispatchQueue.main.async { [self] in
-                guard let url else {
-                    clipboardFeedback = "剪贴板中没有可识别的红果漫剧链接。"
-                    return
-                }
+        let pasteboard = UIPasteboard.general
+        let clipboardText = [
+            pasteboard.string,
+            pasteboard.strings?.joined(separator: "\n"),
+            pasteboard.url?.absoluteString
+        ]
+        .compactMap { $0 }
+        .joined(separator: "\n")
 
-                pendingShareURL = url
-                presentedShareURL = nil
-                isShowingAdd = true
-            }
+        guard let url = ClipboardShareDetector.redFruitURL(in: clipboardText) else {
+            clipboardFeedback = "剪贴板中没有可识别的红果漫剧链接。"
+            return
         }
+
+        pendingShareURL = url
+        presentedShareURL = nil
+        isShowingAdd = true
     }
 
     @MainActor
@@ -195,7 +206,7 @@ struct RootView: View {
                         throw error
                     }
                     RecentSeriesWidgetSnapshot.refresh(context: modelContext)
-                    fileBackupFeedback = "已恢复 \(archive.series.count) 部作品及相关记录。"
+                    fileBackupFeedback = "已合并恢复备份。原有记录保持不变，备份中缺少的作品及其季集、评分、评价、截图和提醒已补回。"
                 } catch {
                     fileBackupFeedback = "恢复失败：\(error.localizedDescription)"
                 }
@@ -621,6 +632,7 @@ private struct LibraryView: View {
 }
 
 private struct LibraryHeader: View {
+    @AppStorage("redFruitTracker.lastFileBackupTimestamp") private var lastBackupTimestamp = 0.0
     @AppStorage("redFruitTracker.backgroundRefreshInProgress") private var backgroundRefreshInProgress = false
     @AppStorage("redFruitTracker.backgroundRefreshProgress") private var backgroundRefreshProgress = ""
     @AppStorage("redFruitTracker.backgroundRefreshTotal") private var backgroundRefreshTotal = 0
@@ -635,6 +647,14 @@ private struct LibraryHeader: View {
     let onImportBackup: () -> Void
     let onOpenSearch: () -> Void
     @Binding var selectedTags: Set<String>
+
+    private var lastBackupText: String {
+        guard lastBackupTimestamp > 0 else { return "尚无备份" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年MM月dd日 HH:mm"
+        return "上次备份 \(formatter.string(from: Date(timeIntervalSince1970: lastBackupTimestamp)))"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -652,9 +672,9 @@ private struct LibraryHeader: View {
                     }
                 } label: {
                     Image(systemName: "externaldrive")
-                        .font(.system(size: 25, weight: .medium))
+                        .font(.system(size: 24, weight: .medium))
                 }
-                .frame(width: 66, height: 66)
+                .frame(width: 62, height: 62)
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("file-backup-menu")
                 .accessibilityLabel("文件备份与恢复")
@@ -665,15 +685,21 @@ private struct LibraryHeader: View {
                             .controlSize(.small)
                     } else {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 25, weight: .medium))
+                            .font(.system(size: 24, weight: .medium))
                     }
                 }
-                .frame(width: 66, height: 66)
+                .frame(width: 62, height: 62)
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("library-refresh-button")
                 .accessibilityLabel("更新全部公开资料")
                 .disabled(isRefreshing)
             }
+
+            Text(lastBackupText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityIdentifier("last-file-backup-time")
 
             if isRefreshing {
                 VStack(alignment: .leading, spacing: 8) {
@@ -1842,6 +1868,7 @@ private struct UpdateNotificationListView: View {
                 notificationContent
             }
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .toolbar(.visible, for: .navigationBar)
             .navigationTitle("我的预约")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -2119,6 +2146,7 @@ private struct StatTile: View {
 }
 
 private struct FilteredSeriesView: View {
+    @Environment(\.dismiss) private var dismiss
     let filter: LibraryFilter
 
     @State private var selectedSeries: SeriesRecord?
@@ -2182,8 +2210,15 @@ private struct FilteredSeriesView: View {
             }
         }
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        .toolbar(.visible, for: .navigationBar)
         .navigationTitle(filter.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("关闭") { dismiss() }
+                    .accessibilityIdentifier("filtered-series-close")
+            }
+        }
         .navigationDestination(item: $selectedSeries) { item in
             SeriesDetailView(series: item)
         }

@@ -195,7 +195,6 @@ struct UpdateNotificationBackupRecord: Codable, Equatable, Sendable {
 
 enum LibraryBackupArchiveError: LocalizedError {
     case unsupportedSchemaVersion(Int)
-    case databaseNotEmpty
     case duplicateRecords(String)
     case missingSeriesReference(String)
 
@@ -203,8 +202,6 @@ enum LibraryBackupArchiveError: LocalizedError {
         switch self {
         case .unsupportedSchemaVersion(let version):
             return "此备份版本暂不支持（版本 \(version)）。"
-        case .databaseNotEmpty:
-            return "当前书架已有数据。为避免重复或覆盖，文件恢复只允许在空书架中进行。"
         case .duplicateRecords(let kind):
             return "备份中包含重复的\(kind)记录，未导入任何数据。"
         case .missingSeriesReference(let kind):
@@ -319,6 +316,9 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
         try requireUnique(seasons.map(\.sourceSeasonKey), kind: "季")
         try requireUnique(episodes.map(\.sourceVid), kind: "集")
         try requireUnique(personalRecords.map(\.sourceSeriesID), kind: "个人记录")
+        try requireUnique(officialSnapshots.map {
+            "\($0.sourceSeriesID)#\($0.capturedAt.timeIntervalSinceReferenceDate.bitPattern)"
+        }, kind: "公开资料快照")
         try requireUnique(importInboxItems.map(\.originalURL), kind: "导入队列")
         try requireUnique(updateNotifications.map(\.id), kind: "通知")
 
@@ -335,16 +335,9 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
     @MainActor
     func restore(into context: ModelContext) throws {
         try validate()
-        let hasExistingLibraryRecords = try context.fetchCount(FetchDescriptor<SeriesRecord>()) > 0
-            || context.fetchCount(FetchDescriptor<SeasonRecord>()) > 0
-            || context.fetchCount(FetchDescriptor<EpisodeRecord>()) > 0
-            || context.fetchCount(FetchDescriptor<PersonalRecord>()) > 0
-            || context.fetchCount(FetchDescriptor<OfficialSnapshot>()) > 0
-        guard !hasExistingLibraryRecords else {
-            throw LibraryBackupArchiveError.databaseNotEmpty
-        }
 
-        for value in series {
+        let existingSeriesIDs = Set(try context.fetch(FetchDescriptor<SeriesRecord>()).map(\.sourceSeriesID))
+        for value in series where !existingSeriesIDs.contains(value.sourceSeriesID) {
             context.insert(SeriesRecord(
                 sourceSeriesID: value.sourceSeriesID,
                 title: value.title,
@@ -364,7 +357,8 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
                 updatedAt: value.updatedAt
             ))
         }
-        for value in seasons {
+        let existingSeasonKeys = Set(try context.fetch(FetchDescriptor<SeasonRecord>()).map(\.sourceSeasonKey))
+        for value in seasons where !existingSeasonKeys.contains(value.sourceSeasonKey) {
             let record = SeasonRecord(
                 sourceSeriesID: value.sourceSeriesID,
                 seasonNumber: value.seasonNumber,
@@ -377,7 +371,8 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             record.updatedAt = value.updatedAt
             context.insert(record)
         }
-        for value in episodes {
+        let existingEpisodeIDs = Set(try context.fetch(FetchDescriptor<EpisodeRecord>()).map(\.sourceVid))
+        for value in episodes where !existingEpisodeIDs.contains(value.sourceVid) {
             context.insert(EpisodeRecord(
                 sourceVid: value.sourceVid,
                 sourceSeriesID: value.sourceSeriesID,
@@ -389,7 +384,8 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
                 watchedAt: value.watchedAt
             ))
         }
-        for value in personalRecords {
+        let existingPersonalIDs = Set(try context.fetch(FetchDescriptor<PersonalRecord>()).map(\.sourceSeriesID))
+        for value in personalRecords where !existingPersonalIDs.contains(value.sourceSeriesID) {
             let record = PersonalRecord(sourceSeriesID: value.sourceSeriesID)
             record.currentSeasonNumber = value.currentSeasonNumber
             record.currentEpisodeNumber = value.currentEpisodeNumber
@@ -403,7 +399,15 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             record.updatedAt = value.updatedAt
             context.insert(record)
         }
+        func snapshotKey(sourceSeriesID: String, capturedAt: Date) -> String {
+            "\(sourceSeriesID)#\(capturedAt.timeIntervalSinceReferenceDate.bitPattern)"
+        }
+        var existingSnapshotKeys = Set(try context.fetch(FetchDescriptor<OfficialSnapshot>()).map {
+            snapshotKey(sourceSeriesID: $0.sourceSeriesID, capturedAt: $0.capturedAt)
+        })
         for value in officialSnapshots {
+            let key = snapshotKey(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
+            guard existingSnapshotKeys.insert(key).inserted else { continue }
             let record = OfficialSnapshot(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
             record.officialRating = value.officialRating
             record.officialRatingCount = value.officialRatingCount
