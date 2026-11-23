@@ -8,7 +8,6 @@ import SwiftUI
 extension Notification.Name {
     static let searchLibraryTag = Notification.Name("RedFruitTracker.searchLibraryTag")
     static let applyLibraryTagSearch = Notification.Name("RedFruitTracker.applyLibraryTagSearch")
-    static let openSeriesFromUpdateNotification = Notification.Name("RedFruitTracker.openSeriesFromUpdateNotification")
 }
 
 struct RootView: View {
@@ -27,10 +26,12 @@ struct RootView: View {
     @State private var presentedShareURL: URL?
     @State private var pendingShareRetryToken = 0
     @State private var statsNavigationToken = UUID()
+    @State private var requestedSeriesOpenID: String?
 
     var body: some View {
         TabView(selection: $selectedTab) {
             LibraryView(
+                requestedSeriesID: $requestedSeriesOpenID,
                 pendingShareURL: pendingShareURL,
                 onAdd: { isShowingAdd = true },
                 onImportFromClipboard: importClipboardShare,
@@ -42,7 +43,10 @@ struct RootView: View {
             }
             .tag(0)
 
-            StatsView()
+            StatsView { sourceID in
+                requestedSeriesOpenID = sourceID
+                selectedTab = 0
+            }
                 .id(statsNavigationToken)
                 .tabItem {
                     Label("统计", systemImage: "chart.xyaxis.line")
@@ -83,9 +87,6 @@ struct RootView: View {
             guard let tag = notification.object as? String else { return }
             selectedTab = 0
             NotificationCenter.default.post(name: .applyLibraryTagSearch, object: tag)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openSeriesFromUpdateNotification)) { _ in
-            selectedTab = 0
         }
         .fileExporter(
             isPresented: $isExportingBackup,
@@ -253,6 +254,7 @@ struct RootView: View {
 
 private struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
+    @Binding var requestedSeriesID: String?
 
     @Query(sort: [
         SortDescriptor(\SeriesRecord.createdAt, order: .reverse),
@@ -476,9 +478,11 @@ private struct LibraryView: View {
                 selectedSeries = nil
                 isShowingLibrarySearch = false
             }
-            .onReceive(NotificationCenter.default.publisher(for: .openSeriesFromUpdateNotification)) { notification in
-                guard let sourceID = notification.object as? String else { return }
-                selectedSeries = series.first { $0.sourceSeriesID == sourceID }
+            .onChange(of: requestedSeriesID) { _, sourceID in
+                guard let sourceID,
+                      let matchingSeries = series.first(where: { $0.sourceSeriesID == sourceID }) else { return }
+                selectedSeries = matchingSeries
+                requestedSeriesID = nil
             }
         }
     }
@@ -648,8 +652,9 @@ private struct LibraryHeader: View {
                     }
                 } label: {
                     Image(systemName: "externaldrive")
+                        .font(.system(size: 25, weight: .medium))
                 }
-                .frame(width: 57, height: 57)
+                .frame(width: 66, height: 66)
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("file-backup-menu")
                 .accessibilityLabel("文件备份与恢复")
@@ -660,9 +665,10 @@ private struct LibraryHeader: View {
                             .controlSize(.small)
                     } else {
                         Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 25, weight: .medium))
                     }
                 }
-                .frame(width: 57, height: 57)
+                .frame(width: 66, height: 66)
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("library-refresh-button")
                 .accessibilityLabel("更新全部公开资料")
@@ -1286,6 +1292,12 @@ struct CoverView: View {
 }
 
 private struct StatsView: View {
+    let onOpenSeries: (String) -> Void
+
+    init(onOpenSeries: @escaping (String) -> Void) {
+        self.onOpenSeries = onOpenSeries
+    }
+
     @Query(sort: [
         SortDescriptor(\SeriesRecord.createdAt, order: .reverse),
         SortDescriptor(\SeriesRecord.sourceSeriesID)
@@ -1584,13 +1596,13 @@ private struct StatsView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(item: $selectedFilter) { filter in
+            .fullScreenCover(item: $selectedFilter) { filter in
                 NavigationStack {
                     FilteredSeriesView(filter: filter)
                 }
             }
             .fullScreenCover(isPresented: $isShowingAppointments) {
-                UpdateNotificationListView(initialSegment: 1)
+                UpdateNotificationListView(initialSegment: 1, onOpenSeries: onOpenSeries)
             }
         }
         .task(id: request) {
@@ -1783,6 +1795,8 @@ private struct UpdateNotificationListView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
+    let onOpenSeries: (String) -> Void
+
     @Query(sort: \UpdateNotificationRecord.scheduledAt, order: .reverse)
     private var notifications: [UpdateNotificationRecord]
     @Query private var series: [SeriesRecord]
@@ -1791,8 +1805,9 @@ private struct UpdateNotificationListView: View {
     @State private var selectedIDs = Set<String>()
     @State private var editMode: EditMode = .inactive
 
-    init(initialSegment: Int = 0) {
+    init(initialSegment: Int = 0, onOpenSeries: @escaping (String) -> Void) {
         _selectedSegment = State(initialValue: initialSegment)
+        self.onOpenSeries = onOpenSeries
     }
 
     private var liveNotifications: [UpdateNotificationRecord] {
@@ -1895,10 +1910,12 @@ private struct UpdateNotificationListView: View {
                 } else {
                     selectedIDs.insert(item.id)
                 }
-            } else if selectedSegment == 0 {
-                markAsRead(item)
-                try? modelContext.saveAndNotifyCloudBackup()
-                NotificationCenter.default.post(name: .openSeriesFromUpdateNotification, object: item.sourceSeriesID)
+            } else {
+                if selectedSegment == 0 {
+                    markAsRead(item)
+                    try? modelContext.saveAndNotifyCloudBackup()
+                }
+                onOpenSeries(item.sourceSeriesID)
                 dismiss()
             }
         } label: {
@@ -2104,8 +2121,7 @@ private struct StatTile: View {
 private struct FilteredSeriesView: View {
     let filter: LibraryFilter
 
-    @State private var selectedSeriesID: String?
-    @State private var isShowingSeries = false
+    @State private var selectedSeries: SeriesRecord?
 
     @Query(sort: [
         SortDescriptor(\SeriesRecord.createdAt, order: .reverse),
@@ -2155,10 +2171,7 @@ private struct FilteredSeriesView: View {
                         seasons: seasons.filter { $0.sourceSeriesID == item.sourceSeriesID },
                         personal: personalRecords.first { $0.sourceSeriesID == item.sourceSeriesID },
                         accessibilityIdentifier: "filtered-series-\(item.sourceSeriesID)",
-                        onSelect: {
-                            selectedSeriesID = item.sourceSeriesID
-                            isShowingSeries = true
-                        }
+                        onSelect: { selectedSeries = item }
                     )
                     .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     .listRowSeparator(.hidden)
@@ -2171,13 +2184,8 @@ private struct FilteredSeriesView: View {
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .navigationTitle(filter.title)
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $isShowingSeries) {
-            if let selectedSeriesID,
-               let selectedSeries = series.first(where: { $0.sourceSeriesID == selectedSeriesID }) {
-                NavigationStack {
-                    SeriesDetailView(series: selectedSeries)
-                }
-            }
+        .navigationDestination(item: $selectedSeries) { item in
+            SeriesDetailView(series: item)
         }
     }
 }
@@ -2259,6 +2267,7 @@ struct AddSeriesView: View {
     @State private var isFetching = false
     @State private var notice: String?
     @State private var errorMessage: String?
+    @State private var duplicateNotice: String?
     @State private var detectedSeasons: [PublicSeasonMetadata] = []
     @State private var coverCandidates: [String] = []
     @State private var lastFetchedURL: String?
@@ -2431,13 +2440,22 @@ struct AddSeriesView: View {
                         .fontWeight(.semibold)
                 }
             }
-            .alert("无法保存", isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
+            .alert(duplicateNotice == nil ? "无法保存" : "作品已添加", isPresented: Binding(
+                get: { errorMessage != nil || duplicateNotice != nil },
+                set: {
+                    if !$0 {
+                        errorMessage = nil
+                        duplicateNotice = nil
+                    }
+                }
             )) {
-                Button("好", role: .cancel) { errorMessage = nil }
+                Button("好", role: .cancel) {
+                    if duplicateNotice != nil { dismiss() }
+                    errorMessage = nil
+                    duplicateNotice = nil
+                }
             } message: {
-                Text(errorMessage ?? "")
+                Text(duplicateNotice ?? errorMessage ?? "")
             }
             .onChange(of: sourceURLText) { _, newValue in
                 handlePastedText(newValue)
@@ -2539,16 +2557,26 @@ struct AddSeriesView: View {
         let identity = SeriesImportIdentity(title: detectedTitle, fallbackURL: sourceURL)
         let cleanTitle = identity.baseTitle.isEmpty ? "待补充作品" : identity.baseTitle
         let cleanURL = sourceURL.absoluteString
-        let normalizedRatingText = myRatingText.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: ",", with: ".")
-        let personalRating = normalizedRatingText.isEmpty ? nil : Double(normalizedRatingText)
-        guard normalizedRatingText.isEmpty || personalRating.map({ (0...10).contains($0) }) == true else {
-            errorMessage = "我的评分请输入 0 到 10 之间的数字。"
-            return
-        }
 
         do {
             let record = try SeriesRecordLookup.existing(matching: identity, in: modelContext)
+            if let record {
+                record.createdAt = .now
+                try modelContext.saveAndNotifyCloudBackup()
+                RecentSeriesWidgetSnapshot.refresh(context: modelContext)
+                onSaved()
+                duplicateNotice = "这部作品已经添加过。本次只更新了添加时间，并移到了书架最前面。原有评分、评价和其他记录均未更改。"
+                return
+            }
+
+            let normalizedRatingText = myRatingText.trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: ",", with: ".")
+            let personalRating = normalizedRatingText.isEmpty ? nil : Double(normalizedRatingText)
+            guard normalizedRatingText.isEmpty || personalRating.map({ (0...10).contains($0) }) == true else {
+                errorMessage = "我的评分请输入 0 到 10 之间的数字。"
+                return
+            }
+
             let sourceID = record?.sourceSeriesID ?? identity.sourceID
             let target = record ?? SeriesRecord(
                 sourceSeriesID: sourceID,
