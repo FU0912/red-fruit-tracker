@@ -204,6 +204,9 @@ final class LibraryModelTests: XCTestCase {
         let restoredSnapshot = OfficialSnapshot(sourceSeriesID: restoredWorkID, capturedAt: restoredDate)
         restoredSnapshot.officialHeatText = "3600万"
         source.mainContext.insert(restoredSnapshot)
+        let duplicateSourceSnapshot = OfficialSnapshot(sourceSeriesID: restoredWorkID, capturedAt: restoredDate)
+        duplicateSourceSnapshot.officialRatingCount = 321
+        source.mainContext.insert(duplicateSourceSnapshot)
         source.mainContext.insert(ImportInboxItem(originalURL: "https://example.com/series-5", status: "imported"))
         source.mainContext.insert(UpdateNotificationRecord(
             sourceSeriesID: restoredWorkID,
@@ -216,6 +219,27 @@ final class LibraryModelTests: XCTestCase {
         source.mainContext.insert(backedUpPersonal)
         try source.mainContext.save()
         let archive = try LibraryBackupArchive.export(from: source.mainContext)
+        XCTAssertEqual(archive.officialSnapshots.count, 1)
+        XCTAssertEqual(archive.officialSnapshots.first?.officialHeatText, "3600万")
+        XCTAssertEqual(archive.officialSnapshots.first?.officialRatingCount, 321)
+
+        let duplicateBackupSnapshot = OfficialSnapshotBackupRecord(
+            sourceSeriesID: restoredWorkID,
+            capturedAt: restoredDate,
+            reviewCount: 17
+        )
+        let legacyArchiveWithDuplicateSnapshot = LibraryBackupArchive(
+            schemaVersion: archive.schemaVersion,
+            exportedAt: archive.exportedAt,
+            series: archive.series,
+            seasons: archive.seasons,
+            episodes: archive.episodes,
+            personalRecords: archive.personalRecords,
+            officialSnapshots: archive.officialSnapshots + [duplicateBackupSnapshot],
+            importInboxItems: archive.importInboxItems,
+            updateNotifications: archive.updateNotifications
+        )
+        let restorableArchive = try LibraryBackupArchive.decode(legacyArchiveWithDuplicateSnapshot.encodedData())
 
         let destination = try ModelContainer(for: schema, configurations: [configuration])
         for position in 1...4 {
@@ -231,7 +255,7 @@ final class LibraryModelTests: XCTestCase {
         destination.mainContext.insert(localPersonal)
         try destination.mainContext.save()
 
-        try archive.restore(into: destination.mainContext)
+        try restorableArchive.restore(into: destination.mainContext)
         try destination.mainContext.save()
 
         let restoredSeries = try destination.mainContext.fetch(FetchDescriptor<SeriesRecord>(
@@ -253,7 +277,11 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(personalRecords.first(where: { $0.sourceSeriesID == restoredWorkID })?.review, "重新看过")
         XCTAssertEqual(try destination.mainContext.fetch(FetchDescriptor<SeasonRecord>()).map(\.sourceSeasonKey), ["series-5#2"])
         XCTAssertEqual(try destination.mainContext.fetch(FetchDescriptor<EpisodeRecord>()).map(\.sourceVid), ["series-5#s2#e1"])
-        XCTAssertEqual(try destination.mainContext.fetch(FetchDescriptor<OfficialSnapshot>()).count, 1)
+        let snapshots = try destination.mainContext.fetch(FetchDescriptor<OfficialSnapshot>())
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertEqual(snapshots.first?.officialHeatText, "3600万")
+        XCTAssertEqual(snapshots.first?.officialRatingCount, 321)
+        XCTAssertEqual(snapshots.first?.reviewCount, 17)
         XCTAssertEqual(try destination.mainContext.fetch(FetchDescriptor<ImportInboxItem>()).map(\.originalURL), ["https://example.com/series-5"])
         XCTAssertEqual(try destination.mainContext.fetch(FetchDescriptor<UpdateNotificationRecord>()).count, 1)
     }

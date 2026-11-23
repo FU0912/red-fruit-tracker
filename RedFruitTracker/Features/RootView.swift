@@ -30,6 +30,14 @@ struct RootView: View {
     @State private var statsNavigationToken = UUID()
     @State private var requestedSeriesOpenID: String?
 
+    private var backupFilename: String {
+        let date = pendingBackupTimestamp ?? .now
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年MM月dd日_HH时mm分"
+        return "漫剧记录备份_\(formatter.string(from: date))"
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
             LibraryView(
@@ -94,7 +102,7 @@ struct RootView: View {
             isPresented: $isExportingBackup,
             document: backupDocument,
             contentType: .json,
-            defaultFilename: "漫剧记录备份",
+            defaultFilename: backupFilename,
             onCompletion: { result in
                 switch result {
                 case .success:
@@ -665,7 +673,16 @@ private struct LibraryHeader: View {
                 Spacer()
                 Menu {
                     Button(action: onExportBackup) {
-                        Label("导出备份到文件", systemImage: "square.and.arrow.up")
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("导出备份到文件")
+                                Text(lastBackupText)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
                     }
                     Button(action: onImportBackup) {
                         Label("从文件恢复", systemImage: "square.and.arrow.down")
@@ -694,12 +711,6 @@ private struct LibraryHeader: View {
                 .accessibilityLabel("更新全部公开资料")
                 .disabled(isRefreshing)
             }
-
-            Text(lastBackupText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .accessibilityIdentifier("last-file-backup-time")
 
             if isRefreshing {
                 VStack(alignment: .leading, spacing: 8) {

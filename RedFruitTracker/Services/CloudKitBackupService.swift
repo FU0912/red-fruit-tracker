@@ -146,18 +146,62 @@ struct OfficialSnapshotBackupRecord: Codable, Equatable, Sendable {
     let seasonCount: Int?
     let episodeCount: Int?
 
+    init(
+        sourceSeriesID: String,
+        capturedAt: Date,
+        officialRating: Double? = nil,
+        officialRatingCount: Int? = nil,
+        officialHeatScore: Double? = nil,
+        officialHeatText: String? = nil,
+        likeCount: Int? = nil,
+        favoriteCount: Int? = nil,
+        reviewCount: Int? = nil,
+        seasonCount: Int? = nil,
+        episodeCount: Int? = nil
+    ) {
+        self.sourceSeriesID = sourceSeriesID
+        self.capturedAt = capturedAt
+        self.officialRating = officialRating
+        self.officialRatingCount = officialRatingCount
+        self.officialHeatScore = officialHeatScore
+        self.officialHeatText = officialHeatText
+        self.likeCount = likeCount
+        self.favoriteCount = favoriteCount
+        self.reviewCount = reviewCount
+        self.seasonCount = seasonCount
+        self.episodeCount = episodeCount
+    }
+
     init(_ value: OfficialSnapshot) {
-        sourceSeriesID = value.sourceSeriesID
-        capturedAt = value.capturedAt
-        officialRating = value.officialRating
-        officialRatingCount = value.officialRatingCount
-        officialHeatScore = value.officialHeatScore
-        officialHeatText = value.officialHeatText
-        likeCount = value.likeCount
-        favoriteCount = value.favoriteCount
-        reviewCount = value.reviewCount
-        seasonCount = value.seasonCount
-        episodeCount = value.episodeCount
+        self.init(
+            sourceSeriesID: value.sourceSeriesID,
+            capturedAt: value.capturedAt,
+            officialRating: value.officialRating,
+            officialRatingCount: value.officialRatingCount,
+            officialHeatScore: value.officialHeatScore,
+            officialHeatText: value.officialHeatText,
+            likeCount: value.likeCount,
+            favoriteCount: value.favoriteCount,
+            reviewCount: value.reviewCount,
+            seasonCount: value.seasonCount,
+            episodeCount: value.episodeCount
+        )
+    }
+
+    func merging(_ other: Self) -> Self {
+        Self(
+            sourceSeriesID: sourceSeriesID,
+            capturedAt: capturedAt,
+            officialRating: officialRating ?? other.officialRating,
+            officialRatingCount: officialRatingCount ?? other.officialRatingCount,
+            officialHeatScore: officialHeatScore ?? other.officialHeatScore,
+            officialHeatText: officialHeatText ?? other.officialHeatText,
+            likeCount: likeCount ?? other.likeCount,
+            favoriteCount: favoriteCount ?? other.favoriteCount,
+            reviewCount: reviewCount ?? other.reviewCount,
+            seasonCount: seasonCount ?? other.seasonCount,
+            episodeCount: episodeCount ?? other.episodeCount
+        )
     }
 }
 
@@ -271,12 +315,7 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             personalRecords: try context.fetch(FetchDescriptor<PersonalRecord>())
                 .sorted { $0.sourceSeriesID < $1.sourceSeriesID }
                 .map(PersonalBackupRecord.init),
-            officialSnapshots: try context.fetch(FetchDescriptor<OfficialSnapshot>())
-                .sorted {
-                    if $0.sourceSeriesID != $1.sourceSeriesID { return $0.sourceSeriesID < $1.sourceSeriesID }
-                    return $0.capturedAt < $1.capturedAt
-                }
-                .map(OfficialSnapshotBackupRecord.init),
+            officialSnapshots: deduplicatedSnapshots(try context.fetch(FetchDescriptor<OfficialSnapshot>())),
             importInboxItems: try context.fetch(FetchDescriptor<ImportInboxItem>())
                 .sorted { $0.originalURL < $1.originalURL }
                 .map(ImportInboxBackupRecord.init),
@@ -284,6 +323,25 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
                 .sorted { $0.id < $1.id }
                 .map(UpdateNotificationBackupRecord.init)
         )
+    }
+
+    private static func snapshotKey(sourceSeriesID: String, capturedAt: Date) -> String {
+        "\(sourceSeriesID)#\(capturedAt.timeIntervalSinceReferenceDate.bitPattern)"
+    }
+
+    private static func deduplicatedSnapshots(
+        _ snapshots: [OfficialSnapshot]
+    ) -> [OfficialSnapshotBackupRecord] {
+        var recordsByKey: [String: OfficialSnapshotBackupRecord] = [:]
+        for snapshot in snapshots {
+            let record = OfficialSnapshotBackupRecord(snapshot)
+            let key = snapshotKey(sourceSeriesID: record.sourceSeriesID, capturedAt: record.capturedAt)
+            recordsByKey[key] = recordsByKey[key].map { $0.merging(record) } ?? record
+        }
+        return recordsByKey.values.sorted {
+            if $0.sourceSeriesID != $1.sourceSeriesID { return $0.sourceSeriesID < $1.sourceSeriesID }
+            return $0.capturedAt < $1.capturedAt
+        }
     }
 
     func encodedData() throws -> Data {
@@ -316,9 +374,6 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
         try requireUnique(seasons.map(\.sourceSeasonKey), kind: "季")
         try requireUnique(episodes.map(\.sourceVid), kind: "集")
         try requireUnique(personalRecords.map(\.sourceSeriesID), kind: "个人记录")
-        try requireUnique(officialSnapshots.map {
-            "\($0.sourceSeriesID)#\($0.capturedAt.timeIntervalSinceReferenceDate.bitPattern)"
-        }, kind: "公开资料快照")
         try requireUnique(importInboxItems.map(\.originalURL), kind: "导入队列")
         try requireUnique(updateNotifications.map(\.id), kind: "通知")
 
@@ -399,13 +454,19 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             record.updatedAt = value.updatedAt
             context.insert(record)
         }
-        func snapshotKey(sourceSeriesID: String, capturedAt: Date) -> String {
-            "\(sourceSeriesID)#\(capturedAt.timeIntervalSinceReferenceDate.bitPattern)"
-        }
         var existingSnapshotKeys = Set(try context.fetch(FetchDescriptor<OfficialSnapshot>()).map {
             snapshotKey(sourceSeriesID: $0.sourceSeriesID, capturedAt: $0.capturedAt)
         })
+        var backupSnapshotsByKey: [String: OfficialSnapshotBackupRecord] = [:]
         for value in officialSnapshots {
+            let key = snapshotKey(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
+            backupSnapshotsByKey[key] = backupSnapshotsByKey[key].map { $0.merging(value) } ?? value
+        }
+        let snapshotsToRestore = backupSnapshotsByKey.values.sorted {
+            if $0.sourceSeriesID != $1.sourceSeriesID { return $0.sourceSeriesID < $1.sourceSeriesID }
+            return $0.capturedAt < $1.capturedAt
+        }
+        for value in snapshotsToRestore {
             let key = snapshotKey(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
             guard existingSnapshotKeys.insert(key).inserted else { continue }
             let record = OfficialSnapshot(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
