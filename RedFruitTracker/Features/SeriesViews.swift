@@ -828,6 +828,7 @@ private struct RelatedScreenshotSection: View {
         guard images.indices.contains(index) else { return }
         images.remove(at: index)
         series.relatedScreenshotData = RelatedScreenshotImage.archivedData(from: images)
+        viewerIndex = min(viewerIndex, max(images.count - 1, 0))
         try? modelContext.saveAndNotifyCloudBackup()
         if images.isEmpty { isShowingViewer = false }
     }
