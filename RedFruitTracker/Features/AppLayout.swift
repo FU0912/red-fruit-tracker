@@ -64,7 +64,7 @@ struct OptionalDatePickerRow: View {
                     .onTapGesture { isShowingPicker = false }
 
                 AppointmentCalendarSheet(date: $date, usesDarkAppearance: usesDarkAppearance)
-                    .frame(maxWidth: 360, maxHeight: 560)
+                    .frame(maxWidth: 360, maxHeight: 500)
                     .background(usesDarkAppearance ? Color(uiColor: .secondarySystemBackground) : Color(uiColor: .systemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .shadow(color: .black.opacity(0.24), radius: 24, y: 10)
@@ -124,7 +124,7 @@ private struct AppointmentCalendarSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 14) {
+            VStack(spacing: 8) {
                 HStack {
                     Button {
                         changeMonth(by: -1)
@@ -182,7 +182,6 @@ private struct AppointmentCalendarSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("appointment-selected-date")
 
-                Spacer(minLength: 0)
             }
             .padding(.horizontal, AppLayout.pageInset)
             .padding(.top, 12)
