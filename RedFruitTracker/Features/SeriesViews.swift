@@ -806,17 +806,19 @@ private struct RelatedScreenshotSection: View {
                 .font(.title3.weight(.bold))
                 .foregroundStyle(.white)
             Spacer()
-            PhotosPicker(
-                selection: $pickerItems,
-                maxSelectionCount: RelatedScreenshotImage.maximumCount,
-                matching: .images,
-                preferredItemEncoding: .automatic
-            ) {
-                Label("添加", systemImage: "photo.badge.plus")
-                    .font(.subheadline.weight(.medium))
+            if !screenshotData.isEmpty {
+                PhotosPicker(
+                    selection: $pickerItems,
+                    maxSelectionCount: RelatedScreenshotImage.maximumCount,
+                    matching: .images,
+                    preferredItemEncoding: .automatic
+                ) {
+                    Label("添加", systemImage: "photo.badge.plus")
+                        .font(.subheadline.weight(.medium))
+                }
+                .foregroundStyle(DetailTheme.accent)
+                .accessibilityIdentifier("related-screenshot-picker")
             }
-            .foregroundStyle(DetailTheme.accent)
-            .accessibilityIdentifier("related-screenshot-picker")
         }
     }
 
@@ -857,10 +859,24 @@ private struct RelatedScreenshotSection: View {
                 .padding(.vertical, 2)
             }
         } else {
-            Label("尚未上传相关截图", systemImage: "photo")
-                .foregroundStyle(.white.opacity(0.72))
+            PhotosPicker(
+                selection: $pickerItems,
+                maxSelectionCount: RelatedScreenshotImage.maximumCount,
+                matching: .images,
+                preferredItemEncoding: .automatic
+            ) {
+                VStack(spacing: 8) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.title3)
+                    Text("上传相关截图")
+                        .font(.subheadline.weight(.medium))
+                }
+                .foregroundStyle(.white.opacity(0.78))
                 .frame(maxWidth: .infinity, minHeight: 84)
                 .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("related-screenshot-picker")
         }
     }
 
