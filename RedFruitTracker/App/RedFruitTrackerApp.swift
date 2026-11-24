@@ -27,6 +27,7 @@ struct RedFruitTrackerApp: App {
             modelContainer = container
             if !arguments.contains("--ui-testing") {
                 BackgroundMetadataRefresh.register(container: container)
+                AutomaticFileBackupService.register(container: container)
             }
             if !arguments.contains("--ui-testing") {
                 Self.migrateLegacyRatings(in: container.mainContext)
