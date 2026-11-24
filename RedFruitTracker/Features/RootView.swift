@@ -783,7 +783,7 @@ private struct LibraryHeader: View {
                 .frame(width: 62, height: 62)
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("library-refresh-button")
-                .accessibilityLabel("更新全部公开资料")
+                .accessibilityLabel("重新读取全部公开资料")
                 .disabled(isRefreshing)
             }
 
@@ -2576,18 +2576,29 @@ struct AddSeriesView: View {
                         date: $nextSeasonDate,
                         identifier: "add-next-season-date-picker"
                     )
+                    .disabled(completionStatus == SeriesCompletionStatus.completed.rawValue)
                     Toggle("即将上线", isOn: $nextSeasonDateUnknown)
                         .accessibilityIdentifier("add-next-season-date-unknown")
+                        .disabled(completionStatus == SeriesCompletionStatus.completed.rawValue)
 
                     Toggle("手动添加季", isOn: $includeFirstSeason)
                         .accessibilityIdentifier("manual-season-toggle")
+                        .disabled(completionStatus == SeriesCompletionStatus.completed.rawValue)
                     if includeFirstSeason {
                         Stepper("第\(firstSeasonNumber)季", value: $firstSeasonNumber, in: 1...99)
+                            .disabled(completionStatus == SeriesCompletionStatus.completed.rawValue)
                         Stepper("预计 \(firstSeasonEpisodeCount) 集", value: $firstSeasonEpisodeCount, in: 0...999)
+                            .disabled(completionStatus == SeriesCompletionStatus.completed.rawValue)
                     }
                 }
             }
             .navigationTitle("添加作品")
+            .onChange(of: completionStatus) { _, status in
+                guard status == SeriesCompletionStatus.completed.rawValue else { return }
+                nextSeasonDate = nil
+                nextSeasonDateUnknown = false
+                includeFirstSeason = false
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -2732,6 +2743,7 @@ struct AddSeriesView: View {
         let identity = SeriesImportIdentity(title: detectedTitle, fallbackURL: sourceURL)
         let cleanTitle = identity.baseTitle.isEmpty ? "待补充作品" : identity.baseTitle
         let cleanURL = sourceURL.absoluteString
+        let canScheduleNextSeason = completionStatus != SeriesCompletionStatus.completed.rawValue
 
         do {
             let record = try SeriesRecordLookup.existing(matching: identity, in: modelContext)
@@ -2828,14 +2840,17 @@ struct AddSeriesView: View {
                     personal.viewingStatusChangedAt = shelfState == ShelfState.unstarted.rawValue ? nil : .now
                     personal.followsUpdates = followsUpdates
                     personal.followedAt = followsUpdates ? .now : nil
-                    personal.nextSeasonDate = nextSeasonDate
-                    personal.nextSeasonDateUnknown = nextSeasonDateUnknown
-                } else if let nextSeasonDate {
+                    personal.nextSeasonDate = canScheduleNextSeason ? nextSeasonDate : nil
+                    personal.nextSeasonDateUnknown = canScheduleNextSeason && nextSeasonDateUnknown
+                } else if canScheduleNextSeason, let nextSeasonDate {
                     personal.nextSeasonDate = nextSeasonDate
                     personal.nextSeasonDateUnknown = false
-                } else if nextSeasonDateUnknown {
+                } else if canScheduleNextSeason && nextSeasonDateUnknown {
                     personal.nextSeasonDate = nil
                     personal.nextSeasonDateUnknown = true
+                } else if !canScheduleNextSeason {
+                    personal.nextSeasonDate = nil
+                    personal.nextSeasonDateUnknown = false
                 }
                 if let personalRating { personal.myRating = RatingScale.normalized(personalRating) }
                 if !myReview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -2848,14 +2863,22 @@ struct AddSeriesView: View {
                 personal.viewingStatusChangedAt = shelfState == ShelfState.unstarted.rawValue ? nil : .now
                 personal.followsUpdates = followsUpdates
                 personal.followedAt = followsUpdates ? .now : nil
-                personal.nextSeasonDate = nextSeasonDate
-                personal.nextSeasonDateUnknown = nextSeasonDateUnknown
+                personal.nextSeasonDate = canScheduleNextSeason ? nextSeasonDate : nil
+                personal.nextSeasonDateUnknown = canScheduleNextSeason && nextSeasonDateUnknown
                 personal.myRating = personalRating.map(RatingScale.normalized)
                 personal.review = myReview.trimmingCharacters(in: .whitespacesAndNewlines)
                 modelContext.insert(personal)
             }
 
-            if let nextSeasonDate {
+            if !canScheduleNextSeason {
+                let notificationDescriptor = FetchDescriptor<UpdateNotificationRecord>(
+                    predicate: #Predicate<UpdateNotificationRecord> { $0.sourceSeriesID == sourceID }
+                )
+                if let existingNotification = try modelContext.fetch(notificationDescriptor).first {
+                    modelContext.delete(existingNotification)
+                }
+                UpdateNotificationService.cancelAppointment(seriesID: sourceID)
+            } else if let nextSeasonDate {
                 let notificationDescriptor = FetchDescriptor<UpdateNotificationRecord>(
                     predicate: #Predicate<UpdateNotificationRecord> { $0.sourceSeriesID == sourceID }
                 )
@@ -2880,7 +2903,7 @@ struct AddSeriesView: View {
                         date: nextSeasonDate
                     )
                 }
-            } else if nextSeasonDateUnknown {
+            } else if canScheduleNextSeason && nextSeasonDateUnknown {
                 let notificationDescriptor = FetchDescriptor<UpdateNotificationRecord>(
                     predicate: #Predicate<UpdateNotificationRecord> { $0.sourceSeriesID == sourceID }
                 )
@@ -2917,7 +2940,7 @@ struct AddSeriesView: View {
             let existingEpisodes = try modelContext.fetch(episodeDescriptor)
             var importedSeasons = detectedSeasons
 
-            if detectedSeasons.isEmpty, includeFirstSeason {
+            if detectedSeasons.isEmpty, includeFirstSeason, canScheduleNextSeason {
                 let fallbackSeasonNumber = identity.inferredSeasonNumber ?? firstSeasonNumber
                 importedSeasons = [PublicSeasonMetadata(
                     seasonNumber: fallbackSeasonNumber,
