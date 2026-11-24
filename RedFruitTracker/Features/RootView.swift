@@ -23,6 +23,7 @@ struct RootView: View {
     @State private var isExportingBackup = false
     @State private var isCreatingBackup = false
     @State private var isImportingBackup = false
+    @State private var isSelectingAutoBackupFolder = false
     @State private var clipboardFeedback: String?
     @State private var clipboardImportURL: URL?
     @State private var clipboardImportStatus = ""
@@ -50,7 +51,8 @@ struct RootView: View {
                 onAdd: { isShowingAdd = true },
                 onImportFromClipboard: importClipboardShare,
                 onExportBackup: exportBackup,
-                onImportBackup: { isImportingBackup = true }
+                onImportBackup: { isImportingBackup = true },
+                onChooseAutoBackupFolder: { isSelectingAutoBackupFolder = true }
             )
             .tabItem {
                 Label("书架", systemImage: "books.vertical.fill")
@@ -81,11 +83,15 @@ struct RootView: View {
         .task {
             refreshPendingShare()
             schedulePendingShareRetry()
+            AutomaticFileBackupService.scheduleNextRun()
+            AutomaticFileBackupService.runIfDue(context: modelContext)
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 refreshPendingShare()
                 schedulePendingShareRetry()
+                AutomaticFileBackupService.scheduleNextRun()
+                AutomaticFileBackupService.runIfDue(context: modelContext)
             }
         }
         .onChange(of: selectedTab) { _, newTab in
@@ -128,6 +134,26 @@ struct RootView: View {
                 Task { @MainActor in
                     isImportingBackup = false
                     importBackup(result)
+                }
+            }
+        }
+        .sheet(isPresented: $isSelectingAutoBackupFolder) {
+            BackupFolderPicker { result in
+                Task { @MainActor in
+                    isSelectingAutoBackupFolder = false
+                    switch result {
+                    case .failure(let error):
+                        if (error as? CocoaError)?.code != .userCancelled {
+                            fileBackupFeedback = "选择自动备份目录失败：\(error.localizedDescription)"
+                        }
+                    case .success(let url):
+                        do {
+                            try AutomaticFileBackupService.setFolder(url, context: modelContext)
+                            fileBackupFeedback = "iCloud Drive 自动备份已启用，并已生成第一份备份。iOS 会在每日午夜后安排后台备份，具体运行时间由系统调度。"
+                        } catch {
+                            fileBackupFeedback = "自动备份设置失败：\(error.localizedDescription)"
+                        }
+                    }
                 }
             }
         }
@@ -367,6 +393,7 @@ private struct LibraryView: View {
     let onImportFromClipboard: () -> Void
     let onExportBackup: () -> Void
     let onImportBackup: () -> Void
+    let onChooseAutoBackupFolder: () -> Void
 
     @AppStorage("redFruitTracker.officialRatingTrendCleaned") private var didClearLegacyRatingTrend = false
     @State private var searchText = ""
@@ -417,6 +444,7 @@ private struct LibraryView: View {
                             onRefreshAll: refreshAllMetadata,
                             onExportBackup: onExportBackup,
                             onImportBackup: onImportBackup,
+                            onChooseAutoBackupFolder: onChooseAutoBackupFolder,
                             onOpenSearch: { isShowingLibrarySearch = true },
                             selectedTags: $selectedTags
                         )
@@ -437,6 +465,7 @@ private struct LibraryView: View {
                             onRefreshAll: refreshAllMetadata,
                             onExportBackup: onExportBackup,
                             onImportBackup: onImportBackup,
+                            onChooseAutoBackupFolder: onChooseAutoBackupFolder,
                             onOpenSearch: { isShowingLibrarySearch = true },
                             selectedTags: $selectedTags
                         )
@@ -720,6 +749,7 @@ private struct LibraryHeader: View {
     @AppStorage("redFruitTracker.backgroundRefreshProgress") private var backgroundRefreshProgress = ""
     @AppStorage("redFruitTracker.backgroundRefreshTotal") private var backgroundRefreshTotal = 0
     @AppStorage("redFruitTracker.backgroundRefreshCompleted") private var backgroundRefreshCompleted = 0
+    @AppStorage("redFruitTracker.automaticFileBackupStatus") private var automaticBackupStatus = "尚未设置备份目录"
     @Binding var searchText: String
     let isRefreshing: Bool
     let progress: BatchRefreshProgress
@@ -728,6 +758,7 @@ private struct LibraryHeader: View {
     let onRefreshAll: () -> Void
     let onExportBackup: () -> Void
     let onImportBackup: () -> Void
+    let onChooseAutoBackupFolder: () -> Void
     let onOpenSearch: () -> Void
     @Binding var selectedTags: Set<String>
 
@@ -747,6 +778,18 @@ private struct LibraryHeader: View {
                     .accessibilityIdentifier("library-header-title")
                 Spacer()
                 Menu {
+                    Button(action: onChooseAutoBackupFolder) {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("设置 iCloud Drive 自动备份")
+                                Text(automaticBackupStatus)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "icloud.and.arrow.up")
+                        }
+                    }
                     Button(action: onExportBackup) {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
