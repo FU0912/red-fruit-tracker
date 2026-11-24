@@ -243,24 +243,37 @@ struct SeriesDetailView: View {
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
                 Spacer()
-                Button {
-                    isShowingRelatedSeriesAdd = true
-                } label: {
-                    Label("添加同 IP", systemImage: "plus")
-                        .font(.subheadline.weight(.medium))
+                if !relatedSeries.isEmpty {
+                    Button {
+                        isShowingRelatedSeriesAdd = true
+                    } label: {
+                        Label("添加同 IP", systemImage: "plus")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .foregroundStyle(DetailTheme.accent)
+                    .accessibilityIdentifier("add-related-series-button")
                 }
-                .foregroundStyle(DetailTheme.accent)
-                .accessibilityIdentifier("add-related-series-button")
             }
 
             if relatedSeries.isEmpty {
-                Text("粘贴红果分享内容，即可自动读取并关联作品")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.78))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 11)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button {
+                    isShowingRelatedSeriesAdd = true
+                } label: {
+                    VStack(spacing: 8) {
+                        Image(systemName: "link.badge.plus")
+                            .font(.title3)
+                        Text("添加相关作品")
+                            .font(.subheadline.weight(.medium))
+                        Text("粘贴红果分享内容，自动读取并关联")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.62))
+                    }
+                    .foregroundStyle(.white.opacity(0.82))
+                    .frame(maxWidth: .infinity, minHeight: 84)
                     .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("add-related-series-button")
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 12) {
@@ -508,10 +521,12 @@ struct SeriesDetailView: View {
                         nextSeasonNumber: (series.manualSeasonCount ?? (seasons.map(\.seasonNumber).max() ?? 0)) + 1
                     )
                     .accessibilityIdentifier("next-season-date-picker")
+                    .disabled(completionStatus == .completed)
                     Toggle("即将上线", isOn: nextSeasonDateUnknownBinding(for: personalRecord))
                         .tint(DetailTheme.accent)
                         .frame(minHeight: 48)
                         .accessibilityIdentifier("next-season-date-unknown")
+                        .disabled(completionStatus == .completed)
                     Divider().overlay(.white.opacity(0.12))
                     Stepper(value: manualSeasonCountBinding, in: 0...99) {
                         HStack {
@@ -524,6 +539,7 @@ struct SeriesDetailView: View {
                     }
                     .frame(minHeight: 52)
                     .accessibilityIdentifier("manual-season-count-stepper")
+                    .disabled(completionStatus == .completed)
                 }
                 .font(.body)
                 .foregroundStyle(.white)
@@ -722,6 +738,12 @@ struct SeriesDetailView: View {
             get: { series.completionStatus ?? SeriesCompletionStatus.unknown.rawValue },
             set: { value in
                 series.completionStatus = value
+                if value == SeriesCompletionStatus.completed.rawValue, let personalRecord {
+                    personalRecord.nextSeasonDate = nil
+                    personalRecord.nextSeasonDateUnknown = false
+                    personalRecord.updatedAt = .now
+                    updateAppointmentNotification(for: personalRecord, date: nil)
+                }
                 series.updatedAt = .now
                 savePersonalChanges()
             }
@@ -1245,6 +1267,24 @@ private struct EditSeriesView: View {
                         series.intro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
                         series.completionStatus = completionStatus
                         series.updatedAt = .now
+                        if completionStatus == SeriesCompletionStatus.completed.rawValue {
+                            let sourceID = series.sourceSeriesID
+                            let personalDescriptor = FetchDescriptor<PersonalRecord>(
+                                predicate: #Predicate<PersonalRecord> { $0.sourceSeriesID == sourceID }
+                            )
+                            if let personal = (try? modelContext.fetch(personalDescriptor))?.first {
+                                personal.nextSeasonDate = nil
+                                personal.nextSeasonDateUnknown = false
+                                personal.updatedAt = .now
+                            }
+                            let notificationDescriptor = FetchDescriptor<UpdateNotificationRecord>(
+                                predicate: #Predicate<UpdateNotificationRecord> { $0.sourceSeriesID == sourceID }
+                            )
+                            if let notification = (try? modelContext.fetch(notificationDescriptor))?.first {
+                                modelContext.delete(notification)
+                            }
+                            UpdateNotificationService.cancelAppointment(seriesID: sourceID)
+                        }
                         try? modelContext.saveAndNotifyCloudBackup()
                         dismiss()
                     }
