@@ -319,16 +319,16 @@ actor PublicMetadataService {
             officialHeatScore: HTMLMetadata.officialHeatScore(in: html, fallbackHTML: metadataHTML),
             officialHeatText: HTMLMetadata.officialHeatText(in: html, fallbackHTML: metadataHTML),
             completionStatus: HTMLMetadata.completionStatus(in: metadataHTML) ?? HTMLMetadata.completionStatus(in: html),
-            originalTitle: HTMLMetadata.currentSeriesDetailValue(for: ["original_title", "book_name", "novel_name", "novel_title", "source_title"], in: metadataHTML)
-                ?? HTMLMetadata.currentSeriesDetailValue(for: ["original_title", "book_name", "novel_name", "novel_title", "source_title"], in: html),
-            originalCoverURL: HTMLMetadata.currentSeriesDetailValue(for: ["original_cover", "book_cover", "novel_cover", "source_cover"], in: metadataHTML)
-                ?? HTMLMetadata.currentSeriesDetailValue(for: ["original_cover", "book_cover", "novel_cover", "source_cover"], in: html),
-            originalURL: HTMLMetadata.currentSeriesDetailValue(for: ["original_url", "book_url", "novel_url", "source_url"], in: metadataHTML)
-                ?? HTMLMetadata.currentSeriesDetailValue(for: ["original_url", "book_url", "novel_url", "source_url"], in: html),
-            originalRating: HTMLMetadata.currentSeriesSocialInfoIntValue(for: ["original_rating", "book_rating", "novel_rating"], in: metadataHTML).map(Double.init)
-                ?? HTMLMetadata.currentSeriesSocialInfoIntValue(for: ["original_rating", "book_rating", "novel_rating"], in: html).map(Double.init),
-            originalStatus: HTMLMetadata.currentSeriesDetailValue(for: ["original_status", "book_status", "novel_status", "serial_status"], in: metadataHTML)
-                ?? HTMLMetadata.currentSeriesDetailValue(for: ["original_status", "book_status", "novel_status", "serial_status"], in: html),
+            originalTitle: HTMLMetadata.originalTitle(in: metadataHTML)
+                ?? HTMLMetadata.originalTitle(in: html),
+            originalCoverURL: HTMLMetadata.originalCoverURL(in: metadataHTML, baseURL: detailBaseURL)
+                ?? HTMLMetadata.originalCoverURL(in: html, baseURL: url),
+            originalURL: HTMLMetadata.originalURL(in: metadataHTML, baseURL: detailBaseURL)
+                ?? HTMLMetadata.originalURL(in: html, baseURL: url),
+            originalRating: HTMLMetadata.originalRating(in: metadataHTML)
+                ?? HTMLMetadata.originalRating(in: html),
+            originalStatus: HTMLMetadata.originalStatus(in: metadataHTML)
+                ?? HTMLMetadata.originalStatus(in: html),
             seasons: PublicSeasonMetadataMerger.merge(primary: detailSeasons, supplement: shareSeasons)
         )
 
@@ -669,6 +669,55 @@ enum CoverImageProbe {
 }
 
 enum HTMLMetadata {
+    private static let originalTitleKeys = [
+        "original_title", "book_name", "novel_name", "novel_title", "source_title",
+        "bookName", "novelName", "novelTitle", "sourceTitle"
+    ]
+    private static let originalCoverKeys = [
+        "original_cover", "book_cover", "novel_cover", "source_cover",
+        "bookCover", "novelCover", "sourceCover"
+    ]
+    private static let originalURLKeys = [
+        "original_url", "book_url", "novel_url", "source_url",
+        "bookUrl", "novelUrl", "sourceUrl"
+    ]
+    private static let originalRatingKeys = [
+        "original_rating", "book_rating", "novel_rating", "book_score", "novel_score",
+        "bookRating", "novelRating", "bookScore", "novelScore"
+    ]
+    private static let originalStatusKeys = [
+        "original_status", "book_status", "novel_status", "serial_status",
+        "bookStatus", "novelStatus", "serialStatus"
+    ]
+
+    static func originalTitle(in html: String) -> String? {
+        currentSeriesDetailValue(for: originalTitleKeys, in: html)
+            ?? value(for: ["og:novel:book_name", "og:novel:title", "og:novel:name"] + originalTitleKeys, in: html)
+    }
+
+    static func originalCoverURL(in html: String, baseURL: URL) -> String? {
+        let value = currentSeriesDetailValue(for: originalCoverKeys, in: html)
+            ?? value(for: ["og:novel:image", "og:novel:cover"] + originalCoverKeys, in: html)
+        return value.flatMap { URL(string: $0, relativeTo: baseURL)?.absoluteURL.absoluteString }
+    }
+
+    static func originalURL(in html: String, baseURL: URL) -> String? {
+        let value = currentSeriesDetailValue(for: originalURLKeys, in: html)
+            ?? value(for: ["og:novel:read_url", "og:novel:url"] + originalURLKeys, in: html)
+        return value.flatMap { URL(string: $0, relativeTo: baseURL)?.absoluteURL.absoluteString }
+    }
+
+    static func originalRating(in html: String) -> Double? {
+        currentSeriesSocialInfoDecimalValue(for: originalRatingKeys, in: html)
+            ?? currentSeriesDetailDecimalValue(for: originalRatingKeys, in: html)
+            ?? decimalValue(for: ["og:novel:rating", "og:novel:score"] + originalRatingKeys, in: html)
+    }
+
+    static func originalStatus(in html: String) -> String? {
+        currentSeriesDetailValue(for: originalStatusKeys, in: html)
+            ?? value(for: ["og:novel:status"] + originalStatusKeys, in: html)
+    }
+
     static func officialDetailURL(in html: String) -> URL? {
         let patterns = [
             #"[\"']video_id[\"']\s*:\s*[\"']?(\d{10,})[\"']?"#,
@@ -907,7 +956,11 @@ enum HTMLMetadata {
         if let match = dictionary.first(where: { $0.key.caseInsensitiveCompare(key) == .orderedSame }) {
             return match.value
         }
-        for nestedKey in ["info", "data", "metadata", "series_info"] {
+        for nestedKey in [
+            "info", "data", "metadata", "series_info", "novel", "book", "original", "source",
+            "novel_info", "book_info", "original_work", "source_work",
+            "novelInfo", "bookInfo", "originalWork", "sourceWork"
+        ] {
             guard let nested = dictionary[nestedKey] as? [String: Any] else { continue }
             if let value = value(for: key, in: nested) { return value }
         }
