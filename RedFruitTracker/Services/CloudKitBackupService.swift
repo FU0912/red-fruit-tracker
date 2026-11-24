@@ -405,9 +405,14 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
     func restore(into context: ModelContext) throws {
         try validate()
 
-        let existingSeriesIDs = Set(try context.fetch(FetchDescriptor<SeriesRecord>()).map(\.sourceSeriesID))
-        for value in series where !existingSeriesIDs.contains(value.sourceSeriesID) {
-            context.insert(SeriesRecord(
+        // A file backup is a complete snapshot for every matching identity. When
+        // a work was deleted and re-added as a blank record, the backup must
+        // restore its cover, seasons, ratings, reviews, screenshots, and dates.
+        var existingSeries = Dictionary(
+            uniqueKeysWithValues: try context.fetch(FetchDescriptor<SeriesRecord>()).map { ($0.sourceSeriesID, $0) }
+        )
+        for value in series {
+            let record = existingSeries[value.sourceSeriesID] ?? SeriesRecord(
                 sourceSeriesID: value.sourceSeriesID,
                 title: value.title,
                 sourceURL: value.sourceURL,
@@ -429,11 +434,38 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
                 originalStatus: value.originalStatus,
                 createdAt: value.createdAt,
                 updatedAt: value.updatedAt
-            ))
+            )
+            record.title = value.title
+            record.sourceURL = value.sourceURL
+            record.coverURL = value.coverURL
+            record.relatedScreenshotData = value.relatedScreenshotData
+            record.intro = value.intro
+            record.tagsText = value.tagsText
+            record.officialRating = value.officialRating
+            record.officialRatingCount = value.officialRatingCount
+            record.officialHeatScore = value.officialHeatScore
+            record.officialHeatText = value.officialHeatText
+            record.completionStatus = value.completionStatus
+            record.manualSeasonCount = value.manualSeasonCount
+            record.relatedIPKey = value.relatedIPKey
+            record.originalTitle = value.originalTitle
+            record.originalCoverURL = value.originalCoverURL
+            record.originalURL = value.originalURL
+            record.originalRating = value.originalRating
+            record.originalStatus = value.originalStatus
+            record.createdAt = value.createdAt
+            record.updatedAt = value.updatedAt
+            if existingSeries[value.sourceSeriesID] == nil {
+                context.insert(record)
+                existingSeries[value.sourceSeriesID] = record
+            }
         }
-        let existingSeasonKeys = Set(try context.fetch(FetchDescriptor<SeasonRecord>()).map(\.sourceSeasonKey))
-        for value in seasons where !existingSeasonKeys.contains(value.sourceSeasonKey) {
-            let record = SeasonRecord(
+
+        var existingSeasons = Dictionary(
+            uniqueKeysWithValues: try context.fetch(FetchDescriptor<SeasonRecord>()).map { ($0.sourceSeasonKey, $0) }
+        )
+        for value in seasons {
+            let record = existingSeasons[value.sourceSeasonKey] ?? SeasonRecord(
                 sourceSeriesID: value.sourceSeriesID,
                 seasonNumber: value.seasonNumber,
                 title: value.title,
@@ -442,12 +474,23 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
                 myRating: value.myRating,
                 review: value.review
             )
+            record.title = value.title
+            record.episodeCount = value.episodeCount
+            record.sourceURL = value.sourceURL
+            record.myRating = value.myRating
+            record.review = value.review
             record.updatedAt = value.updatedAt
-            context.insert(record)
+            if existingSeasons[value.sourceSeasonKey] == nil {
+                context.insert(record)
+                existingSeasons[value.sourceSeasonKey] = record
+            }
         }
-        let existingEpisodeIDs = Set(try context.fetch(FetchDescriptor<EpisodeRecord>()).map(\.sourceVid))
-        for value in episodes where !existingEpisodeIDs.contains(value.sourceVid) {
-            context.insert(EpisodeRecord(
+
+        var existingEpisodes = Dictionary(
+            uniqueKeysWithValues: try context.fetch(FetchDescriptor<EpisodeRecord>()).map { ($0.sourceVid, $0) }
+        )
+        for value in episodes {
+            let record = existingEpisodes[value.sourceVid] ?? EpisodeRecord(
                 sourceVid: value.sourceVid,
                 sourceSeriesID: value.sourceSeriesID,
                 seasonNumber: value.seasonNumber,
@@ -456,11 +499,25 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
                 webURL: value.webURL,
                 isWatched: value.isWatched,
                 watchedAt: value.watchedAt
-            ))
+            )
+            record.sourceSeriesID = value.sourceSeriesID
+            record.seasonNumber = value.seasonNumber
+            record.episodeNumber = value.episodeNumber
+            record.title = value.title
+            record.webURL = value.webURL
+            record.isWatched = value.isWatched
+            record.watchedAt = value.watchedAt
+            if existingEpisodes[value.sourceVid] == nil {
+                context.insert(record)
+                existingEpisodes[value.sourceVid] = record
+            }
         }
-        let existingPersonalIDs = Set(try context.fetch(FetchDescriptor<PersonalRecord>()).map(\.sourceSeriesID))
-        for value in personalRecords where !existingPersonalIDs.contains(value.sourceSeriesID) {
-            let record = PersonalRecord(sourceSeriesID: value.sourceSeriesID)
+
+        var existingPersonal = Dictionary(
+            uniqueKeysWithValues: try context.fetch(FetchDescriptor<PersonalRecord>()).map { ($0.sourceSeriesID, $0) }
+        )
+        for value in personalRecords {
+            let record = existingPersonal[value.sourceSeriesID] ?? PersonalRecord(sourceSeriesID: value.sourceSeriesID)
             record.currentSeasonNumber = value.currentSeasonNumber
             record.currentEpisodeNumber = value.currentEpisodeNumber
             record.myRating = value.myRating
@@ -472,11 +529,15 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             record.nextSeasonDate = value.nextSeasonDate
             record.nextSeasonDateUnknown = value.nextSeasonDateUnknown ?? false
             record.updatedAt = value.updatedAt
-            context.insert(record)
+            if existingPersonal[value.sourceSeriesID] == nil {
+                context.insert(record)
+                existingPersonal[value.sourceSeriesID] = record
+            }
         }
-        var existingSnapshotKeys = Set(try context.fetch(FetchDescriptor<OfficialSnapshot>()).map {
+
+        let existingSnapshotGroups = Dictionary(grouping: try context.fetch(FetchDescriptor<OfficialSnapshot>())) {
             Self.snapshotKey(sourceSeriesID: $0.sourceSeriesID, capturedAt: $0.capturedAt)
-        })
+        }
         var backupSnapshotsByKey: [String: OfficialSnapshotBackupRecord] = [:]
         for value in officialSnapshots {
             let key = Self.snapshotKey(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
@@ -488,8 +549,9 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
         }
         for value in snapshotsToRestore {
             let key = Self.snapshotKey(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
-            guard existingSnapshotKeys.insert(key).inserted else { continue }
-            let record = OfficialSnapshot(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
+            let existing = existingSnapshotGroups[key] ?? []
+            let record = existing.first ?? OfficialSnapshot(sourceSeriesID: value.sourceSeriesID, capturedAt: value.capturedAt)
+            for duplicate in existing.dropFirst() { context.delete(duplicate) }
             record.officialRating = value.officialRating
             record.officialRatingCount = value.officialRatingCount
             record.officialHeatScore = value.officialHeatScore
@@ -499,18 +561,26 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             record.reviewCount = value.reviewCount
             record.seasonCount = value.seasonCount
             record.episodeCount = value.episodeCount
-            context.insert(record)
+            if existing.isEmpty { context.insert(record) }
         }
-        let existingInboxURLs = Set(try context.fetch(FetchDescriptor<ImportInboxItem>()).map(\.originalURL))
-        for value in importInboxItems where !existingInboxURLs.contains(value.originalURL) {
-            let record = ImportInboxItem(originalURL: value.originalURL, status: value.status)
+        var existingInbox = Dictionary(
+            uniqueKeysWithValues: try context.fetch(FetchDescriptor<ImportInboxItem>()).map { ($0.originalURL, $0) }
+        )
+        for value in importInboxItems {
+            let record = existingInbox[value.originalURL] ?? ImportInboxItem(originalURL: value.originalURL, status: value.status)
+            record.status = value.status
             record.importedAt = value.importedAt
             record.failureMessage = value.failureMessage
-            context.insert(record)
+            if existingInbox[value.originalURL] == nil {
+                context.insert(record)
+                existingInbox[value.originalURL] = record
+            }
         }
-        let existingNotificationIDs = Set(try context.fetch(FetchDescriptor<UpdateNotificationRecord>()).map(\.id))
-        for value in updateNotifications where !existingNotificationIDs.contains(value.id) {
-            let record = UpdateNotificationRecord(
+        var existingNotifications = try context.fetch(FetchDescriptor<UpdateNotificationRecord>())
+        for value in updateNotifications {
+            let record = existingNotifications.first(where: { $0.id == value.id })
+                ?? existingNotifications.first(where: { $0.sourceSeriesID == value.sourceSeriesID })
+                ?? UpdateNotificationRecord(
                 sourceSeriesID: value.sourceSeriesID,
                 title: value.title,
                 scheduledAt: value.scheduledAt,
@@ -519,7 +589,16 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
                 isDateUnknown: value.isDateUnknown ?? false
             )
             record.id = value.id
-            context.insert(record)
+            record.sourceSeriesID = value.sourceSeriesID
+            record.title = value.title
+            record.scheduledAt = value.scheduledAt
+            record.isRead = value.isRead
+            record.isDateUnknown = value.isDateUnknown ?? false
+            record.createdAt = value.createdAt
+            if !existingNotifications.contains(where: { $0 === record }) {
+                context.insert(record)
+                existingNotifications.append(record)
+            }
         }
     }
 }
