@@ -155,7 +155,7 @@ final class LibraryModelTests: XCTestCase {
     }
 
     @MainActor
-    func testLibraryBackupArchiveMergesMissingSeriesWithoutOverwritingAndRestoresSortPosition() throws {
+    func testLibraryBackupArchiveReplacesMatchingRecordsAndRestoresSortPosition() throws {
         let schema = Schema([
             SeriesRecord.self,
             SeasonRecord.self,
@@ -270,9 +270,9 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(restoredItem.createdAt, restoredDate)
 
         let localItem = try XCTUnwrap(restoredSeries.first(where: { $0.sourceSeriesID == "series-1" }))
-        XCTAssertEqual(localItem.title, "本机修改过的标题")
+        XCTAssertEqual(localItem.title, "作品 1")
         let personalRecords = try destination.mainContext.fetch(FetchDescriptor<PersonalRecord>())
-        XCTAssertEqual(personalRecords.first(where: { $0.sourceSeriesID == "series-1" })?.review, "本机保留的评价")
+        XCTAssertEqual(personalRecords.first(where: { $0.sourceSeriesID == "series-1" })?.review, "备份里的旧评价")
         XCTAssertEqual(personalRecords.first(where: { $0.sourceSeriesID == "series-1" })?.myRating, 6.4)
         XCTAssertEqual(personalRecords.first(where: { $0.sourceSeriesID == restoredWorkID })?.review, "重新看过")
         XCTAssertEqual(try destination.mainContext.fetch(FetchDescriptor<SeasonRecord>()).map(\.sourceSeasonKey), ["series-5#2"])
@@ -333,7 +333,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(restored.map(\.sourceSeriesID), ["backup-series"])
         XCTAssertEqual(Set(inboxItems.map(\.originalURL)), Set(["shared-import-url", "orphaned-import-url"]))
         XCTAssertEqual(Set(notifications.map(\.sourceSeriesID)), Set(["backup-series", "deleted-series"]))
-        XCTAssertEqual(notifications.first(where: { $0.sourceSeriesID == "backup-series" })?.title, "旧通知")
+        XCTAssertEqual(notifications.first(where: { $0.sourceSeriesID == "backup-series" })?.title, "备份作品")
     }
 
     @MainActor
@@ -1391,6 +1391,24 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(HTMLMetadata.currentSeriesDetailDecimalValue(for: ["score"], in: html), 8.8)
         XCTAssertEqual(HTMLMetadata.currentSeriesDetailValue(for: ["heat"], in: html), "3930万")
         XCTAssertEqual(HTMLMetadata.currentSeriesDetailValue(for: ["tags"], in: html), "修仙,爽剧")
+    }
+
+    func testOriginalNovelMetadataReadsOpenGraphAndNestedBookInfo() {
+        let html = #"""
+        <meta property="og:novel:book_name" content="一纸婚书">
+        <meta property="og:novel:read_url" content="/book/one-paper">
+        <meta property="og:novel:image" content="/images/one-paper.jpg">
+        <meta property="og:novel:rating" content="8.7">
+        <meta property="og:novel:status" content="连载中">
+        <script>_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"bookInfo":{"bookName":"JSON书名"}}}}};</script>
+        """#
+        let baseURL = URL(string: "https://hongguoduanju.com/detail")!
+
+        XCTAssertEqual(HTMLMetadata.originalTitle(in: html), "JSON书名")
+        XCTAssertEqual(HTMLMetadata.originalURL(in: html, baseURL: baseURL), "https://hongguoduanju.com/book/one-paper")
+        XCTAssertEqual(HTMLMetadata.originalCoverURL(in: html, baseURL: baseURL), "https://hongguoduanju.com/images/one-paper.jpg")
+        XCTAssertEqual(HTMLMetadata.originalRating(in: html), 8.7)
+        XCTAssertEqual(HTMLMetadata.originalStatus(in: html), "连载中")
     }
 
     func testCoverSelectorDoesNotAutoSelectLowConfidenceUIImage() {
