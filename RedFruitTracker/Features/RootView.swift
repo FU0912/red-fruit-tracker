@@ -2249,6 +2249,10 @@ private extension StatsView {
             return series.filter { item in
                 personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.followsUpdates == true
             }.count
+        case .serializing:
+            return series.filter { item in
+                item.isSerializing && item.completionStatus != SeriesCompletionStatus.completed.rawValue
+            }.count
         case .unstarted, .watching, .finished, .paused, .dropped:
             return series.filter { item in
                 ShelfState.resolve(
@@ -2312,6 +2316,8 @@ private struct FilteredSeriesView: View {
                 return personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.nextSeasonDate != nil
             case .followed:
                 return personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.followsUpdates == true
+            case .serializing:
+                return item.isSerializing && item.completionStatus != SeriesCompletionStatus.completed.rawValue
             case .unstarted, .watching, .finished, .paused, .dropped:
                 return ShelfState.resolve(
                     personalRecords.first(where: { $0.sourceSeriesID == item.sourceSeriesID })?.localShelfState

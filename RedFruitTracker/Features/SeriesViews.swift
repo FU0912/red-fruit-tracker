@@ -519,7 +519,7 @@ struct SeriesDetailView: View {
                         .accessibilityIdentifier("serializing-toggle")
                         .disabled(completionStatus == .completed)
                     Divider().overlay(.white.opacity(0.12))
-                    LabeledContent("总集数") {
+                    LabeledContent(series.isSerializing && completionStatus != .completed ? "已更新" : "总集数") {
                         Text(totalEpisodeCount > 0 ? "\(totalEpisodeCount)集" : "待读取")
                             .foregroundStyle(.white.opacity(0.84))
                             .monospacedDigit()
@@ -914,8 +914,8 @@ private struct RelatedScreenshotSection: View {
                 PhotosPicker(
                     selection: $pickerItems,
                     maxSelectionCount: RelatedScreenshotImage.maximumCount,
-                    matching: .images,
-                    preferredItemEncoding: .automatic
+                    matching: .any(of: [.images, .livePhotos]),
+                    preferredItemEncoding: .current
                 ) {
                     Label("添加", systemImage: "photo.badge.plus")
                         .font(.subheadline.weight(.medium))
@@ -966,8 +966,8 @@ private struct RelatedScreenshotSection: View {
             PhotosPicker(
                 selection: $pickerItems,
                 maxSelectionCount: RelatedScreenshotImage.maximumCount,
-                matching: .images,
-                preferredItemEncoding: .automatic
+                matching: .any(of: [.images, .livePhotos]),
+                preferredItemEncoding: .current
             ) {
                 VStack(spacing: 8) {
                     Image(systemName: "photo.badge.plus")
