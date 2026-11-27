@@ -27,6 +27,7 @@ struct SeriesBackupRecord: Codable, Equatable, Sendable {
     let sourceURL: String?
     let coverURL: String?
     let relatedScreenshotData: Data?
+    let onlineDate: Date?
     let intro: String
     let tagsText: String
     let officialRating: Double?
@@ -34,6 +35,7 @@ struct SeriesBackupRecord: Codable, Equatable, Sendable {
     let officialHeatScore: Double?
     let officialHeatText: String?
     let completionStatus: String?
+    let isSerializing: Bool?
     let manualSeasonCount: Int?
     let relatedIPKey: String?
     let originalTitle: String?
@@ -50,6 +52,7 @@ struct SeriesBackupRecord: Codable, Equatable, Sendable {
         sourceURL = value.sourceURL
         coverURL = value.coverURL
         relatedScreenshotData = value.relatedScreenshotData
+        onlineDate = value.onlineDate
         intro = value.intro
         tagsText = value.tagsText
         officialRating = value.officialRating
@@ -57,6 +60,7 @@ struct SeriesBackupRecord: Codable, Equatable, Sendable {
         officialHeatScore = value.officialHeatScore
         officialHeatText = value.officialHeatText
         completionStatus = value.completionStatus
+        isSerializing = value.isSerializing
         manualSeasonCount = value.manualSeasonCount
         relatedIPKey = value.relatedIPKey
         originalTitle = value.originalTitle
@@ -418,6 +422,7 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
                 sourceURL: value.sourceURL,
                 coverURL: value.coverURL,
                 relatedScreenshotData: value.relatedScreenshotData,
+                onlineDate: value.onlineDate,
                 intro: value.intro,
                 tagsText: value.tagsText,
                 officialRating: value.officialRating,
@@ -425,6 +430,7 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
                 officialHeatScore: value.officialHeatScore,
                 officialHeatText: value.officialHeatText,
                 completionStatus: value.completionStatus,
+                isSerializing: value.isSerializing == true,
                 manualSeasonCount: value.manualSeasonCount,
                 relatedIPKey: value.relatedIPKey,
                 originalTitle: value.originalTitle,
@@ -439,6 +445,7 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             record.sourceURL = value.sourceURL
             record.coverURL = value.coverURL
             record.relatedScreenshotData = value.relatedScreenshotData
+            record.onlineDate = value.onlineDate
             record.intro = value.intro
             record.tagsText = value.tagsText
             record.officialRating = value.officialRating
@@ -446,6 +453,7 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             record.officialHeatScore = value.officialHeatScore
             record.officialHeatText = value.officialHeatText
             record.completionStatus = value.completionStatus
+            record.isSerializing = value.isSerializing == true
             record.manualSeasonCount = value.manualSeasonCount
             record.relatedIPKey = value.relatedIPKey
             record.originalTitle = value.originalTitle

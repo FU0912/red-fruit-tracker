@@ -529,6 +529,7 @@ final class SeriesRecord {
     var sourceURL: String?
     var coverURL: String?
     @Attribute(.externalStorage) var relatedScreenshotData: Data?
+    var onlineDate: Date?
     var intro: String
     var tagsText: String
     var officialRating: Double?
@@ -536,6 +537,7 @@ final class SeriesRecord {
     var officialHeatScore: Double?
     var officialHeatText: String?
     var completionStatus: String?
+    var isSerializing: Bool = false
     var manualSeasonCount: Int?
     /// Shared key used to group adaptations of the same IP. It is deliberately
     /// separate from the title because different adaptations often have small
@@ -555,6 +557,7 @@ final class SeriesRecord {
         sourceURL: String? = nil,
         coverURL: String? = nil,
         relatedScreenshotData: Data? = nil,
+        onlineDate: Date? = nil,
         intro: String = "",
         tagsText: String = "",
         officialRating: Double? = nil,
@@ -562,6 +565,7 @@ final class SeriesRecord {
         officialHeatScore: Double? = nil,
         officialHeatText: String? = nil,
         completionStatus: String? = nil,
+        isSerializing: Bool = false,
         manualSeasonCount: Int? = nil,
         relatedIPKey: String? = nil,
         originalTitle: String? = nil,
@@ -577,6 +581,7 @@ final class SeriesRecord {
         self.sourceURL = sourceURL
         self.coverURL = coverURL
         self.relatedScreenshotData = relatedScreenshotData
+        self.onlineDate = onlineDate
         self.intro = intro
         self.tagsText = tagsText
         self.officialRating = officialRating
@@ -584,6 +589,7 @@ final class SeriesRecord {
         self.officialHeatScore = officialHeatScore
         self.officialHeatText = officialHeatText
         self.completionStatus = completionStatus
+        self.isSerializing = isSerializing
         self.manualSeasonCount = manualSeasonCount
         self.relatedIPKey = relatedIPKey
         self.originalTitle = originalTitle

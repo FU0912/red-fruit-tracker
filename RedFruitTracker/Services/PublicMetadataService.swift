@@ -14,6 +14,7 @@ struct PublicSeriesMetadata {
     var officialHeatScore: Double?
     var officialHeatText: String?
     var completionStatus: String?
+    var onlineDate: Date?
     var originalTitle: String?
     var originalCoverURL: String?
     var originalURL: String?
@@ -319,6 +320,7 @@ actor PublicMetadataService {
             officialHeatScore: HTMLMetadata.officialHeatScore(in: html, fallbackHTML: metadataHTML),
             officialHeatText: HTMLMetadata.officialHeatText(in: html, fallbackHTML: metadataHTML),
             completionStatus: HTMLMetadata.completionStatus(in: metadataHTML) ?? HTMLMetadata.completionStatus(in: html),
+            onlineDate: HTMLMetadata.onlineDate(in: metadataHTML) ?? HTMLMetadata.onlineDate(in: html),
             originalTitle: HTMLMetadata.originalTitle(in: metadataHTML)
                 ?? HTMLMetadata.originalTitle(in: html),
             originalCoverURL: HTMLMetadata.originalCoverURL(in: metadataHTML, baseURL: detailBaseURL)
@@ -916,6 +918,39 @@ enum HTMLMetadata {
 
         if let text = value(for: ["completion_status", "serial_status", "status"], in: html) {
             return normalizedCompletionStatus(text)
+        }
+        return nil
+    }
+
+    static func onlineDate(in html: String) -> Date? {
+        let keys = [
+            "online_time", "online_date", "publish_time", "publish_date",
+            "release_time", "release_date", "first_online_time", "series_online_time",
+            "launch_time", "datePublished", "date_published"
+        ]
+        let value = currentSeriesDetailValue(for: keys, in: html)
+            ?? self.value(for: ["article:published_time", "og:article:published_time", "datePublished"] + keys, in: html)
+        guard let value else { return nil }
+
+        if let timestamp = Double(value) {
+            let seconds = timestamp > 10_000_000_000 ? timestamp / 1_000 : timestamp
+            guard seconds >= 946_684_800, seconds <= Date.now.timeIntervalSince1970 + 31_536_000 else {
+                return nil
+            }
+            return Date(timeIntervalSince1970: seconds)
+        }
+
+        let iso8601 = ISO8601DateFormatter()
+        if let date = iso8601.date(from: value) { return date }
+        iso8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso8601.date(from: value) { return date }
+
+        for format in ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd", "yyyy/MM/dd"] {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) { return date }
         }
         return nil
     }

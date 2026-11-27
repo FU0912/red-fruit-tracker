@@ -17,6 +17,20 @@ enum AppDateText {
     }
 }
 
+struct SerialStatusBadge: View {
+    var body: some View {
+        Text("连载中")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(.black.opacity(0.68), in: Capsule())
+            .overlay {
+                Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.5)
+            }
+    }
+}
+
 struct OptionalDatePickerRow: View {
     @Binding private var date: Date?
     private let identifier: String

@@ -1016,11 +1016,17 @@ private struct SeriesCard: View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: onSelect) {
                 HStack(alignment: .top, spacing: 12) {
-                    CoverView(urlString: series.coverURL, title: series.title)
-                        .frame(width: 92, height: 128)
-                        .fixedSize()
-                        .accessibilityIdentifier("series-card-cover")
-                        .accessibilityLabel("\(series.title)封面")
+                    ZStack(alignment: .topTrailing) {
+                        CoverView(urlString: series.coverURL, title: series.title)
+                            .frame(width: 92, height: 128)
+                            .accessibilityIdentifier("series-card-cover")
+                            .accessibilityLabel("\(series.title)封面")
+                        if series.isSerializing && completionStatus != .completed {
+                            SerialStatusBadge()
+                                .padding(5)
+                        }
+                    }
+                    .fixedSize()
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text(series.title)
@@ -1069,6 +1075,15 @@ private struct SeriesCard: View {
                                 tint: completionStatusTint
                             )
                             .accessibilityIdentifier("series-card-completion-status")
+
+                            if series.isSerializing && completionStatus != .completed {
+                                CompactInfoPill(
+                                    text: "连载中",
+                                    systemImage: "dot.radiowaves.left.and.right",
+                                    tint: .orange
+                                )
+                                .accessibilityIdentifier("series-card-serial-status")
+                            }
 
                             CompactInfoPill(
                                 text: shelfState.title,
@@ -2431,6 +2446,8 @@ struct AddSeriesView: View {
     @State private var myRatingText = ""
     @State private var myReview = ""
     @State private var completionStatus = SeriesCompletionStatus.unknown.rawValue
+    @State private var isSerializing = false
+    @State private var onlineDate: Date?
     @State private var shelfState = "unstarted"
     @State private var followsUpdates = false
     @State private var nextSeasonDate: Date?
@@ -2606,6 +2623,9 @@ struct AddSeriesView: View {
                         }
                     }
 
+                    Toggle("连载中", isOn: $isSerializing)
+                        .disabled(completionStatus == SeriesCompletionStatus.completed.rawValue)
+
                     Picker("书架状态", selection: $shelfState) {
                         Text("未开始").tag("unstarted")
                         Text("观看中").tag("watching")
@@ -2615,6 +2635,7 @@ struct AddSeriesView: View {
                     }
 
                     Toggle("追更", isOn: $followsUpdates)
+                        .disabled(completionStatus == SeriesCompletionStatus.completed.rawValue)
                     OptionalDatePickerRow(
                         date: $nextSeasonDate,
                         identifier: "add-next-season-date-picker"
@@ -2638,6 +2659,8 @@ struct AddSeriesView: View {
             .navigationTitle("添加作品")
             .onChange(of: completionStatus) { _, status in
                 guard status == SeriesCompletionStatus.completed.rawValue else { return }
+                followsUpdates = false
+                isSerializing = false
                 nextSeasonDate = nil
                 nextSeasonDateUnknown = false
                 includeFirstSeason = false
@@ -2735,6 +2758,8 @@ struct AddSeriesView: View {
                     originalURL = metadata.originalURL ?? ""
                     originalRating = metadata.originalRating
                     originalStatus = metadata.originalStatus ?? ""
+                    if let status = metadata.completionStatus { completionStatus = status }
+                    onlineDate = metadata.onlineDate
                     detectedSeasons = metadata.seasons
                     if compactAutoImport {
                         onCompactAutoImportProgress("已获取封面和基本信息，正在读取季集…", 0.72)
@@ -2867,9 +2892,11 @@ struct AddSeriesView: View {
             if let officialRatingCount { target.officialRatingCount = officialRatingCount }
             if let officialHeatScore { target.officialHeatScore = officialHeatScore }
             if let heat = officialHeatText.nilIfBlank { target.officialHeatText = heat }
+            if let onlineDate { target.onlineDate = onlineDate }
             if record == nil || completionStatus != SeriesCompletionStatus.unknown.rawValue {
                 target.completionStatus = completionStatus
             }
+            target.isSerializing = canScheduleNextSeason && isSerializing
             target.updatedAt = .now
 
             var personalDescriptor = FetchDescriptor<PersonalRecord>(
@@ -2881,8 +2908,8 @@ struct AddSeriesView: View {
                 if record == nil {
                     personal.localShelfState = shelfState
                     personal.viewingStatusChangedAt = shelfState == ShelfState.unstarted.rawValue ? nil : .now
-                    personal.followsUpdates = followsUpdates
-                    personal.followedAt = followsUpdates ? .now : nil
+                    personal.followsUpdates = canScheduleNextSeason && followsUpdates
+                    personal.followedAt = personal.followsUpdates ? .now : nil
                     personal.nextSeasonDate = canScheduleNextSeason ? nextSeasonDate : nil
                     personal.nextSeasonDateUnknown = canScheduleNextSeason && nextSeasonDateUnknown
                 } else if canScheduleNextSeason, let nextSeasonDate {
@@ -2892,6 +2919,8 @@ struct AddSeriesView: View {
                     personal.nextSeasonDate = nil
                     personal.nextSeasonDateUnknown = true
                 } else if !canScheduleNextSeason {
+                    personal.followsUpdates = false
+                    personal.followedAt = nil
                     personal.nextSeasonDate = nil
                     personal.nextSeasonDateUnknown = false
                 }
@@ -2904,8 +2933,8 @@ struct AddSeriesView: View {
                 let personal = PersonalRecord(sourceSeriesID: sourceID)
                 personal.localShelfState = shelfState
                 personal.viewingStatusChangedAt = shelfState == ShelfState.unstarted.rawValue ? nil : .now
-                personal.followsUpdates = followsUpdates
-                personal.followedAt = followsUpdates ? .now : nil
+                personal.followsUpdates = canScheduleNextSeason && followsUpdates
+                personal.followedAt = personal.followsUpdates ? .now : nil
                 personal.nextSeasonDate = canScheduleNextSeason ? nextSeasonDate : nil
                 personal.nextSeasonDateUnknown = canScheduleNextSeason && nextSeasonDateUnknown
                 personal.myRating = personalRating.map(RatingScale.normalized)

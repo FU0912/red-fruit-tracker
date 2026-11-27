@@ -71,6 +71,30 @@ enum MetadataRefreshService {
         if let count = metadata.officialRatingCount { series.officialRatingCount = count }
         if let heatScore = metadata.officialHeatScore { series.officialHeatScore = heatScore }
         if let heatText = metadata.officialHeatText, !heatText.isEmpty { series.officialHeatText = heatText }
+        if let onlineDate = metadata.onlineDate { series.onlineDate = onlineDate }
+        if let completionStatus = metadata.completionStatus {
+            series.completionStatus = completionStatus
+            if completionStatus == SeriesCompletionStatus.completed.rawValue {
+                series.isSerializing = false
+                let personalDescriptor = FetchDescriptor<PersonalRecord>(
+                    predicate: #Predicate<PersonalRecord> { $0.sourceSeriesID == sourceID }
+                )
+                if let personal = try context.fetch(personalDescriptor).first {
+                    personal.followsUpdates = false
+                    personal.followedAt = nil
+                    personal.nextSeasonDate = nil
+                    personal.nextSeasonDateUnknown = false
+                    personal.updatedAt = .now
+                }
+                let notificationDescriptor = FetchDescriptor<UpdateNotificationRecord>(
+                    predicate: #Predicate<UpdateNotificationRecord> { $0.sourceSeriesID == sourceID }
+                )
+                for notification in try context.fetch(notificationDescriptor) {
+                    context.delete(notification)
+                }
+                UpdateNotificationService.cancelAppointment(seriesID: sourceID)
+            }
+        }
         series.updatedAt = .now
 
         var seasonsByNumber: [Int: SeasonRecord] = [:]

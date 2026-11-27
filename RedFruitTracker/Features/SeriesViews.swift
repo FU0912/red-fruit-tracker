@@ -137,9 +137,15 @@ struct SeriesDetailView: View {
     private var detailHeader: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 16) {
+                ZStack(alignment: .topTrailing) {
                     CoverView(urlString: series.coverURL, title: series.title, width: 132, height: 184)
-                    .fixedSize()
-                    .accessibilityIdentifier("series-detail-cover")
+                        .accessibilityIdentifier("series-detail-cover")
+                    if series.isSerializing && completionStatus != .completed {
+                        SerialStatusBadge()
+                            .padding(7)
+                    }
+                }
+                .fixedSize()
 
                 VStack(alignment: .leading, spacing: 12) {
                     Button(action: copySeriesTitle) {
@@ -359,6 +365,15 @@ struct SeriesDetailView: View {
                 )
                 .accessibilityIdentifier("completion-status")
 
+                if series.isSerializing && completionStatus != .completed {
+                    DetailPill(
+                        text: "连载中",
+                        systemImage: "dot.radiowaves.left.and.right",
+                        tint: .orange
+                    )
+                    .accessibilityIdentifier("detail-serial-status")
+                }
+
                 DetailPill(
                     text: shelfState.title,
                     systemImage: shelfState.systemImage,
@@ -498,6 +513,29 @@ struct SeriesDetailView: View {
                     }
                     .frame(minHeight: 48)
                     Divider().overlay(.white.opacity(0.12))
+                    Toggle("连载中", isOn: isSerializingBinding)
+                        .tint(DetailTheme.accent)
+                        .frame(minHeight: 48)
+                        .accessibilityIdentifier("serializing-toggle")
+                        .disabled(completionStatus == .completed)
+                    Divider().overlay(.white.opacity(0.12))
+                    LabeledContent("总集数") {
+                        Text(totalEpisodeCount > 0 ? "\(totalEpisodeCount)集" : "待读取")
+                            .foregroundStyle(.white.opacity(0.84))
+                            .monospacedDigit()
+                    }
+                    .frame(minHeight: 44)
+                    Divider().overlay(.white.opacity(0.12))
+                    LabeledContent("上线时间") {
+                        Text(series.onlineDate?.formatted(
+                            Date.FormatStyle()
+                                .locale(Locale(identifier: "zh_CN"))
+                                .year().month().day()
+                        ) ?? "未公开")
+                            .foregroundStyle(.white.opacity(0.84))
+                    }
+                    .frame(minHeight: 44)
+                    Divider().overlay(.white.opacity(0.12))
                     LabeledContent("观看状态") {
                         Picker("观看状态", selection: shelfStateBinding(for: personalRecord)) {
                             ForEach(ShelfState.allCases) { state in
@@ -514,6 +552,7 @@ struct SeriesDetailView: View {
                         .tint(DetailTheme.accent)
                         .frame(minHeight: 52)
                         .accessibilityIdentifier("follow-updates-toggle")
+                        .disabled(completionStatus == .completed)
                     Divider().overlay(.white.opacity(0.12))
                     OptionalDatePickerRow(
                         date: nextSeasonDateBinding(for: personalRecord),
@@ -605,10 +644,32 @@ struct SeriesDetailView: View {
     }
 
     private func ensurePersonalRecord() {
-        guard personalRecord == nil else { return }
-        let record = PersonalRecord(sourceSeriesID: series.sourceSeriesID)
-        modelContext.insert(record)
-        savePersonalChanges()
+        let record = personalRecord ?? PersonalRecord(sourceSeriesID: series.sourceSeriesID)
+        let wasInserted = personalRecord == nil
+        if wasInserted { modelContext.insert(record) }
+
+        guard completionStatus == .completed else {
+            if wasInserted { savePersonalChanges() }
+            return
+        }
+
+        let shouldClear = record.followsUpdates
+            || record.nextSeasonDate != nil
+            || record.nextSeasonDateUnknown == true
+            || series.isSerializing
+        guard shouldClear else {
+            if wasInserted { savePersonalChanges() }
+            return
+        }
+
+        record.followsUpdates = false
+        record.followedAt = nil
+        record.nextSeasonDate = nil
+        record.nextSeasonDateUnknown = false
+        record.updatedAt = .now
+        series.isSerializing = false
+        series.updatedAt = .now
+        updateAppointmentNotification(for: record, date: nil)
     }
 
     private func shelfStateBinding(for personal: PersonalRecord) -> Binding<String> {
@@ -625,10 +686,11 @@ struct SeriesDetailView: View {
 
     private func followUpdatesBinding(for personal: PersonalRecord) -> Binding<Bool> {
         Binding(
-            get: { personal.followsUpdates },
+            get: { personal.followsUpdates && completionStatus != .completed },
             set: { value in
-                personal.followsUpdates = value
-                personal.followedAt = value ? (personal.followedAt ?? .now) : nil
+                let shouldFollow = value && completionStatus != .completed
+                personal.followsUpdates = shouldFollow
+                personal.followedAt = shouldFollow ? (personal.followedAt ?? .now) : nil
                 personal.updatedAt = .now
                 savePersonalChanges()
             }
@@ -639,11 +701,26 @@ struct SeriesDetailView: View {
         series.manualSeasonCount ?? seasons.count
     }
 
+    private var totalEpisodeCount: Int {
+        seasons.reduce(0) { $0 + $1.episodeCount }
+    }
+
     private var manualSeasonCountBinding: Binding<Int> {
         Binding(
             get: { manualSeasonCount },
             set: { value in
                 series.manualSeasonCount = value
+                series.updatedAt = .now
+                savePersonalChanges()
+            }
+        )
+    }
+
+    private var isSerializingBinding: Binding<Bool> {
+        Binding(
+            get: { series.isSerializing },
+            set: { value in
+                series.isSerializing = value && completionStatus != .completed
                 series.updatedAt = .now
                 savePersonalChanges()
             }
@@ -738,7 +815,12 @@ struct SeriesDetailView: View {
             get: { series.completionStatus ?? SeriesCompletionStatus.unknown.rawValue },
             set: { value in
                 series.completionStatus = value
+                if value == SeriesCompletionStatus.completed.rawValue {
+                    series.isSerializing = false
+                }
                 if value == SeriesCompletionStatus.completed.rawValue, let personalRecord {
+                    personalRecord.followsUpdates = false
+                    personalRecord.followedAt = nil
                     personalRecord.nextSeasonDate = nil
                     personalRecord.nextSeasonDateUnknown = false
                     personalRecord.updatedAt = .now
@@ -1219,6 +1301,7 @@ private struct EditSeriesView: View {
     @State private var tagsText: String
     @State private var intro: String
     @State private var completionStatus: String
+    @State private var isSerializing: Bool
 
     init(series: SeriesRecord) {
         self.series = series
@@ -1228,6 +1311,7 @@ private struct EditSeriesView: View {
         _tagsText = State(initialValue: series.tagsText)
         _intro = State(initialValue: series.intro)
         _completionStatus = State(initialValue: series.completionStatus ?? SeriesCompletionStatus.unknown.rawValue)
+        _isSerializing = State(initialValue: series.isSerializing)
     }
 
     var body: some View {
@@ -1250,10 +1334,15 @@ private struct EditSeriesView: View {
                             Text(status.title).tag(status.rawValue)
                         }
                     }
+                    Toggle("连载中", isOn: $isSerializing)
+                        .disabled(completionStatus == SeriesCompletionStatus.completed.rawValue)
                 }
             }
             .navigationTitle("编辑作品")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: completionStatus) { _, value in
+                if value == SeriesCompletionStatus.completed.rawValue { isSerializing = false }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
@@ -1266,6 +1355,8 @@ private struct EditSeriesView: View {
                         series.tagsText = tagsText.trimmingCharacters(in: .whitespacesAndNewlines)
                         series.intro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
                         series.completionStatus = completionStatus
+                        series.isSerializing = completionStatus != SeriesCompletionStatus.completed.rawValue
+                            && isSerializing
                         series.updatedAt = .now
                         if completionStatus == SeriesCompletionStatus.completed.rawValue {
                             let sourceID = series.sourceSeriesID
@@ -1273,6 +1364,8 @@ private struct EditSeriesView: View {
                                 predicate: #Predicate<PersonalRecord> { $0.sourceSeriesID == sourceID }
                             )
                             if let personal = (try? modelContext.fetch(personalDescriptor))?.first {
+                                personal.followsUpdates = false
+                                personal.followedAt = nil
                                 personal.nextSeasonDate = nil
                                 personal.nextSeasonDateUnknown = false
                                 personal.updatedAt = .now
