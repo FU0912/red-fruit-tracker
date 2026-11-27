@@ -124,6 +124,7 @@ struct PersonalBackupRecord: Codable, Equatable, Sendable {
     let currentSeasonNumber: Int?
     let currentEpisodeNumber: Int?
     let myRating: Double?
+    let characterRatingsJSON: String?
     let review: String
     let localShelfState: String
     let followsUpdates: Bool
@@ -138,6 +139,7 @@ struct PersonalBackupRecord: Codable, Equatable, Sendable {
         currentSeasonNumber = value.currentSeasonNumber
         currentEpisodeNumber = value.currentEpisodeNumber
         myRating = value.myRating
+        characterRatingsJSON = value.characterRatingsJSON
         review = value.review
         localShelfState = value.localShelfState
         followsUpdates = value.followsUpdates
@@ -529,6 +531,7 @@ struct LibraryBackupArchive: Codable, Equatable, Sendable {
             record.currentSeasonNumber = value.currentSeasonNumber
             record.currentEpisodeNumber = value.currentEpisodeNumber
             record.myRating = value.myRating
+            record.characterRatingsJSON = value.characterRatingsJSON
             record.review = value.review
             record.localShelfState = value.localShelfState
             record.followsUpdates = value.followsUpdates

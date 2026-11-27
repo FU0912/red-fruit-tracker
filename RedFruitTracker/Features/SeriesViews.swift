@@ -590,6 +590,7 @@ struct SeriesDetailView: View {
                 RatingScorePicker(initialRating: personalRecord.myRating, usesDarkAppearance: true) { value in
                     commitPersonalRating(value, for: personalRecord)
                 }
+                characterRatingsSection(for: personalRecord)
                 ReviewEditor(
                     initialText: personalRecord.review,
                     placeholder: "写下整部漫剧的感受",
@@ -834,6 +835,53 @@ struct SeriesDetailView: View {
 
     private func commitPersonalRating(_ value: Double?, for personal: PersonalRecord) {
         personal.myRating = value
+        personal.updatedAt = .now
+        savePersonalChanges()
+    }
+
+    private func characterRatingsSection(for personal: PersonalRecord) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("角色评分（可选）")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.86))
+
+            ForEach(CharacterRatingRole.allCases) { role in
+                DisclosureGroup(role.title) {
+                    let ratings = CharacterRatings.decode(personal.characterRatingsJSON)
+                    VStack(spacing: 8) {
+                        ForEach(CharacterRatingDimension.allCases) { dimension in
+                            RatingScorePicker(
+                                title: dimension.title,
+                                initialRating: ratings[role][dimension],
+                                usesDarkAppearance: true,
+                                accessibilityIdentifier: "character-rating-\(role.rawValue)-\(dimension.rawValue)"
+                            ) { value in
+                                commitCharacterRating(value, for: role, dimension: dimension, personal: personal)
+                            }
+                        }
+                    }
+                    .padding(.top, 6)
+                }
+                .tint(.white)
+                .foregroundStyle(.white)
+                .padding(12)
+                .background(DetailTheme.cell, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .accessibilityIdentifier("character-rating-role-\(role.rawValue)")
+            }
+        }
+    }
+
+    private func commitCharacterRating(
+        _ value: Double?,
+        for role: CharacterRatingRole,
+        dimension: CharacterRatingDimension,
+        personal: PersonalRecord
+    ) {
+        var ratings = CharacterRatings.decode(personal.characterRatingsJSON)
+        var roleRatings = ratings[role]
+        roleRatings[dimension] = value.map(RatingScale.normalized)
+        ratings[role] = roleRatings
+        personal.characterRatingsJSON = ratings.encodedJSON
         personal.updatedAt = .now
         savePersonalChanges()
     }
@@ -1814,26 +1862,32 @@ private struct ReviewEditor: View {
 }
 
 private struct RatingScorePicker: View {
+    let title: String
     let initialRating: Double?
     let onCommit: (Double?) -> Void
+    let accessibilityIdentifier: String
     var usesDarkAppearance = false
     @State private var draft = ""
     @FocusState private var isFocused: Bool
 
     init(
+        title: String = "评分",
         initialRating: Double?,
         usesDarkAppearance: Bool = false,
+        accessibilityIdentifier: String = "personal-rating-score",
         onCommit: @escaping (Double?) -> Void
     ) {
+        self.title = title
         self.initialRating = initialRating
         self.usesDarkAppearance = usesDarkAppearance
+        self.accessibilityIdentifier = accessibilityIdentifier
         self.onCommit = onCommit
         self._draft = State(initialValue: initialRating.map { String(format: "%.1f", $0) } ?? "")
     }
 
     var body: some View {
         HStack(spacing: 10) {
-            Label("评分", systemImage: "number")
+            Label(title, systemImage: "number")
                 .font(.subheadline.weight(.semibold))
             Spacer(minLength: 8)
             TextField(
@@ -1848,7 +1902,7 @@ private struct RatingScorePicker: View {
                 .monospacedDigit()
                 .focused($isFocused)
                 .submitLabel(.done)
-                .accessibilityIdentifier("personal-rating-input")
+                .accessibilityIdentifier(inputAccessibilityIdentifier)
                 .frame(minWidth: 56, minHeight: AppLayout.minimumControlHeight)
                 .onSubmit(commitDraft)
 
@@ -1873,7 +1927,7 @@ private struct RatingScorePicker: View {
         .foregroundStyle(usesDarkAppearance ? Color.white : Color.primary)
         .tint(usesDarkAppearance ? DetailTheme.accent : Color.accentColor)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("personal-rating-score")
+        .accessibilityIdentifier(accessibilityIdentifier)
         .onChange(of: initialRating) { _, value in
             guard !isFocused else { return }
             draft = value.map { String(format: "%.1f", $0) } ?? ""
@@ -1890,6 +1944,12 @@ private struct RatingScorePicker: View {
                 }
             }
         }
+    }
+
+    private var inputAccessibilityIdentifier: String {
+        accessibilityIdentifier == "personal-rating-score"
+            ? "personal-rating-input"
+            : "\(accessibilityIdentifier)-input"
     }
 
     private func commitDraft() {

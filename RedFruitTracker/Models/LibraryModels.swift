@@ -676,6 +676,7 @@ final class PersonalRecord {
     var currentSeasonNumber: Int?
     var currentEpisodeNumber: Int?
     var myRating: Double?
+    var characterRatingsJSON: String?
     var review: String
     var localShelfState: String
     /// User intent is separate from the viewing state. A work can be paused or
@@ -699,6 +700,109 @@ final class PersonalRecord {
         self.nextSeasonDate = nil
         self.nextSeasonDateUnknown = false
         self.updatedAt = .now
+    }
+}
+
+enum CharacterRatingRole: String, CaseIterable, Identifiable, Codable, Sendable {
+    case maleLead
+    case femaleLead
+    case femaleSupporting
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .maleLead: return "男主"
+        case .femaleLead: return "女主"
+        case .femaleSupporting: return "女配"
+        }
+    }
+}
+
+enum CharacterRatingDimension: String, CaseIterable, Identifiable, Codable, Sendable {
+    case appearance
+    case styling
+    case personality
+    case performance
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .appearance: return "颜值"
+        case .styling: return "衣品／造型"
+        case .personality: return "性格／人设"
+        case .performance: return "角色表现"
+        }
+    }
+}
+
+struct CharacterRoleRatings: Codable, Equatable, Sendable {
+    var appearance: Double?
+    var styling: Double?
+    var personality: Double?
+    var performance: Double?
+
+    subscript(_ dimension: CharacterRatingDimension) -> Double? {
+        get {
+            switch dimension {
+            case .appearance: return appearance
+            case .styling: return styling
+            case .personality: return personality
+            case .performance: return performance
+            }
+        }
+        set {
+            switch dimension {
+            case .appearance: appearance = newValue
+            case .styling: styling = newValue
+            case .personality: personality = newValue
+            case .performance: performance = newValue
+            }
+        }
+    }
+
+    var hasRatings: Bool {
+        appearance != nil || styling != nil || personality != nil || performance != nil
+    }
+}
+
+struct CharacterRatings: Codable, Equatable, Sendable {
+    var maleLead = CharacterRoleRatings()
+    var femaleLead = CharacterRoleRatings()
+    var femaleSupporting = CharacterRoleRatings()
+
+    subscript(_ role: CharacterRatingRole) -> CharacterRoleRatings {
+        get {
+            switch role {
+            case .maleLead: return maleLead
+            case .femaleLead: return femaleLead
+            case .femaleSupporting: return femaleSupporting
+            }
+        }
+        set {
+            switch role {
+            case .maleLead: maleLead = newValue
+            case .femaleLead: femaleLead = newValue
+            case .femaleSupporting: femaleSupporting = newValue
+            }
+        }
+    }
+
+    static func decode(_ value: String?) -> Self {
+        guard let value, let data = value.data(using: .utf8),
+              let ratings = try? JSONDecoder().decode(Self.self, from: data) else {
+            return Self()
+        }
+        return ratings
+    }
+
+    var encodedJSON: String? {
+        guard maleLead.hasRatings || femaleLead.hasRatings || femaleSupporting.hasRatings,
+              let data = try? JSONEncoder().encode(self) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 }
 
