@@ -513,7 +513,7 @@ struct SeriesDetailView: View {
                     }
                     .frame(minHeight: 48)
                     Divider().overlay(.white.opacity(0.12))
-                    Toggle("连载中", isOn: isSerializingBinding)
+                    Toggle("连载", isOn: isSerializingBinding)
                         .tint(DetailTheme.accent)
                         .frame(minHeight: 48)
                         .accessibilityIdentifier("serializing-toggle")
@@ -1334,7 +1334,7 @@ private struct EditSeriesView: View {
                             Text(status.title).tag(status.rawValue)
                         }
                     }
-                    Toggle("连载中", isOn: $isSerializing)
+                    Toggle("连载", isOn: $isSerializing)
                         .disabled(completionStatus == SeriesCompletionStatus.completed.rawValue)
                 }
             }

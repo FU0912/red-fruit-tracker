@@ -1076,15 +1076,6 @@ private struct SeriesCard: View {
                             )
                             .accessibilityIdentifier("series-card-completion-status")
 
-                            if series.isSerializing && completionStatus != .completed {
-                                CompactInfoPill(
-                                    text: "连载中",
-                                    systemImage: "dot.radiowaves.left.and.right",
-                                    tint: .orange
-                                )
-                                .accessibilityIdentifier("series-card-serial-status")
-                            }
-
                             CompactInfoPill(
                                 text: shelfState.title,
                                 systemImage: shelfState.systemImage,
@@ -2623,7 +2614,7 @@ struct AddSeriesView: View {
                         }
                     }
 
-                    Toggle("连载中", isOn: $isSerializing)
+                    Toggle("连载", isOn: $isSerializing)
                         .disabled(completionStatus == SeriesCompletionStatus.completed.rawValue)
 
                     Picker("书架状态", selection: $shelfState) {
